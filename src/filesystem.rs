@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -21,7 +21,13 @@ pub trait Filesystem {
         Ok(())
     }
 
-    async fn getattr(&self, _req: Request, _inode: u64) -> Result<ReplyAttr> {
+    async fn getattr(
+        &self,
+        _req: Request,
+        _inode: u64,
+        _fh: u64,
+        _flags: u32,
+    ) -> Result<ReplyAttr> {
         Err(libc::ENOSYS)
     }
 
@@ -29,7 +35,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS)
     }
 
-    async fn readlink<T: AsRef<[u8]>>(&self, _req: Request, _inode: u64) -> Result<ReplyData<T>> {
+    async fn readlink(&self, _req: Request, _inode: u64) -> Result<ReplyData> {
         Err(libc::ENOSYS)
     }
 
@@ -38,7 +44,7 @@ pub trait Filesystem {
         _req: Request,
         _parent: u64,
         _name: OsString,
-        _link: &Path,
+        _link: OsString,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS)
     }
@@ -60,6 +66,7 @@ pub trait Filesystem {
         _parent: u64,
         _name: OsString,
         _mode: u32,
+        _umask: u32,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS)
     }
@@ -97,14 +104,14 @@ pub trait Filesystem {
         Err(libc::ENOSYS)
     }
 
-    async fn read<T: AsRef<[u8]>>(
+    async fn read(
         &self,
         _req: Request,
         _inode: u64,
         _fh: u64,
         _offset: i64,
         _size: u64,
-    ) -> Result<ReplyData<T>> {
+    ) -> Result<ReplyData> {
         Err(libc::ENOSYS)
     }
 
@@ -157,13 +164,13 @@ pub trait Filesystem {
     ///
     /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
     /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
-    async fn getxattr<T: AsRef<[u8]>>(
+    async fn getxattr(
         &self,
         _req: Request,
         _inode: u64,
         _name: OsString,
         _size: u32,
-    ) -> Result<ReplyXAttr<T>> {
+    ) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS)
     }
 
@@ -172,12 +179,7 @@ pub trait Filesystem {
     ///
     /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
     /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
-    async fn listxattr<T: AsRef<[u8]>>(
-        &self,
-        _req: Request,
-        _inode: u64,
-        _size: u32,
-    ) -> Result<ReplyXAttr<T>> {
+    async fn listxattr(&self, _req: Request, _inode: u64, _size: u32) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS)
     }
 
@@ -199,11 +201,7 @@ pub trait Filesystem {
         _inode: u64,
         _fh: u64,
         _offset: i64,
-    ) -> Result<ReplyDirectory<I, S>>
-    where
-        S: AsRef<OsStr>,
-        I: IntoIterator<Item = DirectoryEntry<S>>,
-    {
+    ) -> Result<ReplyDirectory> {
         Err(libc::ENOSYS)
     }
 
@@ -322,11 +320,7 @@ pub trait Filesystem {
         _fh: u64,
         _offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<I, S>>
-    where
-        S: AsRef<OsStr>,
-        I: IntoIterator<Item = DirectoryEntryPlus<S>>,
-    {
+    ) -> Result<ReplyDirectoryPlus> {
         Err(libc::ENOSYS)
     }
 

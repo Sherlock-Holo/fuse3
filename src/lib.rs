@@ -1,9 +1,15 @@
+use std::ops::Add;
 use std::os::raw::c_int;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::abi::{
+    fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_CTIME, FATTR_FH, FATTR_GID, FATTR_LOCKOWNER,
+    FATTR_MODE, FATTR_MTIME, FATTR_SIZE, FATTR_UID,
+};
 
 mod abi;
-mod apply;
 mod filesystem;
+mod helper;
 mod reply;
 mod request;
 mod session;
@@ -16,6 +22,8 @@ pub type Result<T> = std::result::Result<T, c_int>;
 pub struct FileAttr {
     /// Inode number
     pub ino: u64,
+    /// Generation
+    pub generation: u64,
     /// Size in bytes
     pub size: u64,
     /// Size in blocks
@@ -47,6 +55,53 @@ pub struct FileAttr {
     pub blksize: u32,
 }
 
+impl Into<fuse_attr> for FileAttr {
+    fn into(self) -> fuse_attr {
+        fuse_attr {
+            ino: self.ino,
+            size: self.size,
+            blocks: self.blocks,
+            atime: self
+                .atime
+                .duration_since(UNIX_EPOCH)
+                .expect("won't early")
+                .as_secs(),
+            mtime: self
+                .mtime
+                .duration_since(UNIX_EPOCH)
+                .expect("won't early")
+                .as_secs(),
+            ctime: self
+                .ctime
+                .duration_since(UNIX_EPOCH)
+                .expect("won't early")
+                .as_secs(),
+            atimensec: self
+                .atime
+                .duration_since(UNIX_EPOCH)
+                .expect("won't early")
+                .subsec_nanos(),
+            mtimensec: self
+                .mtime
+                .duration_since(UNIX_EPOCH)
+                .expect("won't early")
+                .subsec_nanos(),
+            ctimensec: self
+                .ctime
+                .duration_since(UNIX_EPOCH)
+                .expect("won't early")
+                .subsec_nanos(),
+            mode: self.perm as u32,
+            nlink: self.nlink,
+            uid: self.uid,
+            gid: self.gid,
+            rdev: self.rdev,
+            blksize: self.blksize,
+            padding: 0,
+        }
+    }
+}
+
 /// File types
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FileType {
@@ -66,7 +121,7 @@ pub enum FileType {
     Socket,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SetAttr {
     pub mode: Option<u32>,
     pub uid: Option<u32>,
@@ -76,10 +131,64 @@ pub struct SetAttr {
     pub atime: Option<SystemTime>,
     pub mtime: Option<SystemTime>,
     pub fh: Option<u64>,
+    pub atime_now: Option<SystemTime>,
+    pub mtime_now: Option<SystemTime>,
+    pub ctime: Option<SystemTime>,
+    #[cfg(target_os = "macos")]
     pub crtime: Option<SystemTime>,
+    #[cfg(target_os = "macos")]
     pub chgtime: Option<SystemTime>,
+    #[cfg(target_os = "macos")]
     pub bkuptime: Option<SystemTime>,
+    #[cfg(target_os = "macos")]
     pub flags: Option<u32>,
+}
+
+impl From<&fuse_setattr_in> for SetAttr {
+    fn from(setattr_in: &fuse_setattr_in) -> Self {
+        let mut set_attr = Self::default();
+
+        if setattr_in.valid & FATTR_MODE > 0 {
+            set_attr.mode = Some(setattr_in.mode);
+        }
+
+        if setattr_in.valid & FATTR_UID > 0 {
+            set_attr.uid = Some(setattr_in.uid);
+        }
+
+        if setattr_in.valid & FATTR_GID > 0 {
+            set_attr.gid = Some(setattr_in.gid);
+        }
+
+        if setattr_in.valid & FATTR_SIZE > 0 {
+            set_attr.size = Some(setattr_in.size);
+        }
+
+        if setattr_in.valid & FATTR_ATIME > 0 {
+            set_attr.atime =
+                Some(UNIX_EPOCH.add(Duration::new(setattr_in.atime, setattr_in.atimensec)));
+        }
+
+        if setattr_in.valid & FATTR_MTIME > 0 {
+            set_attr.mtime =
+                Some(UNIX_EPOCH.add(Duration::new(setattr_in.mtime, setattr_in.mtimensec)));
+        }
+
+        if setattr_in.valid & FATTR_FH > 0 {
+            set_attr.fh = Some(setattr_in.fh);
+        }
+
+        if setattr_in.valid & FATTR_LOCKOWNER > 0 {
+            set_attr.lock_owner = Some(setattr_in.lock_owner);
+        }
+
+        if setattr_in.valid & FATTR_CTIME > 0 {
+            set_attr.ctime =
+                Some(UNIX_EPOCH.add(Duration::new(setattr_in.ctime, setattr_in.ctimensec)));
+        }
+
+        set_attr
+    }
 }
 
 /*#[cfg(test)]

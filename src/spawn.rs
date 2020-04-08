@@ -13,3 +13,12 @@ where
 
     task
 }
+
+#[inline]
+pub async fn spawn_without_return<F>(f: F)
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    spawn(f);
+}

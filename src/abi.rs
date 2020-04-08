@@ -63,6 +63,7 @@ pub const FATTR_FH: u32 = 1 << 6;
 pub const FATTR_ATIME_NOW: u32 = 1 << 7;
 pub const FATTR_MTIME_NOW: u32 = 1 << 8;
 pub const FATTR_LOCKOWNER: u32 = 1 << 9;
+pub const FATTR_CTIME: u32 = 1 << 10;
 
 #[cfg(target_os = "macos")]
 pub const FATTR_CRTIME: u32 = 1 << 28;
@@ -234,7 +235,6 @@ pub const FUSE_POLL_SCHEDULE_NOTIFY: u32 = 1 << 0;
 // The read buffer is required to be at least 8k, but may be much larger
 pub const FUSE_MIN_READ_BUFFER: usize = 8192;
 
-#[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct fuse_attr {
     pub ino: u64,
@@ -262,7 +262,6 @@ pub struct fuse_attr {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_kstatfs {
     // Total blocks (in units of frsize)
@@ -285,7 +284,6 @@ pub struct fuse_kstatfs {
     pub spare: [u32; 6],
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_file_lock {
     pub start: u64,
@@ -298,7 +296,6 @@ pub struct fuse_file_lock {
 #[derive(Debug)]
 pub struct UnknownOpcodeError(pub u32);
 
-#[repr(C)]
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub enum fuse_opcode {
@@ -430,7 +427,6 @@ impl TryFrom<u32> for fuse_opcode {
 #[derive(Debug)]
 pub struct InvalidNotifyCodeError;
 
-#[repr(C)]
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub enum fuse_notify_code {
@@ -469,7 +465,8 @@ impl TryFrom<u32> for fuse_notify_code {
     }
 }
 
-#[repr(C)]
+pub const FUSE_ENTRY_OUT_SIZE: usize = mem::size_of::<fuse_entry_out>();
+
 #[derive(Debug, Serialize)]
 pub struct fuse_entry_out {
     pub nodeid: u64,
@@ -481,36 +478,33 @@ pub struct fuse_entry_out {
     pub attr: fuse_attr,
 }
 
-#[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct fuse_forget_in {
     pub nlookup: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_forget_one {
     pub nodeid: u64,
     pub nlookup: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_batch_forget_in {
     pub count: u32,
     pub dummy: u32,
 }
 
-#[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct fuse_getattr_in {
     pub getattr_flags: u32,
     pub dummy: u32,
     pub fh: u64,
 }
 
-#[repr(C)]
-#[derive(Debug)]
+pub const FUSE_ATTR_OUT_SIZE: usize = mem::size_of::<fuse_attr_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_attr_out {
     pub attr_valid: u64,
     pub attr_valid_nsec: u32,
@@ -519,7 +513,6 @@ pub struct fuse_attr_out {
 }
 
 #[cfg(target_os = "macos")]
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_getxtimes_out {
     pub bkuptime: u64,
@@ -528,8 +521,9 @@ pub struct fuse_getxtimes_out {
     pub crtimensec: u32,
 }
 
-#[repr(C)]
-#[derive(Debug)]
+pub const FUSE_MKNOD_IN_SIZE: usize = mem::size_of::<fuse_mknod_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_mknod_in {
     pub mode: u32,
     pub rdev: u32,
@@ -537,20 +531,19 @@ pub struct fuse_mknod_in {
     pub padding: u32,
 }
 
-#[repr(C)]
-#[derive(Debug)]
+pub const FUSE_MKDIR_IN_SIZE: usize = mem::size_of::<fuse_mkdir_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_mkdir_in {
     pub mode: u32,
     pub umask: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_rename_in {
     pub newdir: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_rename2_in {
     pub newdir: u64,
@@ -559,7 +552,6 @@ pub struct fuse_rename2_in {
 }
 
 #[cfg(target_os = "macos")]
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_exchange_in {
     pub olddir: u64,
@@ -567,14 +559,12 @@ pub struct fuse_exchange_in {
     pub options: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_link_in {
     pub oldnodeid: u64,
 }
 
-#[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct fuse_setattr_in {
     pub valid: u32,
     pub padding: u32,
@@ -608,14 +598,12 @@ pub struct fuse_setattr_in {
     pub flags: u32, // see chflags(2)
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_open_in {
     pub flags: u32,
     pub unused: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_create_in {
     pub flags: u32,
@@ -624,7 +612,6 @@ pub struct fuse_create_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_open_out {
     pub fh: u64,
@@ -632,7 +619,6 @@ pub struct fuse_open_out {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_release_in {
     pub fh: u64,
@@ -641,7 +627,6 @@ pub struct fuse_release_in {
     pub lock_owner: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_flush_in {
     pub fh: u64,
@@ -650,7 +635,6 @@ pub struct fuse_flush_in {
     pub lock_owner: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_read_in {
     pub fh: u64,
@@ -662,7 +646,6 @@ pub struct fuse_read_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_write_in {
     pub fh: u64,
@@ -674,20 +657,17 @@ pub struct fuse_write_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_write_out {
     pub size: u32,
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_statfs_out {
     pub st: fuse_kstatfs,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_fsync_in {
     pub fh: u64,
@@ -695,7 +675,6 @@ pub struct fuse_fsync_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_setxattr_in {
     pub size: u32,
@@ -706,7 +685,6 @@ pub struct fuse_setxattr_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_getxattr_in {
     pub size: u32,
@@ -717,14 +695,12 @@ pub struct fuse_getxattr_in {
     pub padding2: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_getxattr_out {
     pub size: u32,
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_lk_in {
     pub fh: u64,
@@ -734,13 +710,11 @@ pub struct fuse_lk_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_lk_out {
     pub lk: fuse_file_lock,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_access_in {
     pub mask: u32,
@@ -749,7 +723,6 @@ pub struct fuse_access_in {
 
 pub const FUSE_INIT_IN: usize = mem::size_of::<fuse_init_in>();
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_init_in {
     pub major: u32,
@@ -782,7 +755,6 @@ impl From<&[u8]> for fuse_init_in {
     }
 }
 
-#[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct fuse_init_out {
     pub major: u32,
@@ -798,7 +770,6 @@ pub struct fuse_init_out {
     pub unused: [u32; 8],
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct cuse_init_in {
     pub major: u32,
@@ -807,7 +778,6 @@ pub struct cuse_init_in {
     pub flags: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct cuse_init_out {
     pub major: u32,
@@ -823,13 +793,11 @@ pub struct cuse_init_out {
     pub spare: [u32; 10],
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_interrupt_in {
     pub unique: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_bmap_in {
     pub block: u64,
@@ -837,13 +805,11 @@ pub struct fuse_bmap_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_bmap_out {
     pub block: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_ioctl_in {
     pub fh: u64,
@@ -854,14 +820,12 @@ pub struct fuse_ioctl_in {
     pub out_size: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_ioctl_iovec {
     pub base: u64,
     pub len: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_ioctl_out {
     pub result: i32,
@@ -870,7 +834,6 @@ pub struct fuse_ioctl_out {
     pub out_iovs: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_poll_in {
     pub fh: u64,
@@ -879,20 +842,17 @@ pub struct fuse_poll_in {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_poll_out {
     pub revents: u32,
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_notify_poll_wakeup_out {
     pub kh: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_fallocate_in {
     fh: u64,
@@ -904,7 +864,6 @@ pub struct fuse_fallocate_in {
 
 pub const FUSE_IN_HEADER_SIZE: usize = mem::size_of::<fuse_in_header>();
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_in_header {
     pub len: u32,
@@ -961,7 +920,6 @@ impl From<&[u8]> for fuse_in_header {
 
 pub const FUSE_OUT_HEADER_SIZE: usize = mem::size_of::<fuse_out_header>();
 
-#[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct fuse_out_header {
     pub len: u32,
@@ -969,7 +927,6 @@ pub struct fuse_out_header {
     pub unique: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_dirent {
     pub ino: u64,
@@ -984,7 +941,6 @@ pub struct fuse_direntplus {
     pub dirent: fuse_dirent,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_notify_inval_inode_out {
     pub ino: u64,
@@ -992,7 +948,6 @@ pub struct fuse_notify_inval_inode_out {
     pub len: i64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_notify_inval_entry_out {
     pub parent: u64,
@@ -1000,7 +955,6 @@ pub struct fuse_notify_inval_entry_out {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_notify_delete_out {
     parent: u64,
@@ -1009,7 +963,6 @@ pub struct fuse_notify_delete_out {
     padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_notify_store_out {
     pub nodeid: u64,
@@ -1018,7 +971,6 @@ pub struct fuse_notify_store_out {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct fuse_notify_retrieve_out {
     pub notify_unique: u64,
@@ -1028,7 +980,6 @@ pub struct fuse_notify_retrieve_out {
     pub padding: u32,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 // matches the size of fuse_write_in
 pub struct fuse_notify_retrieve_in {
@@ -1040,7 +991,6 @@ pub struct fuse_notify_retrieve_in {
     pub dummy4: u64,
 }
 
-#[repr(C)]
 #[derive(Debug)]
 struct fuse_lseek_in {
     pub fh: u64,

@@ -1,6 +1,6 @@
 use crate::abi::fuse_in_header;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Request {
     pub unique: u64,
     pub uid: u32,

@@ -1,7 +1,7 @@
-use std::ffi::OsStr;
-use std::time::{Duration, UNIX_EPOCH};
+use std::ffi::OsString;
+use std::time::Duration;
 
-use crate::abi::{fuse_attr, fuse_entry_out};
+use crate::abi::fuse_entry_out;
 use crate::{FileAttr, FileType};
 
 #[derive(Debug, Default)]
@@ -25,48 +25,7 @@ impl Into<fuse_entry_out> for ReplyEntry {
             attr_valid: self.ttl.as_secs(),
             entry_valid_nsec: self.ttl.subsec_nanos(),
             attr_valid_nsec: self.ttl.subsec_nanos(),
-            attr: fuse_attr {
-                ino: attr.ino,
-                size: attr.size,
-                blocks: attr.blocks,
-                atime: attr
-                    .atime
-                    .duration_since(UNIX_EPOCH)
-                    .expect("won't early")
-                    .as_secs(),
-                mtime: attr
-                    .mtime
-                    .duration_since(UNIX_EPOCH)
-                    .expect("won't early")
-                    .as_secs(),
-                ctime: attr
-                    .ctime
-                    .duration_since(UNIX_EPOCH)
-                    .expect("won't early")
-                    .as_secs(),
-                atimensec: attr
-                    .atime
-                    .duration_since(UNIX_EPOCH)
-                    .expect("won't early")
-                    .subsec_nanos(),
-                mtimensec: attr
-                    .mtime
-                    .duration_since(UNIX_EPOCH)
-                    .expect("won't early")
-                    .subsec_nanos(),
-                ctimensec: attr
-                    .ctime
-                    .duration_since(UNIX_EPOCH)
-                    .expect("won't early")
-                    .subsec_nanos(),
-                mode: attr.perm as u32,
-                nlink: attr.nlink,
-                uid: attr.uid,
-                gid: attr.gid,
-                rdev: attr.rdev,
-                blksize: attr.blksize,
-                padding: 0,
-            },
+            attr: attr.into(),
         }
     }
 }
@@ -77,8 +36,8 @@ pub struct ReplyAttr {
     pub attr: FileAttr,
 }
 
-pub struct ReplyData<T: AsRef<[u8]>> {
-    pub data: T,
+pub struct ReplyData {
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -105,26 +64,21 @@ pub struct ReplyStatFs {
 }
 
 #[derive(Debug)]
-pub enum ReplyXAttr<T: AsRef<[u8]>> {
+pub enum ReplyXAttr {
     Size(u32),
-    Data(T),
+    Data(Vec<u8>),
 }
 
 #[derive(Debug)]
-pub struct DirectoryEntry<S: AsRef<OsStr>> {
+pub struct DirectoryEntry {
     pub inode: u64,
     pub offset: i64,
     pub kind: FileType,
-    pub name: S,
+    pub name: OsString,
 }
 
-#[derive(Debug)]
-pub struct ReplyDirectory<I, S>
-where
-    S: AsRef<OsStr>,
-    I: IntoIterator<Item = DirectoryEntry<S>>,
-{
-    pub entries: I,
+pub struct ReplyDirectory {
+    pub entries: Box<dyn Iterator<Item = DirectoryEntry>>,
 }
 
 #[derive(Debug)]
@@ -163,25 +117,20 @@ pub struct ReplyPoll {
 }
 
 #[derive(Debug)]
-pub struct DirectoryEntryPlus<S: AsRef<OsStr>> {
+pub struct DirectoryEntryPlus {
     pub inode: u64,
     pub generation: u64,
     pub offset: i64,
     pub kind: FileType,
-    pub name: S,
+    pub name: OsString,
     pub attr: FileAttr,
     pub entry_ttl: Duration,
     pub attr_ttl: Duration,
 }
 
 // use fuse_direntplus
-#[derive(Debug)]
-pub struct ReplyDirectoryPlus<I, S>
-where
-    S: AsRef<OsStr>,
-    I: IntoIterator<Item = DirectoryEntryPlus<S>>,
-{
-    pub entries: I,
+pub struct ReplyDirectoryPlus {
+    pub entries: Box<dyn Iterator<Item = DirectoryEntryPlus>>,
 }
 
 #[derive(Debug)]
