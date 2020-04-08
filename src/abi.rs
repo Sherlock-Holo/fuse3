@@ -262,7 +262,7 @@ pub struct fuse_attr {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct fuse_kstatfs {
     // Total blocks (in units of frsize)
     pub blocks: u64,
@@ -284,7 +284,9 @@ pub struct fuse_kstatfs {
     pub spare: [u32; 6],
 }
 
-#[derive(Debug)]
+pub const FUSE_FILE_LOCK_SIZE: usize = mem::size_of::<fuse_file_lock>();
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct fuse_file_lock {
     pub start: u64,
     pub end: u64,
@@ -296,7 +298,7 @@ pub struct fuse_file_lock {
 #[derive(Debug)]
 pub struct UnknownOpcodeError(pub u32);
 
-#[derive(Debug)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
@@ -336,9 +338,11 @@ pub enum fuse_opcode {
     FUSE_INTERRUPT = 36,
     FUSE_BMAP = 37,
     FUSE_DESTROY = 38,
-    FUSE_IOCTL = 39,
+    // TODO implement it after get enough info about it
+    // FUSE_IOCTL = 39,
     FUSE_POLL = 40,
-    FUSE_NOTIFY_REPLY = 41,
+    // TODO implement it after get enough info about it
+    // FUSE_NOTIFY_REPLY = 41,
     FUSE_BATCH_FORGET = 42,
     FUSE_FALLOCATE = 43,
     FUSE_READDIRPLUS = 44,
@@ -353,8 +357,8 @@ pub enum fuse_opcode {
     FUSE_GETXTIMES = 62,
     #[cfg(target_os = "macos")]
     FUSE_EXCHANGE = 63,
-
-    CUSE_INIT = 4096,
+    // TODO implement it after get enough info about it
+    // CUSE_INIT = 4096,
 }
 
 impl TryFrom<u32> for fuse_opcode {
@@ -398,9 +402,9 @@ impl TryFrom<u32> for fuse_opcode {
             36 => Ok(fuse_opcode::FUSE_INTERRUPT),
             37 => Ok(fuse_opcode::FUSE_BMAP),
             38 => Ok(fuse_opcode::FUSE_DESTROY),
-            39 => Ok(fuse_opcode::FUSE_IOCTL),
+            // 39 => Ok(fuse_opcode::FUSE_IOCTL),
             40 => Ok(fuse_opcode::FUSE_POLL),
-            41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
+            // 41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
             42 => Ok(fuse_opcode::FUSE_BATCH_FORGET),
             43 => Ok(fuse_opcode::FUSE_FALLOCATE),
             44 => Ok(fuse_opcode::FUSE_READDIRPLUS),
@@ -416,8 +420,7 @@ impl TryFrom<u32> for fuse_opcode {
             #[cfg(target_os = "macos")]
             63 => Ok(fuse_opcode::FUSE_EXCHANGE),
 
-            4096 => Ok(fuse_opcode::CUSE_INIT),
-
+            // 4096 => Ok(fuse_opcode::CUSE_INIT),
             opcode => Err(UnknownOpcodeError(opcode)),
         }
     }
@@ -483,13 +486,17 @@ pub struct fuse_forget_in {
     pub nlookup: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_FORGET_ONE_SIZE: usize = mem::size_of::<fuse_forget_one>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_forget_one {
     pub nodeid: u64,
     pub nlookup: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_BATCH_FORGET_IN_SIZE: usize = mem::size_of::<fuse_batch_forget_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_batch_forget_in {
     pub count: u32,
     pub dummy: u32,
@@ -539,12 +546,16 @@ pub struct fuse_mkdir_in {
     pub umask: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_RENAME_IN_SIZE: usize = mem::size_of::<fuse_rename_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_rename_in {
     pub newdir: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_RENAME2_IN_SIZE: usize = mem::size_of::<fuse_rename2_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_rename2_in {
     pub newdir: u64,
     pub flags: u32,
@@ -559,7 +570,9 @@ pub struct fuse_exchange_in {
     pub options: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_LINK_IN_SIZE: usize = mem::size_of::<fuse_link_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_link_in {
     pub oldnodeid: u64,
 }
@@ -598,13 +611,17 @@ pub struct fuse_setattr_in {
     pub flags: u32, // see chflags(2)
 }
 
-#[derive(Debug)]
+pub const FUSE_OPEN_IN_SIZE: usize = mem::size_of::<fuse_open_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_open_in {
     pub flags: u32,
     pub unused: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_CREATE_IN_SIZE: usize = mem::size_of::<fuse_create_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_create_in {
     pub flags: u32,
     pub mode: u32,
@@ -612,14 +629,18 @@ pub struct fuse_create_in {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_OPEN_OUT_SIZE: usize = mem::size_of::<fuse_open_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_open_out {
     pub fh: u64,
     pub open_flags: u32,
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_RELEASE_IN_SIZE: usize = mem::size_of::<fuse_release_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_release_in {
     pub fh: u64,
     pub flags: u32,
@@ -627,7 +648,9 @@ pub struct fuse_release_in {
     pub lock_owner: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_FLUSH_IN_SIZE: usize = mem::size_of::<fuse_flush_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_flush_in {
     pub fh: u64,
     pub unused: u32,
@@ -635,7 +658,9 @@ pub struct fuse_flush_in {
     pub lock_owner: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_READ_IN_SIZE: usize = mem::size_of::<fuse_read_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_read_in {
     pub fh: u64,
     pub offset: u64,
@@ -646,7 +671,9 @@ pub struct fuse_read_in {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_WRITE_IN_SIZE: usize = mem::size_of::<fuse_write_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_write_in {
     pub fh: u64,
     pub offset: u64,
@@ -657,25 +684,33 @@ pub struct fuse_write_in {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_WRITE_OUT_SIZE: usize = mem::size_of::<fuse_write_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_write_out {
     pub size: u32,
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_STATFS_OUT_SIZE: usize = mem::size_of::<fuse_statfs_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_statfs_out {
     pub st: fuse_kstatfs,
 }
 
-#[derive(Debug)]
+pub const FUSE_FSYNC_IN_SIZE: usize = mem::size_of::<fuse_fsync_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_fsync_in {
     pub fh: u64,
     pub fsync_flags: u32,
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_SETXATTR_IN_SIZE: usize = mem::size_of::<fuse_setxattr_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_setxattr_in {
     pub size: u32,
     pub flags: u32,
@@ -685,7 +720,9 @@ pub struct fuse_setxattr_in {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_GETXATTR_IN_SIZE: usize = mem::size_of::<fuse_getxattr_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_getxattr_in {
     pub size: u32,
     pub padding: u32,
@@ -695,13 +732,17 @@ pub struct fuse_getxattr_in {
     pub padding2: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_GETXATTR_OUT_SIZE: usize = mem::size_of::<fuse_getxattr_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_getxattr_out {
     pub size: u32,
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_LK_IN_SIZE: usize = mem::size_of::<fuse_lk_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_lk_in {
     pub fh: u64,
     pub owner: u64,
@@ -710,12 +751,16 @@ pub struct fuse_lk_in {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_LK_OUT_SIZE: usize = mem::size_of::<fuse_lk_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_lk_out {
     pub lk: fuse_file_lock,
 }
 
-#[derive(Debug)]
+pub const FUSE_ACCESS_IN_SIZE: usize = mem::size_of::<fuse_access_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_access_in {
     pub mask: u32,
     pub padding: u32,
@@ -755,6 +800,8 @@ impl From<&[u8]> for fuse_init_in {
     }
 }
 
+pub const FUSE_INIT_OUT_SIZE: usize = mem::size_of::<fuse_init_out>();
+
 #[derive(Debug, Serialize)]
 pub struct fuse_init_out {
     pub major: u32,
@@ -770,7 +817,9 @@ pub struct fuse_init_out {
     pub unused: [u32; 8],
 }
 
-#[derive(Debug)]
+pub const CUSE_INIT_IN_SIZE: usize = mem::size_of::<cuse_init_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct cuse_init_in {
     pub major: u32,
     pub minor: u32,
@@ -778,7 +827,9 @@ pub struct cuse_init_in {
     pub flags: u32,
 }
 
-#[derive(Debug)]
+pub const CUSE_INIT_OUT_SIZE: usize = mem::size_of::<cuse_init_out>();
+
+#[derive(Debug, Serialize)]
 pub struct cuse_init_out {
     pub major: u32,
     pub minor: u32,
@@ -793,24 +844,32 @@ pub struct cuse_init_out {
     pub spare: [u32; 10],
 }
 
-#[derive(Debug)]
+pub const FUSE_INTERRUPT_IN_SIZE: usize = mem::size_of::<fuse_interrupt_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_interrupt_in {
     pub unique: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_BMAP_IN_SIZE: usize = mem::size_of::<fuse_bmap_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_bmap_in {
     pub block: u64,
     pub blocksize: u32,
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_BMAP_OUT_SIZE: usize = mem::size_of::<fuse_bmap_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_bmap_out {
     pub block: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_IOCTL_IN_SIZE: usize = mem::size_of::<fuse_ioctl_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_ioctl_in {
     pub fh: u64,
     pub flags: u32,
@@ -834,7 +893,9 @@ pub struct fuse_ioctl_out {
     pub out_iovs: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_POLL_IN_SIZE: usize = mem::size_of::<fuse_poll_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_poll_in {
     pub fh: u64,
     pub kh: u64,
@@ -842,7 +903,9 @@ pub struct fuse_poll_in {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_POLL_OUT_SIZE: usize = mem::size_of::<fuse_poll_out>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_poll_out {
     pub revents: u32,
     pub padding: u32,
@@ -853,13 +916,15 @@ pub struct fuse_notify_poll_wakeup_out {
     pub kh: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_FALLOCATE_IN_SIZE: usize = mem::size_of::<fuse_fallocate_in>();
+
+#[derive(Debug, Deserialize)]
 pub struct fuse_fallocate_in {
-    fh: u64,
-    offset: u64,
-    length: u64,
-    mode: u32,
-    padding: u32,
+    pub fh: u64,
+    pub offset: u64,
+    pub length: u64,
+    pub mode: u32,
+    pub padding: u32,
 }
 
 pub const FUSE_IN_HEADER_SIZE: usize = mem::size_of::<fuse_in_header>();
@@ -927,7 +992,9 @@ pub struct fuse_out_header {
     pub unique: u64,
 }
 
-#[derive(Debug)]
+pub const FUSE_DIRENT_SIZE: usize = mem::size_of::<fuse_dirent>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_dirent {
     pub ino: u64,
     pub off: u64,
@@ -936,6 +1003,9 @@ pub struct fuse_dirent {
     // followed by name of namelen bytes
 }
 
+pub const FUSE_DIRENTPLUS_SIZE: usize = mem::size_of::<fuse_direntplus>();
+
+#[derive(Debug, Serialize)]
 pub struct fuse_direntplus {
     pub entry_out: fuse_entry_out,
     pub dirent: fuse_dirent,
@@ -991,19 +1061,27 @@ pub struct fuse_notify_retrieve_in {
     pub dummy4: u64,
 }
 
-#[derive(Debug)]
-struct fuse_lseek_in {
+pub const FUSE_LSEEK_IN_SIZE: usize = mem::size_of::<fuse_lseek_in>();
+
+#[derive(Debug, Deserialize)]
+pub struct fuse_lseek_in {
     pub fh: u64,
     pub offset: u64,
     pub whence: u32,
     pub padding: u32,
 }
 
-struct fuse_lseek_out {
+pub const FUSE_LSEEK_OUT_SIZE: usize = mem::size_of::<fuse_lseek_out>();
+
+#[derive(Debug, Serialize)]
+pub struct fuse_lseek_out {
     pub offset: u64,
 }
 
-struct fuse_copy_file_range_in {
+pub const FUSE_COPY_FILE_RANGE_IN_SIZE: usize = mem::size_of::<fuse_copy_file_range_in>();
+
+#[derive(Debug, Deserialize)]
+pub struct fuse_copy_file_range_in {
     pub fh_in: u64,
     pub off_in: u64,
     pub nodeid_out: u64,

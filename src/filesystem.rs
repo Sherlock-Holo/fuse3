@@ -1,5 +1,4 @@
 use std::ffi::OsString;
-use std::path::Path;
 
 use async_trait::async_trait;
 
@@ -17,9 +16,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS)
     }
 
-    async fn forget(&self, _req: Request, _inode: u64, _nlookup: u64) -> Result<()> {
-        Ok(())
-    }
+    async fn forget(&self, _req: Request, _inode: u64, _nlookup: u64) {}
 
     async fn getattr(
         &self,
@@ -100,7 +97,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS)
     }
 
-    async fn open(&self, _req: Request, _inode: u64, _flags: u64) -> Result<ReplyOpen> {
+    async fn open(&self, _req: Request, _inode: u64, _flags: u32) -> Result<ReplyOpen> {
         Err(libc::ENOSYS)
     }
 
@@ -109,8 +106,8 @@ pub trait Filesystem {
         _req: Request,
         _inode: u64,
         _fh: u64,
-        _offset: i64,
-        _size: u64,
+        _offset: u64,
+        _size: u32,
     ) -> Result<ReplyData> {
         Err(libc::ENOSYS)
     }
@@ -121,7 +118,7 @@ pub trait Filesystem {
         _inode: u64,
         _fh: u64,
         _offset: i64,
-        _data: &[u8],
+        _data: Vec<u8>,
         _flags: u32,
     ) -> Result<ReplyWrite> {
         Err(libc::ENOSYS)
@@ -152,15 +149,15 @@ pub trait Filesystem {
         _req: Request,
         _inode: u64,
         _name: OsString,
-        _value: &[u8],
+        _value: OsString,
         _flags: u32,
         _position: u32,
     ) -> Result<()> {
         Err(libc::ENOSYS)
     }
 
-    /// Get an extended attribute. If size is 0, use [`ReplyXAttr::Size`] to send size. If size is not 0,
-    /// and the value fits, use [`ReplyXAttr::Data`] to send it, or return error.
+    /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
+    /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
     ///
     /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
     /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
@@ -174,8 +171,8 @@ pub trait Filesystem {
         Err(libc::ENOSYS)
     }
 
-    /// Get an extended attribute. If size is 0, use [`ReplyXAttr::Size`] to send size. If size is not 0,
-    /// and the value fits, use [`ReplyXAttr::Data`] to send it, or return error.
+    /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
+    /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
     ///
     /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
     /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
@@ -195,7 +192,7 @@ pub trait Filesystem {
         Ok(ReplyOpen { fh: 0, flags: 0 })
     }
 
-    async fn readdir<I, S>(
+    async fn readdir(
         &self,
         _req: Request,
         _inode: u64,
@@ -238,7 +235,7 @@ pub trait Filesystem {
         _type: u32,
         _pid: u32,
         _block: bool,
-    ) -> Result<()>;
+    ) -> Result<ReplyLock>;
 
     async fn access(&self, _req: Request, _inode: u64, _mask: u32) -> Result<()> {
         Err(libc::ENOSYS)
@@ -255,7 +252,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS)
     }
 
-    async fn interrupt(&self, _req: Request) -> Result<()> {
+    async fn interrupt(&self, _req: Request, _unique: u64) -> Result<()> {
         Err(libc::ENOSYS)
     }
 
@@ -297,9 +294,7 @@ pub trait Filesystem {
     // TODO handle notify
     // async fn notify_reply(&self, )
 
-    async fn batch_forget(&self, _req: Request, _inodes: &[u64]) -> Result<()> {
-        Err(libc::ENOSYS)
-    }
+    async fn batch_forget(&self, _req: Request, _inodes: &[u64]) {}
 
     async fn fallocate(
         &self,
@@ -313,7 +308,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS)
     }
 
-    async fn readdirplus<I, S>(
+    async fn readdirplus(
         &self,
         _req: Request,
         _parent: u64,
