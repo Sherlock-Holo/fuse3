@@ -1,17 +1,28 @@
 use std::convert::TryFrom;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
+use std::fs::OpenOptions;
+use std::io::Error as IoError;
+use std::io::ErrorKind;
+use std::io::Result as IoResult;
 use std::os::raw::c_int;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+use std::os::unix::io::AsRawFd;
+use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(feature = "async-std-runtime")]
 use async_std::fs::File;
 #[cfg(feature = "async-std-runtime")]
 use async_std::io::prelude::*;
-use futures::channel::mpsc::UnboundedSender;
-use futures::{Sink, SinkExt};
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
 use log::{debug, error};
+use nix::mount;
+use nix::mount::MsFlags;
+use nix::Error as NixError;
+#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+use tokio::fs::File;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::prelude::*;
 
@@ -22,11 +33,8 @@ use crate::filesystem::Filesystem;
 use crate::helper::*;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
-use crate::spawn::spawn_without_return;
+use crate::spawn::{spawn_blocking, spawn_without_return};
 use crate::{Result, SetAttr};
-
-// #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-// use tokio::fs::{OpenOptions, File};
 
 lazy_static! {
     static ref BINARY: bincode::Config = {
@@ -39,18 +47,134 @@ lazy_static! {
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 pub struct Session<T> {
-    fuse_file: File,
+    fuse_read_file: File,
     filesystem: Arc<T>,
     response_sender: UnboundedSender<Vec<u8>>,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-impl<T: Filesystem + Send + Sync + 'static> Session<T> {
+impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
+    pub async fn mount<P, S, O>(fs: FS, mount_path: P, options: O) -> IoResult<()>
+    where
+        P: AsRef<Path>,
+        S: AsRef<OsStr>,
+        O: AsRef<[S]>,
+    {
+        const DEVICE_PATH: &str = "/dev/fuse";
+
+        let std_file =
+            spawn_blocking(|| OpenOptions::new().write(true).read(true).open(DEVICE_PATH)).await?;
+
+        let fd = std_file.as_raw_fd();
+
+        let options = options.as_ref().iter().map(|opt| opt.as_ref()).fold(
+            OsString::from(format!("fd={}", fd)),
+            |mut opts, opt| {
+                opts.push(",");
+                opts.push(opt);
+
+                opts
+            },
+        );
+
+        if let Err(err) = mount::mount(
+            Option::<&str>::None,
+            mount_path.as_ref(),
+            Some("fuse"),
+            MsFlags::empty(),
+            Some(options.as_os_str()),
+        ) {
+            return match err {
+                NixError::Sys(errno) => Err(IoError::from_raw_os_error(errno as i32)),
+                NixError::UnsupportedOperation => Err(IoError::new(ErrorKind::Other, err)),
+                NixError::InvalidPath | NixError::InvalidUtf8 => {
+                    Err(IoError::from(ErrorKind::InvalidInput))
+                }
+            };
+        }
+
+        let std_write_file = std_file.try_clone()?;
+
+        let (sender, receiver) = unbounded();
+
+        let mut session = Self {
+            fuse_read_file: std_file.into(),
+            filesystem: Arc::new(fs),
+            response_sender: sender,
+        };
+
+        let dispatch_task = session.dispatch().fuse();
+
+        pin_mut!(dispatch_task);
+
+        #[cfg(feature = "async-std-runtime")]
+        {
+            let reply_task = async_std::task::spawn(async move {
+                Self::reply_fuse(std_write_file.into(), receiver).await
+            })
+            .fuse();
+
+            pin_mut!(reply_task);
+
+            select! {
+                reply_result = reply_task => {
+                    if let Err(err) = reply_result {
+                        return Err(err)
+                    }
+                }
+
+                dispatch_result = dispatch_task => {
+                    if let Err(err) = dispatch_result {
+                        return Err(IoError::from_raw_os_error(err))
+                    }
+                }
+            }
+        }
+
+        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+        {
+            let reply_task =
+                tokio::spawn(
+                    async move { Self::reply_fuse(std_write_file.into(), receiver).await },
+                )
+                .fuse();
+
+            pin_mut!(reply_task);
+
+            select! {
+                reply_result = reply_task => {
+                    if let Err(err) = reply_result.unwrap() {
+                        return Err(err)
+                    }
+                }
+
+                dispatch_result = dispatch_task => {
+                    if let Err(err) = dispatch_result {
+                        return Err(IoError::from_raw_os_error(err))
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn reply_fuse(
+        mut fuse_file: File,
+        mut response_receiver: UnboundedReceiver<Vec<u8>>,
+    ) -> IoResult<()> {
+        while let Some(response) = response_receiver.next().await {
+            fuse_file.write(&response).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn dispatch(&mut self) -> Result<()> {
         let mut buffer = vec![0; BUFFER_SIZE];
 
         'dispatch_loop: loop {
-            let n = match self.fuse_file.read(&mut buffer).await {
+            let n = match self.fuse_read_file.read(&mut buffer).await {
                 Err(err) => {
                     error!("read from /dev/fuse failed {}", err);
 
@@ -87,7 +211,32 @@ impl<T: Filesystem + Send + Sync + 'static> Session<T> {
                 fuse_opcode::FUSE_INIT => {
                     debug!("receive FUSE INIT");
 
-                    let init_in = fuse_init_in::from(data);
+                    let init_in = match BINARY.deserialize::<fuse_init_in>(data) {
+                        Err(err) => {
+                            error!(
+                                "deserialize fuse_init_in failed {}, request unique {}",
+                                err, request.unique
+                            );
+
+                            let init_out_header = fuse_out_header {
+                                len: FUSE_OUT_HEADER_SIZE as u32,
+                                error: libc::EINVAL,
+                                unique: request.unique,
+                            };
+
+                            let init_out_header_data =
+                                BINARY.serialize(&init_out_header).expect("won't happened");
+
+                            if let Err(err) = self.fuse_read_file.write(&init_out_header_data).await
+                            {
+                                error!("write error init out data to /dev/fuse failed {}", err);
+                            }
+
+                            return Err(libc::EINVAL);
+                        }
+
+                        Ok(init_in) => init_in,
+                    };
 
                     let mut reply_flags = 0;
 
@@ -187,7 +336,7 @@ impl<T: Filesystem + Send + Sync + 'static> Session<T> {
                         let init_out_header_data =
                             BINARY.serialize(&init_out_header).expect("won't happened");
 
-                        if let Err(err) = self.fuse_file.write(&init_out_header_data).await {
+                        if let Err(err) = self.fuse_read_file.write(&init_out_header_data).await {
                             error!("write error init out data to /dev/fuse failed {}", err);
                         }
 
@@ -223,7 +372,7 @@ impl<T: Filesystem + Send + Sync + 'static> Session<T> {
                         .serialize_into(&mut data, &init_out)
                         .expect("won't happened");
 
-                    if let Err(err) = self.fuse_file.write(&data).await {
+                    if let Err(err) = self.fuse_read_file.write(&data).await {
                         error!("write init out data to /dev/fuse failed {}", err);
 
                         unimplemented!("handle error")
@@ -2648,22 +2797,21 @@ impl<T: Filesystem + Send + Sync + 'static> Session<T> {
                 fuse_opcode::FUSE_COPY_FILE_RANGE => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let copy_file_range_in = match BINARY
-                        .deserialize::<fuse_copy_file_range_in>(data)
-                    {
-                        Err(err) => {
-                            error!(
+                    let copy_file_range_in =
+                        match BINARY.deserialize::<fuse_copy_file_range_in>(data) {
+                            Err(err) => {
+                                error!(
                                 "deserialize fuse_copy_file_range_in failed {}, request unique {}",
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                                reply_error(libc::EINVAL, request, resp_sender);
 
-                            continue;
-                        }
+                                continue;
+                            }
 
-                        Ok(copy_file_range_in) => copy_file_range_in,
-                    };
+                            Ok(copy_file_range_in) => copy_file_range_in,
+                        };
 
                     let fs = self.filesystem.clone();
 

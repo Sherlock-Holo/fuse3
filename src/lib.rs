@@ -1,6 +1,13 @@
+use std::ffi::OsStr;
+use std::io::Result as IoResult;
 use std::ops::Add;
 use std::os::raw::c_int;
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub use filesystem::Filesystem;
+#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+use session::Session;
 
 use crate::abi::{
     fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_CTIME, FATTR_FH, FATTR_GID, FATTR_LOCKOWNER,
@@ -189,6 +196,17 @@ impl From<&fuse_setattr_in> for SetAttr {
 
         set_attr
     }
+}
+
+#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+pub async fn mount<FS, P, S, O>(fs: FS, mount_path: P, options: O) -> IoResult<()>
+where
+    FS: Filesystem + Send + Sync + 'static,
+    P: AsRef<Path>,
+    S: AsRef<OsStr>,
+    O: AsRef<[S]>,
+{
+    Session::mount(fs, mount_path, options).await
 }
 
 /*#[cfg(test)]

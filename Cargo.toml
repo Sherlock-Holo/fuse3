@@ -21,12 +21,14 @@ libc = "0.2"
 bincode = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1"
+nix = "0.17"
 
 [dependencies.async-std]
 version = "1.5"
+features = ["unstable"]
 optional = true
 
 [dependencies.tokio]
 version = "0.2"
-features = ["fs", "io-util"]
+features = ["fs", "io-util", "blocking"]
 optional = true
