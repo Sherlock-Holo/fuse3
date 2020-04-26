@@ -14,7 +14,6 @@ use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
 use log::{debug, error};
 use nix::mount;
 use nix::mount::MsFlags;
-use nix::unistd;
 use nix::Error as NixError;
 
 use lazy_static::lazy_static;
@@ -27,6 +26,7 @@ use crate::helper::*;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
 use crate::spawn::spawn_without_return;
+use crate::MountOption;
 use crate::{Errno, SetAttr};
 
 lazy_static! {
@@ -47,45 +47,26 @@ pub struct Session<T> {
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
-    pub async fn mount<P, O>(fs: FS, mount_path: P, options: O) -> IoResult<()>
+    pub async fn mount<P>(fs: FS, mount_path: P, mount_option: MountOption) -> IoResult<()>
     where
         P: AsRef<Path>,
-        O: AsRef<[OsString]>,
     {
         let fuse_file = Arc::new(File::new().await?);
 
         let fd = fuse_file.as_raw_fd();
 
-        let mut fs_name = None;
-
-        let pre_options = OsString::from(format!(
-            "fd={},rootmode=40000,user_id={},group_id={}",
-            fd,
-            unistd::getuid(),
-            unistd::getgid()
-        ));
-
-        let options = options.as_ref().iter().fold(pre_options, |mut opts, opt| {
-            if opt.to_string_lossy().starts_with("fsname=") {
-                fs_name = Some(OsString::from(opt.to_string_lossy().replace("fsname=", "")));
-            }
-
-            opts.push(",");
-            opts.push(opt);
-
-            opts
-        });
-
-        let fs_name = if let Some(fs_name) = &fs_name {
-            fs_name.as_os_str()
+        let fs_name = if let Some(fs_name) = mount_option.fs_name.as_ref() {
+            Some(fs_name.as_os_str())
         } else {
-            OsStr::new("fuse")
+            Some(OsStr::new("fuse"))
         };
+
+        let options = mount_option.build(fd);
 
         debug!("mount options {:?}", options);
 
         if let Err(err) = mount::mount(
-            Some(fs_name),
+            fs_name,
             mount_path.as_ref(),
             Some("fuse"),
             MsFlags::MS_NOSUID | MsFlags::MS_NODEV,

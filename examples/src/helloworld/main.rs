@@ -6,7 +6,7 @@ use log::LevelFilter;
 
 use async_trait::async_trait;
 use fuse3::reply::*;
-use fuse3::{self, FileAttr, FileType, Filesystem, Request, Result};
+use fuse3::{self, FileAttr, FileType, Filesystem, MountOption, Request, Result};
 
 const CONTENT: &str = "hello world\n";
 
@@ -299,18 +299,12 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
+    let mount_option = MountOption::default().allow_other(true).uid(uid).gid(gid);
+
     if let Some(mount_path) = mount_path {
-        fuse3::mount(
-            HelloWorld {},
-            mount_path,
-            vec![
-                OsString::from(format!("user_id={}", uid)),
-                OsString::from(format!("group_id={}", gid)),
-                OsString::from("allow_other"),
-            ],
-        )
-        .await
-        .unwrap()
+        fuse3::mount(HelloWorld {}, mount_path, mount_option)
+            .await
+            .unwrap()
     } else {
         panic!("no mount point specified")
     }
