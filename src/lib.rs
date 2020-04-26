@@ -1,11 +1,11 @@
-use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io::Result as IoResult;
-use std::ops::Add;
-use std::os::raw::c_int;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub use errno::Errno;
 pub use filesystem::Filesystem;
+pub use request::Request;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 use session::Session;
 
@@ -13,16 +13,19 @@ use crate::abi::{
     fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_CTIME, FATTR_FH, FATTR_GID, FATTR_LOCKOWNER,
     FATTR_MODE, FATTR_MTIME, FATTR_SIZE, FATTR_UID,
 };
+use crate::helper::mode_from_kind_and_perm;
 
 mod abi;
+mod errno;
+mod file;
 mod filesystem;
 mod helper;
-mod reply;
+pub mod reply;
 mod request;
 mod session;
 mod spawn;
 
-pub type Result<T> = std::result::Result<T, c_int>;
+pub type Result<T> = std::result::Result<T, Errno>;
 
 /// File attributes
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,7 +101,7 @@ impl Into<fuse_attr> for FileAttr {
                 .duration_since(UNIX_EPOCH)
                 .expect("won't early")
                 .subsec_nanos(),
-            mode: self.perm as u32,
+            mode: mode_from_kind_and_perm(self.kind, self.perm),
             nlink: self.nlink,
             uid: self.uid,
             gid: self.gid,
@@ -173,12 +176,12 @@ impl From<&fuse_setattr_in> for SetAttr {
 
         if setattr_in.valid & FATTR_ATIME > 0 {
             set_attr.atime =
-                Some(UNIX_EPOCH.add(Duration::new(setattr_in.atime, setattr_in.atimensec)));
+                Some(UNIX_EPOCH + Duration::new(setattr_in.atime, setattr_in.atimensec));
         }
 
         if setattr_in.valid & FATTR_MTIME > 0 {
             set_attr.mtime =
-                Some(UNIX_EPOCH.add(Duration::new(setattr_in.mtime, setattr_in.mtimensec)));
+                Some(UNIX_EPOCH + Duration::new(setattr_in.mtime, setattr_in.mtimensec));
         }
 
         if setattr_in.valid & FATTR_FH > 0 {
@@ -191,7 +194,7 @@ impl From<&fuse_setattr_in> for SetAttr {
 
         if setattr_in.valid & FATTR_CTIME > 0 {
             set_attr.ctime =
-                Some(UNIX_EPOCH.add(Duration::new(setattr_in.ctime, setattr_in.ctimensec)));
+                Some(UNIX_EPOCH + Duration::new(setattr_in.ctime, setattr_in.ctimensec));
         }
 
         set_attr
@@ -199,12 +202,11 @@ impl From<&fuse_setattr_in> for SetAttr {
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-pub async fn mount<FS, P, S, O>(fs: FS, mount_path: P, options: O) -> IoResult<()>
+pub async fn mount<FS, P, O>(fs: FS, mount_path: P, options: O) -> IoResult<()>
 where
     FS: Filesystem + Send + Sync + 'static,
     P: AsRef<Path>,
-    S: AsRef<OsStr>,
-    O: AsRef<[S]>,
+    O: AsRef<[OsString]>,
 {
     Session::mount(fs, mount_path, options).await
 }

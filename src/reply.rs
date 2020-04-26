@@ -124,7 +124,8 @@ pub enum ReplyXAttr {
 #[derive(Debug)]
 pub struct DirectoryEntry {
     pub inode: u64,
-    pub offset: u64,
+    /// index is point to next entry, for example, if entry is the first one, the index should be 1
+    pub index: u64,
     pub kind: FileType,
     pub name: OsString,
 }
@@ -224,7 +225,8 @@ impl Into<fuse_poll_out> for ReplyPoll {
 pub struct DirectoryEntryPlus {
     pub inode: u64,
     pub generation: u64,
-    pub offset: u64,
+    /// index is point to next entry, for example, if entry is the first one, the index should be 1
+    pub index: u64,
     pub kind: FileType,
     pub name: OsString,
     pub attr: FileAttr,

@@ -1,3 +1,5 @@
+use std::mem;
+
 use crate::FileType;
 
 pub trait Apply: Sized {
@@ -31,4 +33,11 @@ pub fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
         FileType::Socket => libc::S_IFSOCK,
     }) as u32
         | perm as u32
+}
+
+#[inline]
+pub fn get_padding_size(dir_entry_size: usize) -> usize {
+    let entry_size = (dir_entry_size + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1); // 64bit align
+
+    entry_size - dir_entry_size
 }

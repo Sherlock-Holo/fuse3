@@ -8,12 +8,12 @@ use crate::{Result, SetAttr};
 
 #[async_trait]
 pub trait Filesystem {
-    async fn init(&self, req: Request) -> Result<ReplyEntry>;
+    async fn init(&self, req: Request) -> Result<()>;
 
     async fn destroy(&self, req: Request);
 
     async fn lookup(&self, _req: Request, _parent: u64, _name: OsString) -> Result<ReplyEntry> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn forget(&self, _req: Request, _inode: u64, _nlookup: u64) {}
@@ -25,15 +25,15 @@ pub trait Filesystem {
         _fh: u64,
         _flags: u32,
     ) -> Result<ReplyAttr> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn setattr(&self, _req: Request, _inode: u64, _set_attr: SetAttr) -> Result<ReplyAttr> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn readlink(&self, _req: Request, _inode: u64) -> Result<ReplyData> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn symlink(
@@ -43,7 +43,7 @@ pub trait Filesystem {
         _name: OsString,
         _link: OsString,
     ) -> Result<ReplyEntry> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn mknod(
@@ -54,7 +54,7 @@ pub trait Filesystem {
         _mode: u32,
         _rdev: u32,
     ) -> Result<ReplyEntry> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn mkdir(
@@ -65,15 +65,15 @@ pub trait Filesystem {
         _mode: u32,
         _umask: u32,
     ) -> Result<ReplyEntry> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn unlink(&self, _req: Request, _parent: u64, _name: OsString) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn rmdir(&self, _req: Request, _parent: u64, _name: OsString) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn rename(
@@ -84,7 +84,7 @@ pub trait Filesystem {
         _new_parent: u64,
         _new_name: OsString,
     ) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn link(
@@ -94,11 +94,11 @@ pub trait Filesystem {
         _new_parent: u64,
         _new_name: OsString,
     ) -> Result<ReplyEntry> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn open(&self, _req: Request, _inode: u64, _flags: u32) -> Result<ReplyOpen> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn read(
@@ -109,7 +109,7 @@ pub trait Filesystem {
         _offset: u64,
         _size: u32,
     ) -> Result<ReplyData> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn write(
@@ -121,11 +121,11 @@ pub trait Filesystem {
         _data: Vec<u8>,
         _flags: u32,
     ) -> Result<ReplyWrite> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn statsfs(&self, _req: Request, _inode: u64) -> Result<ReplyStatFs> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn release(
@@ -137,11 +137,11 @@ pub trait Filesystem {
         _lock_owner: u64,
         _flush: bool,
     ) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn fsync(&self, _req: Request, _inode: u64, _fh: u64, _datasync: bool) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn setxattr(
@@ -153,7 +153,7 @@ pub trait Filesystem {
         _flags: u32,
         _position: u32,
     ) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
@@ -168,7 +168,7 @@ pub trait Filesystem {
         _name: OsString,
         _size: u32,
     ) -> Result<ReplyXAttr> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
@@ -177,15 +177,15 @@ pub trait Filesystem {
     /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
     /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
     async fn listxattr(&self, _req: Request, _inode: u64, _size: u32) -> Result<ReplyXAttr> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn removexattr(&self, _req: Request, _inode: u64, _name: OsString) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn flush(&self, _req: Request, _inode: u64, _fh: u64, _lock_owner: u64) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn opendir(&self, _req: Request, _inode: u64, _flags: u32) -> Result<ReplyOpen> {
@@ -195,11 +195,11 @@ pub trait Filesystem {
     async fn readdir(
         &self,
         _req: Request,
-        _inode: u64,
+        _parent: u64,
         _fh: u64,
         _offset: i64,
     ) -> Result<ReplyDirectory> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn releasedir(&self, _req: Request, _inode: u64, _fh: u64, _flags: u32) -> Result<()> {
@@ -207,7 +207,7 @@ pub trait Filesystem {
     }
 
     async fn fsyncdir(&self, _req: Request, _inode: u64, _fh: u64, _datasync: bool) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     #[cfg(feature = "file-lock")]
@@ -238,7 +238,7 @@ pub trait Filesystem {
     ) -> Result<ReplyLock>;
 
     async fn access(&self, _req: Request, _inode: u64, _mask: u32) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn create(
@@ -249,11 +249,11 @@ pub trait Filesystem {
         _mode: u32,
         _flags: u32,
     ) -> Result<ReplyCreated> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn interrupt(&self, _req: Request, _unique: u64) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn bmap(
@@ -263,7 +263,7 @@ pub trait Filesystem {
         _blocksize: u32,
         _idx: u64,
     ) -> Result<ReplyBmap> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn ioctl(
@@ -277,7 +277,7 @@ pub trait Filesystem {
         _in_size: u32,
         _out_size: u32,
     ) -> Result<ReplyIoctl> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn poll(
@@ -288,7 +288,7 @@ pub trait Filesystem {
         _kh: u64,
         _flags: u32,
     ) -> Result<ReplyPoll> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     // TODO handle notify
@@ -305,7 +305,7 @@ pub trait Filesystem {
         _length: u64,
         _mode: u32,
     ) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn readdirplus(
@@ -316,7 +316,7 @@ pub trait Filesystem {
         _offset: u64,
         _lock_owner: u64,
     ) -> Result<ReplyDirectoryPlus> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn rename2(
@@ -328,7 +328,7 @@ pub trait Filesystem {
         _new_name: OsString,
         _flags: u32,
     ) -> Result<()> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn lseek(
@@ -339,7 +339,7 @@ pub trait Filesystem {
         _offset: u64,
         _whence: u32,
     ) -> Result<ReplyLSeek> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     async fn copy_file_range(
@@ -354,7 +354,7 @@ pub trait Filesystem {
         _length: u64,
         _flags: u64,
     ) -> Result<ReplyCopyFileRange> {
-        Err(libc::ENOSYS)
+        Err(libc::ENOSYS.into())
     }
 
     // TODO setupmapping and removemapping

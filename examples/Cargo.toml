@@ -1,0 +1,20 @@
+[package]
+name = "examples"
+version = "0.1.0"
+authors = ["Sherlock Holo <sherlockya@gmail.com>"]
+edition = "2018"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "helloworld"
+path = "src/helloworld/main.rs"
+
+[dependencies]
+fuse3 = { path = "../", features = ["async-std-runtime"] }
+async-trait = "0.1"
+libc = "0.2"
+async-std = { version = "1.5", features = ["attributes"] }
+pretty_env_logger = "0.4"
+log = "0.4"

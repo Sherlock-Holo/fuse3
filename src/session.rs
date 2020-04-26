@@ -1,45 +1,38 @@
 use std::convert::TryFrom;
 use std::ffi::{OsStr, OsString};
-use std::fs::OpenOptions;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
-use std::os::raw::c_int;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(feature = "async-std-runtime")]
-use async_std::fs::File;
-#[cfg(feature = "async-std-runtime")]
-use async_std::io::prelude::*;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
 use log::{debug, error};
 use nix::mount;
 use nix::mount::MsFlags;
+use nix::unistd;
 use nix::Error as NixError;
-#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-use tokio::fs::File;
-#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-use tokio::prelude::*;
 
 use lazy_static::lazy_static;
 
 use crate::abi::*;
+#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+use crate::file::File;
 use crate::filesystem::Filesystem;
 use crate::helper::*;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
-use crate::spawn::{spawn_blocking, spawn_without_return};
-use crate::{Result, SetAttr};
+use crate::spawn::spawn_without_return;
+use crate::{Errno, SetAttr};
 
 lazy_static! {
     static ref BINARY: bincode::Config = {
         let mut cfg = bincode::config();
-        cfg.big_endian();
+        cfg.little_endian();
 
         cfg
     };
@@ -47,43 +40,59 @@ lazy_static! {
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 pub struct Session<T> {
-    fuse_read_file: File,
+    fuse_file: Arc<File>,
     filesystem: Arc<T>,
     response_sender: UnboundedSender<Vec<u8>>,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
-    pub async fn mount<P, S, O>(fs: FS, mount_path: P, options: O) -> IoResult<()>
+    pub async fn mount<P, O>(fs: FS, mount_path: P, options: O) -> IoResult<()>
     where
         P: AsRef<Path>,
-        S: AsRef<OsStr>,
-        O: AsRef<[S]>,
+        O: AsRef<[OsString]>,
     {
-        const DEVICE_PATH: &str = "/dev/fuse";
+        let fuse_file = Arc::new(File::new().await?);
 
-        let std_file =
-            spawn_blocking(|| OpenOptions::new().write(true).read(true).open(DEVICE_PATH)).await?;
+        let fd = fuse_file.as_raw_fd();
 
-        let fd = std_file.as_raw_fd();
+        let mut fs_name = None;
 
-        let options = options.as_ref().iter().map(|opt| opt.as_ref()).fold(
-            OsString::from(format!("fd={}", fd)),
-            |mut opts, opt| {
-                opts.push(",");
-                opts.push(opt);
+        let pre_options = OsString::from(format!(
+            "fd={},rootmode=40000,user_id={},group_id={}",
+            fd,
+            unistd::getuid(),
+            unistd::getgid()
+        ));
 
-                opts
-            },
-        );
+        let options = options.as_ref().iter().fold(pre_options, |mut opts, opt| {
+            if opt.to_string_lossy().starts_with("fsname=") {
+                fs_name = Some(OsString::from(opt.to_string_lossy().replace("fsname=", "")));
+            }
+
+            opts.push(",");
+            opts.push(opt);
+
+            opts
+        });
+
+        let fs_name = if let Some(fs_name) = &fs_name {
+            fs_name.as_os_str()
+        } else {
+            OsStr::new("fuse")
+        };
+
+        debug!("mount options {:?}", options);
 
         if let Err(err) = mount::mount(
-            Option::<&str>::None,
+            Some(fs_name),
             mount_path.as_ref(),
             Some("fuse"),
-            MsFlags::empty(),
+            MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
             Some(options.as_os_str()),
         ) {
+            error!("mount {:?} failed", mount_path.as_ref());
+
             return match err {
                 NixError::Sys(errno) => Err(IoError::from_raw_os_error(errno as i32)),
                 NixError::UnsupportedOperation => Err(IoError::new(ErrorKind::Other, err)),
@@ -93,12 +102,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             };
         }
 
-        let std_write_file = std_file.try_clone()?;
+        debug!("mount {:?} success", mount_path.as_ref());
+
+        let fuse_write_file = fuse_file.clone();
 
         let (sender, receiver) = unbounded();
 
         let mut session = Self {
-            fuse_read_file: std_file.into(),
+            fuse_file,
             filesystem: Arc::new(fs),
             response_sender: sender,
         };
@@ -109,10 +120,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         #[cfg(feature = "async-std-runtime")]
         {
-            let reply_task = async_std::task::spawn(async move {
-                Self::reply_fuse(std_write_file.into(), receiver).await
-            })
-            .fuse();
+            let reply_task =
+                async_std::task::spawn(
+                    async move { Self::reply_fuse(fuse_write_file, receiver).await },
+                )
+                .fuse();
 
             pin_mut!(reply_task);
 
@@ -125,7 +137,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 dispatch_result = dispatch_task => {
                     if let Err(err) = dispatch_result {
-                        return Err(IoError::from_raw_os_error(err))
+                        return Err(err)
                     }
                 }
             }
@@ -134,10 +146,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
         {
             let reply_task =
-                tokio::spawn(
-                    async move { Self::reply_fuse(std_write_file.into(), receiver).await },
-                )
-                .fuse();
+                tokio::spawn(async move { Self::reply_fuse(fuse_write_file, receiver).await })
+                    .fuse();
 
             pin_mut!(reply_task);
 
@@ -150,7 +160,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 dispatch_result = dispatch_task => {
                     if let Err(err) = dispatch_result {
-                        return Err(IoError::from_raw_os_error(err))
+                        return Err(err)
                     }
                 }
             }
@@ -160,37 +170,66 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     async fn reply_fuse(
-        mut fuse_file: File,
+        fuse_file: Arc<File>,
         mut response_receiver: UnboundedReceiver<Vec<u8>>,
     ) -> IoResult<()> {
         while let Some(response) = response_receiver.next().await {
-            fuse_file.write(&response).await?;
+            if let Err(err) = fuse_file.write(&response).await {
+                error!("reply fuse failed {}", err);
+
+                return Err(err);
+            }
+
+            debug!("write done");
         }
 
         Ok(())
     }
 
-    pub async fn dispatch(&mut self) -> Result<()> {
+    pub async fn dispatch(&mut self) -> IoResult<()> {
         let mut buffer = vec![0; BUFFER_SIZE];
 
         'dispatch_loop: loop {
-            let n = match self.fuse_read_file.read(&mut buffer).await {
+            let n = match self.fuse_file.read(&mut buffer).await {
                 Err(err) => {
+                    if let Some(errno) = err.raw_os_error() {
+                        if errno == libc::ENODEV {
+                            debug!("read from /dev/fuse failed with ENODEV, call destroy now");
+
+                            self.filesystem
+                                .destroy(Request {
+                                    unique: 0,
+                                    uid: 0,
+                                    gid: 0,
+                                    pid: 0,
+                                })
+                                .await;
+
+                            return Ok(());
+                        }
+                    }
+
                     error!("read from /dev/fuse failed {}", err);
 
-                    return if let Some(os_err) = err.raw_os_error() {
-                        Err(os_err)
-                    } else {
-                        Err(libc::EIO)
-                    };
+                    return Err(err);
                 }
 
                 Ok(n) => n,
             };
 
+            debug!("read raw data done");
+
             let mut data = &buffer[..n];
 
-            let in_header = fuse_in_header::from(data);
+            let in_header = match BINARY.deserialize::<fuse_in_header>(data) {
+                Err(err) => {
+                    error!("deserialize fuse_in_header failed {}", err);
+
+                    continue;
+                }
+
+                Ok(in_header) => in_header,
+            };
 
             let request = Request::from(&in_header);
 
@@ -198,14 +237,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 Err(err) => {
                     debug!("receive unknown opcode {}", err.0);
 
-                    reply_error(libc::ENOSYS, request, self.response_sender.clone());
+                    reply_error(libc::ENOSYS.into(), request, self.response_sender.clone());
 
                     continue;
                 }
                 Ok(opcode) => opcode,
             };
 
-            data = &data[FUSE_IN_HEADER_SIZE..in_header.len as usize - FUSE_IN_HEADER_SIZE];
+            debug!("receive opcode {}", opcode);
+
+            // data = &data[FUSE_IN_HEADER_SIZE..in_header.len as usize - FUSE_IN_HEADER_SIZE];
+            data = &data[FUSE_IN_HEADER_SIZE..];
+            data = &data[..in_header.len as usize - FUSE_IN_HEADER_SIZE];
 
             match opcode {
                 fuse_opcode::FUSE_INIT => {
@@ -227,16 +270,17 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             let init_out_header_data =
                                 BINARY.serialize(&init_out_header).expect("won't happened");
 
-                            if let Err(err) = self.fuse_read_file.write(&init_out_header_data).await
-                            {
+                            if let Err(err) = self.fuse_file.write(&init_out_header_data).await {
                                 error!("write error init out data to /dev/fuse failed {}", err);
                             }
 
-                            return Err(libc::EINVAL);
+                            return Err(IoError::from_raw_os_error(libc::EINVAL));
                         }
 
                         Ok(init_in) => init_in,
                     };
+
+                    debug!("fuse_init_in {:?}", init_in);
 
                     let mut reply_flags = 0;
 
@@ -326,21 +370,41 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_POSIX_ACL;
                     }
 
+                    if init_in.flags & FUSE_MAX_PAGES > 0 {
+                        reply_flags |= FUSE_MAX_PAGES;
+                    }
+
+                    if init_in.flags & FUSE_CACHE_SYMLINKS > 0 {
+                        reply_flags |= FUSE_CACHE_SYMLINKS;
+                    }
+
+                    if init_in.flags & FUSE_GETATTR_FH > 0 {
+                        reply_flags |= FUSE_GETATTR_FH;
+                    }
+
+                    if init_in.flags & FUSE_WRITE_LOCKOWNER > 0 {
+                        reply_flags |= FUSE_WRITE_LOCKOWNER;
+                    }
+
+                    if init_in.flags & FUSE_READ_LOCKOWNER > 0 {
+                        reply_flags |= FUSE_READ_LOCKOWNER;
+                    }
+
                     if let Err(err) = self.filesystem.init(request).await {
                         let init_out_header = fuse_out_header {
                             len: FUSE_OUT_HEADER_SIZE as u32,
-                            error: err,
+                            error: err.into(),
                             unique: request.unique,
                         };
 
                         let init_out_header_data =
                             BINARY.serialize(&init_out_header).expect("won't happened");
 
-                        if let Err(err) = self.fuse_read_file.write(&init_out_header_data).await {
+                        if let Err(err) = self.fuse_file.write(&init_out_header_data).await {
                             error!("write error init out data to /dev/fuse failed {}", err);
                         }
 
-                        return Err(err);
+                        return Err(IoError::from_raw_os_error(err.0));
                     }
 
                     let init_out = fuse_init_out {
@@ -357,6 +421,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unused: [0; 8],
                     };
 
+                    debug!("fuse init out {:?}", init_out);
+
                     let out_header = fuse_out_header {
                         len: (FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE) as u32,
                         error: 0,
@@ -372,15 +438,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &init_out)
                         .expect("won't happened");
 
-                    if let Err(err) = self.fuse_read_file.write(&data).await {
+                    if let Err(err) = self.fuse_file.write(&data).await {
                         error!("write init out data to /dev/fuse failed {}", err);
 
                         unimplemented!("handle error")
                     }
+
+                    debug!("fuse init done");
                 }
 
                 fuse_opcode::FUSE_DESTROY => {
                     self.filesystem.destroy(request).await;
+
+                    debug!("fuse destroyed");
 
                     return Ok(());
                 }
@@ -392,13 +462,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         None => {
                             error!("lookup body has no null, request unique {}", request.unique);
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
 
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
+
+                    debug!("lookup name {:?} in parent {}", name, in_header.nodeid);
 
                     let fs = self.filesystem.clone();
 
@@ -407,7 +479,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             Err(err) => {
                                 let out_header = fuse_out_header {
                                     len: FUSE_OUT_HEADER_SIZE as u32,
-                                    error: err,
+                                    error: err.into(),
                                     unique: request.unique,
                                 };
 
@@ -416,6 +488,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                             Ok(entry) => {
                                 let entry_out: fuse_entry_out = entry.into();
+
+                                debug!("lookup response {:?}", entry_out);
 
                                 let out_header = fuse_out_header {
                                     len: (FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE) as u32,
@@ -486,7 +560,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -509,7 +583,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             Err(err) => {
                                 let out_header = fuse_out_header {
                                     len: FUSE_OUT_HEADER_SIZE as u32,
-                                    error: err,
+                                    error: err.into(),
                                     unique: request.unique,
                                 };
 
@@ -523,6 +597,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     dummy: getattr_in.dummy,
                                     attr: attr.attr.into(),
                                 };
+
+                                debug!("get attr response {:?}", attr_out);
 
                                 let out_header = fuse_out_header {
                                     len: (FUSE_OUT_HEADER_SIZE + FUSE_ATTR_OUT_SIZE) as u32,
@@ -558,7 +634,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -575,7 +651,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             Err(err) => {
                                 let out_header = fuse_out_header {
                                     len: FUSE_OUT_HEADER_SIZE as u32,
-                                    error: err,
+                                    error: err.into(),
                                     unique: request.unique,
                                 };
 
@@ -618,7 +694,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             Err(err) => {
                                 let out_header = fuse_out_header {
                                     len: FUSE_OUT_HEADER_SIZE as u32,
-                                    error: err,
+                                    error: err.into(),
                                     unique: request.unique,
                                 };
 
@@ -658,7 +734,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         None => {
                             error!("symlink has no null, request unique {}", request.unique);
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -675,7 +751,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -691,7 +767,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 Err(err) => {
                                     let out_header = fuse_out_header {
                                         len: FUSE_OUT_HEADER_SIZE as u32,
-                                        error: err,
+                                        error: err.into(),
                                         unique: request.unique,
                                     };
 
@@ -736,7 +812,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -753,7 +829,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -813,7 +889,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -830,7 +906,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -890,7 +966,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -903,7 +979,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let resp_value =
                             if let Err(err) = fs.unlink(request, in_header.nodeid, name).await {
-                                err
+                                err.into()
                             } else {
                                 0
                             };
@@ -930,7 +1006,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -943,7 +1019,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let resp_value =
                             if let Err(err) = fs.unlink(request, in_header.nodeid, name).await {
-                                err
+                                err.into()
                             } else {
                                 0
                             };
@@ -970,7 +1046,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -987,7 +1063,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1004,7 +1080,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1019,7 +1095,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .rename(request, in_header.nodeid, name, rename_in.newdir, new_name)
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -1046,7 +1122,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1063,7 +1139,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1117,7 +1193,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1170,7 +1246,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1230,7 +1306,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1243,7 +1319,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     if write_in.size as usize != data.len() {
                         error!("fuse_write_in body len is invalid");
 
-                        reply_error(libc::EINVAL, request, resp_sender);
+                        reply_error(libc::EINVAL.into(), request, resp_sender);
 
                         continue;
                     }
@@ -1342,7 +1418,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1366,7 +1442,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             )
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -1393,7 +1469,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1410,7 +1486,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .fsync(request, in_header.nodeid, fsync_in.fh, data_sync)
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -1437,7 +1513,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1453,7 +1529,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique
                         );
 
-                        reply_error(libc::EINVAL, request, resp_sender);
+                        reply_error(libc::EINVAL.into(), request, resp_sender);
 
                         continue;
                     }
@@ -1465,7 +1541,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1482,7 +1558,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1498,7 +1574,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .setxattr(request, in_header.nodeid, name, value, setxattr_in.flags, 0)
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -1525,7 +1601,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1539,7 +1615,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         None => {
                             error!("fuse_getxattr_in body has no null {}", request.unique);
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1622,7 +1698,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1705,7 +1781,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1719,7 +1795,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let resp_value = if let Err(err) =
                             fs.removexattr(request, in_header.nodeid, name).await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -1746,7 +1822,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1761,7 +1837,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .flush(request, in_header.nodeid, flush_in.fh, flush_in.lock_owner)
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -1788,7 +1864,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1842,7 +1918,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1870,12 +1946,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut entry_data = Vec::with_capacity(max_size);
 
-                        const ENTRY_SIZE_BASE: usize = 8;
-
                         for entry in reply_readdir.entries {
-                            let mut dir_entry_size = FUSE_DIRENT_SIZE + entry.name.len(); //TODO should I +1 for the name's null?
-                            let padding_size = dir_entry_size % ENTRY_SIZE_BASE;
-                            dir_entry_size += padding_size;
+                            let name = &entry.name;
+
+                            let dir_entry_size = FUSE_DIRENT_SIZE + name.len();
+
+                            let padding_size = get_padding_size(dir_entry_size);
 
                             if entry_data.len() + dir_entry_size > max_size {
                                 break;
@@ -1883,17 +1959,22 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                             let dir_entry = fuse_dirent {
                                 ino: entry.inode,
-                                off: entry.offset,
-                                namelen: entry.name.len() as u32, //TODO should I +1 for the name's null?
+                                off: entry.index,
+                                namelen: name.len() as u32,
                                 // learn from fuse-rs and golang bazil.org fuse DirentType
                                 r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
                             };
+
+                            debug!(
+                                "readdir response has fuse_dirent {:?}, name {:?}",
+                                dir_entry, name
+                            );
 
                             BINARY
                                 .serialize_into(&mut entry_data, &dir_entry)
                                 .expect("won't happened");
 
-                            entry_data.extend_from_slice(entry.name.as_bytes());
+                            entry_data.extend_from_slice(name.as_bytes());
 
                             // padding
                             for _ in 0..padding_size {
@@ -1931,7 +2012,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1946,7 +2027,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .releasedir(request, in_header.nodeid, release_in.fh, release_in.flags)
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -1973,7 +2054,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -1990,7 +2071,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .fsyncdir(request, in_header.nodeid, fsync_in.fh, data_sync)
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -2007,6 +2088,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     });
                 }
 
+                #[cfg(feature = "file-lock")]
                 fuse_opcode::FUSE_GETLK => {
                     let mut resp_sender = self.response_sender.clone();
 
@@ -2017,7 +2099,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2071,6 +2153,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     });
                 }
 
+                #[cfg(feature = "file-lock")]
                 fuse_opcode::FUSE_SETLK | fuse_opcode::FUSE_SETLKW => {
                     let mut resp_sender = self.response_sender.clone();
 
@@ -2081,7 +2164,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 opcode, err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2148,7 +2231,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2162,7 +2245,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let resp_value = if let Err(err) =
                             fs.access(request, in_header.nodeid, access_in.mask).await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -2172,6 +2255,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             error: resp_value,
                             unique: request.unique,
                         };
+
+                        debug!("access response {}", resp_value);
 
                         let data = BINARY.serialize(&out_header).expect("won't happened");
 
@@ -2189,7 +2274,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2206,7 +2291,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2273,7 +2358,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2286,7 +2371,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let resp_value =
                             if let Err(err) = fs.interrupt(request, interrupt_in.unique).await {
-                                err
+                                err.into()
                             } else {
                                 0
                             };
@@ -2313,7 +2398,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2366,7 +2451,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Err(err) => {
                             error!("deserialize fuse_ioctl_in failed {}", err);
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2388,7 +2473,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2502,7 +2587,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2524,7 +2609,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             )
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -2551,7 +2636,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2585,12 +2670,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut entry_data = Vec::with_capacity(max_size);
 
-                        const ENTRY_SIZE_BASE: usize = 8;
-
                         for entry in directory_plus.entries {
-                            let mut dir_entry_size = FUSE_DIRENTPLUS_SIZE + entry.name.len(); //TODO should I +1 for the name's null?
-                            let padding_size = dir_entry_size % ENTRY_SIZE_BASE;
-                            dir_entry_size += padding_size;
+                            let name = &entry.name;
+
+                            let dir_entry_size = FUSE_DIRENTPLUS_SIZE + name.len();
+
+                            let padding_size = get_padding_size(dir_entry_size);
 
                             if entry_data.len() + dir_entry_size > max_size {
                                 break;
@@ -2610,18 +2695,23 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 },
                                 dirent: fuse_dirent {
                                     ino: entry.inode,
-                                    off: entry.offset,
-                                    namelen: entry.name.len() as u32,
+                                    off: entry.index,
+                                    namelen: name.len() as u32,
                                     // learn from fuse-rs and golang bazil.org fuse DirentType
                                     r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
                                 },
                             };
 
+                            debug!(
+                                "readdir response has fuse_dirent {:?}, name {:?}",
+                                dir_entry, name
+                            );
+
                             BINARY
                                 .serialize_into(&mut entry_data, &dir_entry)
                                 .expect("won't happened");
 
-                            entry_data.extend_from_slice(entry.name.as_bytes());
+                            entry_data.extend_from_slice(name.as_bytes());
 
                             // padding
                             for _ in 0..padding_size {
@@ -2659,7 +2749,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2676,7 +2766,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2693,7 +2783,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2715,7 +2805,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             )
                             .await
                         {
-                            err
+                            err.into()
                         } else {
                             0
                         };
@@ -2742,7 +2832,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL, request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
                             continue;
                         }
@@ -2805,7 +2895,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                                reply_error(libc::EINVAL, request, resp_sender);
+                                reply_error(libc::EINVAL.into(), request, resp_sender);
 
                                 continue;
                             }
@@ -2874,14 +2964,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 }
 
-fn reply_error<S>(err: c_int, request: Request, mut sender: S)
+fn reply_error<S>(err: Errno, request: Request, mut sender: S)
 where
     S: Sink<Vec<u8>> + Send + Sync + 'static + Unpin,
 {
     spawn_without_return(async move {
         let out_header = fuse_out_header {
             len: FUSE_OUT_HEADER_SIZE as u32,
-            error: err,
+            error: err.into(),
             unique: request.unique,
         };
 
