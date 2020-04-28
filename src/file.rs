@@ -1,7 +1,7 @@
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 use std::fs::File as SysFile;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-use std::io::{prelude::*, Result};
+use std::io::{self, prelude::*};
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 use std::os::unix::io::AsRawFd;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
@@ -13,26 +13,25 @@ use std::os::unix::io::RawFd;
 
 #[cfg(feature = "async-std-runtime")]
 use async_std::sync::Mutex;
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-use crossbeam_utils::thread;
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-use futures::channel::oneshot;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::sync::Mutex;
+
+#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+use crate::spawn::spawn_blocking;
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 const DEV_FUSE: &str = "/dev/fuse";
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-pub struct File {
+pub struct FuseFile {
     fd: RawFd,
     read_file: Mutex<Option<SysFile>>,
     write_file: Mutex<Option<SysFile>>,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-impl File {
-    pub async fn new() -> Result<Self> {
+impl FuseFile {
+    pub async fn new() -> io::Result<Self> {
         #[cfg(feature = "async-std-runtime")]
         let fd = async_std::fs::OpenOptions::new()
             .write(true)
@@ -58,58 +57,70 @@ impl File {
         })
     }
 
-    pub async fn read(&self, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read(&self, mut buf: Vec<u8>) -> Result<(Vec<u8>, usize), (Vec<u8>, io::Error)> {
         let mut guard = self.read_file.lock().await;
 
-        let file = guard.as_mut().unwrap();
+        let mut file = guard.take().unwrap();
 
-        let (sender, receiver) = oneshot::channel();
+        match spawn_blocking(move || match file.read(&mut buf) {
+            Ok(n) => Ok((file, buf, n)),
+            Err(err) => Err((file, buf, err)),
+        })
+        .await
+        {
+            Ok((file, buf, n)) => {
+                guard.replace(file);
 
-        // it should not happened
-        let _result = thread::scope(|s| {
-            s.spawn(|_| {
-                let result = file.read(buf);
+                Ok((buf, n))
+            }
 
-                sender
-                    .send(result)
-                    .expect("receiver shouldn't drop before send");
-            });
-        });
+            Err((file, buf, err)) => {
+                guard.replace(file);
 
-        receiver.await.expect("sender won't drop before send")
+                Err((buf, err))
+            }
+        }
     }
 
-    pub async fn write(&self, buf: &[u8]) -> Result<usize> {
+    pub async fn write(
+        &self,
+        buf: Vec<u8>,
+        n: usize,
+    ) -> Result<(Vec<u8>, usize), (Vec<u8>, io::Error)> {
         let mut guard = self.write_file.lock().await;
 
-        let file = guard.as_mut().unwrap();
+        let mut file = guard.take().unwrap();
 
-        let (sender, receiver) = oneshot::channel();
+        match spawn_blocking(move || match file.write(&buf[..n]) {
+            Ok(n) => Ok((file, buf, n)),
+            Err(err) => Err((file, buf, err)),
+        })
+        .await
+        {
+            Ok((file, buf, n)) => {
+                guard.replace(file);
 
-        // it should not happened
-        let _result = thread::scope(|s| {
-            s.spawn(|_| {
-                let result = file.write(buf);
+                Ok((buf, n))
+            }
 
-                sender
-                    .send(result)
-                    .expect("receiver shouldn't drop before send");
-            });
-        });
+            Err((file, buf, err)) => {
+                guard.replace(file);
 
-        receiver.await.expect("sender shouldn't drop before send")
+                Err((buf, err))
+            }
+        }
     }
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-impl AsRawFd for File {
+impl AsRawFd for FuseFile {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-impl Drop for File {
+impl Drop for FuseFile {
     fn drop(&mut self) {
         let read_file = self
             .read_file

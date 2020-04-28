@@ -20,7 +20,7 @@ use lazy_static::lazy_static;
 
 use crate::abi::*;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-use crate::file::File;
+use crate::file::FuseFile;
 use crate::filesystem::Filesystem;
 use crate::helper::*;
 use crate::reply::ReplyXAttr;
@@ -40,7 +40,7 @@ lazy_static! {
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 pub struct Session<T> {
-    fuse_file: Arc<File>,
+    fuse_file: Arc<FuseFile>,
     filesystem: Arc<T>,
     response_sender: UnboundedSender<Vec<u8>>,
 }
@@ -51,7 +51,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     where
         P: AsRef<Path>,
     {
-        let fuse_file = Arc::new(File::new().await?);
+        let fuse_file = Arc::new(FuseFile::new().await?);
 
         let fd = fuse_file.as_raw_fd();
 
@@ -151,11 +151,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     async fn reply_fuse(
-        fuse_file: Arc<File>,
+        fuse_file: Arc<FuseFile>,
         mut response_receiver: UnboundedReceiver<Vec<u8>>,
     ) -> IoResult<()> {
         while let Some(response) = response_receiver.next().await {
-            if let Err(err) = fuse_file.write(&response).await {
+            let n = response.len();
+
+            if let Err((_, err)) = fuse_file.write(response, n).await {
                 error!("reply fuse failed {}", err);
 
                 return Err(err);
@@ -171,8 +173,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut buffer = vec![0; BUFFER_SIZE];
 
         'dispatch_loop: loop {
-            let n = match self.fuse_file.read(&mut buffer).await {
-                Err(err) => {
+            let mut data = match self.fuse_file.read(buffer).await {
+                Err((_, err)) => {
                     if let Some(errno) = err.raw_os_error() {
                         if errno == libc::ENODEV {
                             debug!("read from /dev/fuse failed with ENODEV, call destroy now");
@@ -195,12 +197,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     return Err(err);
                 }
 
-                Ok(n) => n,
+                Ok((buf, n)) => {
+                    buffer = buf;
+
+                    &buffer[..n]
+                }
             };
 
             debug!("read raw data done");
-
-            let mut data = &buffer[..n];
 
             let in_header = match BINARY.deserialize::<fuse_in_header>(data) {
                 Err(err) => {
@@ -251,7 +255,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             let init_out_header_data =
                                 BINARY.serialize(&init_out_header).expect("won't happened");
 
-                            if let Err(err) = self.fuse_file.write(&init_out_header_data).await {
+                            if let Err((_, err)) = self
+                                .fuse_file
+                                .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
+                                .await
+                            {
                                 error!("write error init out data to /dev/fuse failed {}", err);
                             }
 
@@ -381,7 +389,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let init_out_header_data =
                             BINARY.serialize(&init_out_header).expect("won't happened");
 
-                        if let Err(err) = self.fuse_file.write(&init_out_header_data).await {
+                        if let Err((_, err)) = self
+                            .fuse_file
+                            .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
+                            .await
+                        {
                             error!("write error init out data to /dev/fuse failed {}", err);
                         }
 
@@ -419,7 +431,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &init_out)
                         .expect("won't happened");
 
-                    if let Err(err) = self.fuse_file.write(&data).await {
+                    if let Err((_, err)) = self
+                        .fuse_file
+                        .write(data, FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE)
+                        .await
+                    {
                         error!("write init out data to /dev/fuse failed {}", err);
 
                         unimplemented!("handle error")

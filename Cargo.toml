@@ -24,7 +24,6 @@ bincode = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1"
 nix = "0.17"
-crossbeam-utils = "0.7"
 
 [dependencies.async-std]
 version = "1.5"

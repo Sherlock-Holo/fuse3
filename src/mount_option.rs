@@ -14,6 +14,8 @@ pub struct MountOption {
 
     pub(crate) allow_root: bool,
     pub(crate) allow_other: bool,
+
+    pub(crate) read_only: Option<bool>,
 }
 
 impl MountOption {
@@ -53,31 +55,32 @@ impl MountOption {
         self
     }
 
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only.replace(read_only);
+
+        self
+    }
+
     pub(crate) fn build(&self, fd: i32) -> OsString {
-        let mut opts = OsString::new();
-
-        opts.push(format!("fd={},", fd));
-
-        let uid = self.uid.unwrap_or(unistd::getuid().as_raw());
-
-        opts.push(format!("user_id={},", uid));
-
-        let gid = self.gid.unwrap_or(unistd::getgid().as_raw());
-
-        opts.push(format!("group_id={},", gid));
-
-        let rootmode = self.rootmode.unwrap_or(40000);
-
-        opts.push(format!("rootmode={},", rootmode));
+        let mut opts = vec![
+            format!("fd={}", fd),
+            format!("user_id={}", self.uid.unwrap_or(unistd::getuid().as_raw())),
+            format!("group_id={}", self.gid.unwrap_or(unistd::getgid().as_raw())),
+            format!("rootmode={}", self.rootmode.unwrap_or(40000)),
+        ];
 
         if self.allow_root {
-            opts.push("allow_root,");
+            opts.push("allow_root".to_string());
         }
 
         if self.allow_other {
-            opts.push("allow_other");
+            opts.push("allow_other".to_string());
         }
 
-        opts
+        if matches!(self.read_only, Some(true)) {
+            opts.push("ro".to_string());
+        }
+
+        OsString::from(opts.join(","))
     }
 }
