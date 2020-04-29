@@ -14,6 +14,7 @@ default = []
 tokio-runtime = ["tokio"]
 async-std-runtime = ["async-std"]
 file-lock = []
+unprivileged = ["which"]
 
 [dependencies]
 futures = "0.3"
@@ -24,6 +25,7 @@ bincode = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1"
 nix = "0.17"
+which = { version = "3.1", optional = true }
 
 [dependencies.async-std]
 version = "1.5"
@@ -32,5 +34,5 @@ optional = true
 
 [dependencies.tokio]
 version = "0.2"
-features = ["fs", "io-util", "blocking", "sync"]
+features = ["fs", "io-util", "blocking", "sync", "stream"]
 optional = true

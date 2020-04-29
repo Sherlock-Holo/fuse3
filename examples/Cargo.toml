@@ -16,7 +16,7 @@ name = "memfs"
 path = "src/memfs/main.rs"
 
 [dependencies]
-fuse3 = { path = "../", features = ["async-std-runtime"] }
+fuse3 = { path = "../", features = ["async-std-runtime", "unprivileged"] }
 async-trait = "0.1"
 libc = "0.2"
 async-std = { version = "1.5", features = ["attributes"] }

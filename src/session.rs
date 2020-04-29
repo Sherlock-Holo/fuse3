@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
@@ -16,7 +17,6 @@ use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
 use log::{debug, error};
 use nix::mount;
 use nix::mount::MsFlags;
-use nix::Error as NixError;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::fs::read_dir;
 
@@ -30,7 +30,7 @@ use crate::helper::*;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
 use crate::spawn::spawn_without_return;
-use crate::MountOption;
+use crate::MountOptions;
 use crate::{Errno, SetAttr};
 
 lazy_static! {
@@ -47,33 +47,51 @@ pub struct Session<T> {
     fuse_connection: Arc<FuseConnection>,
     filesystem: Arc<T>,
     response_sender: UnboundedSender<Vec<u8>>,
-    mount_option: MountOption,
+    mount_options: MountOptions,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
-    pub async fn mount<P>(fs: FS, mount_path: P, mount_option: MountOption) -> IoResult<()>
+    #[cfg(feature = "unprivileged")]
+    pub async fn mount_with_unprivileged<P>(
+        fs: FS,
+        mount_path: P,
+        mount_options: MountOptions,
+    ) -> IoResult<()>
     where
         P: AsRef<Path>,
     {
-        if !mount_option.nonempty && read_dir(mount_path.as_ref()).await?.next().await.is_some() {
+        let fuse_file =
+            FuseConnection::new_with_unprivileged(mount_options.clone(), mount_path.as_ref())
+                .await?;
+
+        debug!("mount {:?} success", mount_path.as_ref());
+
+        Self::inner_mount(fs, fuse_file, mount_options).await
+    }
+
+    pub async fn mount<P>(fs: FS, mount_path: P, mut mount_options: MountOptions) -> IoResult<()>
+    where
+        P: AsRef<Path>,
+    {
+        if !mount_options.nonempty && read_dir(mount_path.as_ref()).await?.next().await.is_some() {
             return Err(IoError::new(
                 ErrorKind::AlreadyExists,
                 "mount point is not empty",
             ));
         }
 
-        let fuse_file = Arc::new(FuseConnection::new().await?);
+        let fuse_file = FuseConnection::new().await?;
 
         let fd = fuse_file.as_raw_fd();
 
-        let fs_name = if let Some(fs_name) = mount_option.fs_name.as_ref() {
+        let options = mount_options.build(fd);
+
+        let fs_name = if let Some(fs_name) = mount_options.fs_name.as_ref() {
             Some(fs_name.as_os_str())
         } else {
             Some(OsStr::new("fuse"))
         };
-
-        let options = mount_option.build(fd);
 
         debug!("mount options {:?}", options);
 
@@ -86,16 +104,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         ) {
             error!("mount {:?} failed", mount_path.as_ref());
 
-            return match err {
-                NixError::Sys(errno) => Err(IoError::from_raw_os_error(errno as i32)),
-                NixError::UnsupportedOperation => Err(IoError::new(ErrorKind::Other, err)),
-                NixError::InvalidPath | NixError::InvalidUtf8 => {
-                    Err(IoError::from(ErrorKind::InvalidInput))
-                }
-            };
+            return Err(io_error_from_nix_error(err));
         }
 
         debug!("mount {:?} success", mount_path.as_ref());
+
+        Self::inner_mount(fs, fuse_file, mount_options).await
+    }
+
+    async fn inner_mount(
+        fs: FS,
+        fuse_file: FuseConnection,
+        mount_options: MountOptions,
+    ) -> IoResult<()> {
+        let fuse_file = Arc::new(fuse_file);
 
         let fuse_write_file = fuse_file.clone();
 
@@ -105,7 +127,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             fuse_connection: fuse_file,
             filesystem: Arc::new(fs),
             response_sender: sender,
-            mount_option,
+            mount_options,
         };
 
         let dispatch_task = session.dispatch().fuse();
@@ -364,7 +386,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_HANDLE_KILLPRIV;
                     }*/
 
-                    if init_in.flags & FUSE_POSIX_ACL > 0 && self.mount_option.default_permissions {
+                    if init_in.flags & FUSE_POSIX_ACL > 0 && self.mount_options.default_permissions
+                    {
                         reply_flags |= FUSE_POSIX_ACL;
                     }
 

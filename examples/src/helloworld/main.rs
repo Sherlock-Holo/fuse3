@@ -298,14 +298,14 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    let mount_option = MountOption::default()
+    let mount_options = MountOptions::default()
         .allow_other(true)
         .uid(uid)
         .gid(gid)
         .read_only(true);
 
     if let Some(mount_path) = mount_path {
-        fuse3::mount(HelloWorld {}, mount_path, mount_option)
+        fuse3::mount_with_unprivileged(HelloWorld {}, mount_path, mount_options)
             .await
             .unwrap()
     } else {

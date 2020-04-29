@@ -1,9 +1,11 @@
 use std::ffi::OsString;
+use std::os::unix::io::RawFd;
 
 use nix::unistd;
 
 #[derive(Debug, Clone, Default)]
-pub struct MountOption {
+pub struct MountOptions {
+    // mount syscall data field option
     pub(crate) uid: Option<u32>,
     pub(crate) gid: Option<u32>,
 
@@ -17,12 +19,14 @@ pub struct MountOption {
 
     pub(crate) read_only: Option<bool>,
 
-    pub(crate) default_permissions: bool,
-
+    // when run in privileged mode, it is lib self option
     pub(crate) nonempty: bool,
+
+    // lib self option
+    pub(crate) default_permissions: bool,
 }
 
-impl MountOption {
+impl MountOptions {
     pub fn uid(mut self, uid: u32) -> Self {
         self.uid.replace(uid);
 
@@ -77,7 +81,7 @@ impl MountOption {
         self
     }
 
-    pub(crate) fn build(&self, fd: i32) -> OsString {
+    pub(crate) fn build(&mut self, fd: RawFd) -> OsString {
         let mut opts = vec![
             format!("fd={}", fd),
             format!("user_id={}", self.uid.unwrap_or(unistd::getuid().as_raw())),
@@ -95,6 +99,37 @@ impl MountOption {
 
         if matches!(self.read_only, Some(true)) {
             opts.push("ro".to_string());
+        }
+
+        if self.default_permissions {
+            opts.push("default_permissions".to_string());
+        }
+
+        OsString::from(opts.join(","))
+    }
+
+    #[cfg(feature = "unprivileged")]
+    pub(crate) fn build_with_unprivileged(&self) -> OsString {
+        let mut opts = vec![
+            format!("user_id={}", self.uid.unwrap_or(unistd::getuid().as_raw())),
+            format!("group_id={}", self.gid.unwrap_or(unistd::getgid().as_raw())),
+            format!("rootmode={}", self.rootmode.unwrap_or(40000)),
+        ];
+
+        if self.allow_root {
+            opts.push("allow_root".to_string());
+        }
+
+        if self.allow_other {
+            opts.push("allow_other".to_string());
+        }
+
+        if matches!(self.read_only, Some(true)) {
+            opts.push("ro".to_string());
+        }
+
+        if self.nonempty {
+            opts.push("nonempty".to_string());
         }
 
         if self.default_permissions {
