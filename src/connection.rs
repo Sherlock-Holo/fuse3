@@ -1,9 +1,7 @@
 #[cfg(feature = "unprivileged")]
 use std::ffi::OsString;
-use std::fs::File as SysFile;
-use std::io::{self, prelude::*};
+use std::io;
 use std::os::unix::io::AsRawFd;
-use std::os::unix::io::FromRawFd;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::io::RawFd;
 #[cfg(feature = "unprivileged")]
@@ -21,12 +19,10 @@ use nix::sys::socket;
 use nix::sys::socket::{AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
 #[cfg(feature = "unprivileged")]
 use nix::sys::uio::IoVec;
-#[cfg(feature = "unprivileged")]
 use nix::unistd;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::sync::Mutex;
 
-#[cfg(feature = "unprivileged")]
 use crate::helper::io_error_from_nix_error;
 use crate::spawn::spawn_blocking;
 #[cfg(feature = "unprivileged")]
@@ -35,8 +31,8 @@ use crate::MountOptions;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 pub struct FuseConnection {
     fd: RawFd,
-    read_file: Mutex<Option<SysFile>>,
-    write_file: Mutex<Option<SysFile>>,
+    read: Mutex<()>,
+    write: Mutex<()>,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
@@ -64,8 +60,8 @@ impl FuseConnection {
 
         Ok(Self {
             fd,
-            read_file: Mutex::new(Some(unsafe { SysFile::from_raw_fd(fd) })),
-            write_file: Mutex::new(Some(unsafe { SysFile::from_raw_fd(fd) })),
+            read: Mutex::new(()),
+            write: Mutex::new(()),
         })
     }
 
@@ -155,34 +151,21 @@ impl FuseConnection {
 
         Ok(Self {
             fd,
-            read_file: Mutex::new(Some(unsafe { SysFile::from_raw_fd(fd) })),
-            write_file: Mutex::new(Some(unsafe { SysFile::from_raw_fd(fd) })),
+            read: Mutex::new(()),
+            write: Mutex::new(()),
         })
     }
 
     pub async fn read(&self, mut buf: Vec<u8>) -> Result<(Vec<u8>, usize), (Vec<u8>, io::Error)> {
-        let mut guard = self.read_file.lock().await;
+        let _guard = self.read.lock().await;
 
-        let mut file = guard.take().unwrap();
+        let fd = self.fd;
 
-        match spawn_blocking(move || match file.read(&mut buf) {
-            Ok(n) => Ok((file, buf, n)),
-            Err(err) => Err((file, buf, err)),
+        spawn_blocking(move || match unistd::read(fd, &mut buf) {
+            Err(err) => Err((buf, io_error_from_nix_error(err))),
+            Ok(n) => Ok((buf, n)),
         })
         .await
-        {
-            Ok((file, buf, n)) => {
-                guard.replace(file);
-
-                Ok((buf, n))
-            }
-
-            Err((file, buf, err)) => {
-                guard.replace(file);
-
-                Err((buf, err))
-            }
-        }
     }
 
     pub async fn write(
@@ -190,28 +173,15 @@ impl FuseConnection {
         buf: Vec<u8>,
         n: usize,
     ) -> Result<(Vec<u8>, usize), (Vec<u8>, io::Error)> {
-        let mut guard = self.write_file.lock().await;
+        let _guard = self.write.lock().await;
 
-        let mut file = guard.take().unwrap();
+        let fd = self.fd;
 
-        match spawn_blocking(move || match file.write(&buf[..n]) {
-            Ok(n) => Ok((file, buf, n)),
-            Err(err) => Err((file, buf, err)),
+        spawn_blocking(move || match unistd::write(fd, &buf[..n]) {
+            Err(err) => Err((buf, io_error_from_nix_error(err))),
+            Ok(n) => Ok((buf, n)),
         })
         .await
-        {
-            Ok((file, buf, n)) => {
-                guard.replace(file);
-
-                Ok((buf, n))
-            }
-
-            Err((file, buf, err)) => {
-                guard.replace(file);
-
-                Err((buf, err))
-            }
-        }
     }
 }
 
@@ -225,14 +195,6 @@ impl AsRawFd for FuseConnection {
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl Drop for FuseConnection {
     fn drop(&mut self) {
-        let read_file = self
-            .read_file
-            .try_lock()
-            .expect("with &mut self, we must have lock")
-            .take()
-            .unwrap();
-
-        // make sure fd won't be close twice
-        read_file.into_raw_fd();
+        let _ = unistd::close(self.fd);
     }
 }
