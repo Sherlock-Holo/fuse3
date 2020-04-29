@@ -37,7 +37,7 @@ impl Entry {
                     mtime: SystemTime::UNIX_EPOCH,
                     ctime: SystemTime::UNIX_EPOCH,
                     kind: FileType::Directory,
-                    perm: 0o777,
+                    perm: fuse3::perm_from_mode_and_kind(FileType::Directory, dir.mode),
                     nlink: 0,
                     uid: 0,
                     gid: 0,
@@ -58,7 +58,7 @@ impl Entry {
                     mtime: SystemTime::UNIX_EPOCH,
                     ctime: SystemTime::UNIX_EPOCH,
                     kind: FileType::RegularFile,
-                    perm: 0o666,
+                    perm: fuse3::perm_from_mode_and_kind(FileType::RegularFile, file.mode),
                     nlink: 0,
                     uid: 0,
                     gid: 0,
@@ -70,14 +70,26 @@ impl Entry {
     }
 
     async fn set_attr(&self, set_attr: SetAttr) -> FileAttr {
-        if let Entry::File(file) = self {
-            let mut file = file.write().await;
+        match self {
+            Entry::Dir(dir) => {
+                let mut dir = dir.write().await;
 
-            if let Some(size) = set_attr.size {
-                file.content.truncate(size as _);
+                if let Some(mode) = set_attr.mode {
+                    dir.mode = mode;
+                }
             }
 
-            drop(file);
+            Entry::File(file) => {
+                let mut file = file.write().await;
+
+                if let Some(size) = set_attr.size {
+                    file.content.truncate(size as _);
+                }
+
+                if let Some(mode) = set_attr.mode {
+                    file.mode = mode;
+                }
+            }
         }
 
         self.attr().await
@@ -122,6 +134,7 @@ struct Dir {
     parent: u64,
     name: OsString,
     children: BTreeMap<OsString, Entry>,
+    mode: u32,
 }
 
 #[derive(Debug)]
@@ -130,6 +143,7 @@ struct File {
     parent: u64,
     name: OsString,
     content: Vec<u8>,
+    mode: u32,
 }
 
 #[derive(Debug)]
@@ -148,6 +162,7 @@ impl Default for FS {
             parent: 1,
             name: OsString::from("/"),
             children: BTreeMap::new(),
+            mode: 0o755,
         })));
 
         let mut inode_map = BTreeMap::new();
@@ -234,7 +249,7 @@ impl Filesystem for FS {
         _req: Request,
         parent: u64,
         name: &OsStr,
-        _mode: u32,
+        mode: u32,
         _umask: u32,
     ) -> Result<ReplyEntry> {
         let mut inner = self.0.write().await;
@@ -258,6 +273,7 @@ impl Filesystem for FS {
                 parent,
                 name: name.to_owned(),
                 children: BTreeMap::new(),
+                mode,
             })));
 
             let attr = entry.attr().await;
@@ -293,9 +309,9 @@ impl Filesystem for FS {
                 .children
                 .get(name)
                 .ok_or(Errno::from(libc::ENOENT))?
-                .is_file()
+                .is_dir()
             {
-                return Err(libc::ENOTDIR.into());
+                return Err(libc::EISDIR.into());
             }
 
             let inode = dir.children.remove(name).unwrap().inode().await;
@@ -325,7 +341,7 @@ impl Filesystem for FS {
                 .children
                 .get(name)
                 .ok_or(Errno::from(libc::ENOENT))?
-                .is_dir()
+                .is_file()
             {
                 return Err(libc::ENOTDIR.into());
             }
@@ -426,7 +442,7 @@ impl Filesystem for FS {
         if let Entry::File(file) = entry {
             let file = file.read().await;
 
-            if file.content.len() < offset as _ {
+            if file.content.len() <= offset as _ {
                 return Ok(ReplyData { data: vec![] });
             }
 
@@ -575,7 +591,7 @@ impl Filesystem for FS {
         _req: Request,
         parent: u64,
         name: &OsStr,
-        _mode: u32,
+        mode: u32,
         flags: u32,
     ) -> Result<ReplyCreated> {
         let mut inner = self.0.write().await;
@@ -599,6 +615,7 @@ impl Filesystem for FS {
                 parent,
                 name: name.to_os_string(),
                 content: vec![],
+                mode,
             })));
 
             let attr = entry.attr().await;
@@ -646,8 +663,10 @@ impl Filesystem for FS {
 
             let new_size = (offset + length) as usize;
 
-            if new_size > file.content.len() {
-                file.content.reserve(new_size);
+            let size = file.content.len();
+
+            if new_size > size {
+                file.content.reserve(new_size - size);
             } else {
                 file.content.truncate(new_size);
             }
