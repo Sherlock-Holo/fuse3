@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::OsStr;
 
 use async_trait::async_trait;
 
@@ -12,7 +12,7 @@ pub trait Filesystem {
 
     async fn destroy(&self, req: Request);
 
-    async fn lookup(&self, _req: Request, _parent: u64, _name: OsString) -> Result<ReplyEntry> {
+    async fn lookup(&self, _req: Request, _parent: u64, _name: &OsStr) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
 
@@ -40,8 +40,8 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _parent: u64,
-        _name: OsString,
-        _link: OsString,
+        _name: &OsStr,
+        _link: &OsStr,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
@@ -50,7 +50,7 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _parent: u64,
-        _name: OsString,
+        _name: &OsStr,
         _mode: u32,
         _rdev: u32,
     ) -> Result<ReplyEntry> {
@@ -61,18 +61,18 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _parent: u64,
-        _name: OsString,
+        _name: &OsStr,
         _mode: u32,
         _umask: u32,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
 
-    async fn unlink(&self, _req: Request, _parent: u64, _name: OsString) -> Result<()> {
+    async fn unlink(&self, _req: Request, _parent: u64, _name: &OsStr) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
-    async fn rmdir(&self, _req: Request, _parent: u64, _name: OsString) -> Result<()> {
+    async fn rmdir(&self, _req: Request, _parent: u64, _name: &OsStr) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
@@ -80,9 +80,9 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _parent: u64,
-        _name: OsString,
+        _name: &OsStr,
         _new_parent: u64,
-        _new_name: OsString,
+        _new_name: &OsStr,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -92,7 +92,7 @@ pub trait Filesystem {
         _req: Request,
         _inode: u64,
         _new_parent: u64,
-        _new_name: OsString,
+        _new_name: &OsStr,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
@@ -117,8 +117,8 @@ pub trait Filesystem {
         _req: Request,
         _inode: u64,
         _fh: u64,
-        _offset: i64,
-        _data: Vec<u8>,
+        _offset: u64,
+        _data: &[u8],
         _flags: u32,
     ) -> Result<ReplyWrite> {
         Err(libc::ENOSYS.into())
@@ -148,8 +148,8 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _inode: u64,
-        _name: OsString,
-        _value: OsString,
+        _name: &OsStr,
+        _value: &OsStr,
         _flags: u32,
         _position: u32,
     ) -> Result<()> {
@@ -165,7 +165,7 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _inode: u64,
-        _name: OsString,
+        _name: &OsStr,
         _size: u32,
     ) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS.into())
@@ -180,7 +180,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    async fn removexattr(&self, _req: Request, _inode: u64, _name: OsString) -> Result<()> {
+    async fn removexattr(&self, _req: Request, _inode: u64, _name: &OsStr) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
@@ -245,7 +245,7 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _parent: u64,
-        _name: OsString,
+        _name: &OsStr,
         _mode: u32,
         _flags: u32,
     ) -> Result<ReplyCreated> {
@@ -323,9 +323,9 @@ pub trait Filesystem {
         &self,
         _req: Request,
         _parent: u64,
-        _name: OsString,
+        _name: &OsStr,
         _new_parent: u64,
-        _new_name: OsString,
+        _new_name: &OsStr,
         _flags: u32,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())

@@ -11,6 +11,10 @@ publish = false
 name = "helloworld"
 path = "src/helloworld/main.rs"
 
+[[bin]]
+name = "memfs"
+path = "src/memfs/main.rs"
+
 [dependencies]
 fuse3 = { path = "../", features = ["async-std-runtime"] }
 async-trait = "0.1"
@@ -18,3 +22,4 @@ libc = "0.2"
 async-std = { version = "1.5", features = ["attributes"] }
 pretty_env_logger = "0.4"
 log = "0.4"
+futures-util = "0.3"

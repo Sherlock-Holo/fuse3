@@ -5,8 +5,7 @@ use std::time::{Duration, SystemTime};
 use log::LevelFilter;
 
 use async_trait::async_trait;
-use fuse3::reply::*;
-use fuse3::{self, FileAttr, FileType, Filesystem, MountOption, Request, Result};
+use fuse3::prelude::*;
 
 const CONTENT: &str = "hello world\n";
 
@@ -27,7 +26,7 @@ impl Filesystem for HelloWorld {
 
     async fn destroy(&self, _req: Request) {}
 
-    async fn lookup(&self, _req: Request, parent: u64, name: OsString) -> Result<ReplyEntry> {
+    async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> Result<ReplyEntry> {
         if parent != PARENT_INODE {
             return Err(libc::ENOENT.into());
         }
@@ -299,7 +298,11 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    let mount_option = MountOption::default().allow_other(true).uid(uid).gid(gid);
+    let mount_option = MountOption::default()
+        .allow_other(true)
+        .uid(uid)
+        .gid(gid)
+        .read_only(true);
 
     if let Some(mount_path) = mount_path {
         fuse3::mount(HelloWorld {}, mount_path, mount_option)

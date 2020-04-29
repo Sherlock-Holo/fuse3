@@ -211,6 +211,18 @@ where
     Session::mount(fs, mount_path, mount_option).await
 }
 
+pub mod prelude {
+    pub use crate::reply::*;
+    pub use crate::Errno;
+    pub use crate::FileAttr;
+    pub use crate::FileType;
+    pub use crate::Filesystem;
+    pub use crate::MountOption;
+    pub use crate::Request;
+    pub use crate::Result;
+    pub use crate::SetAttr;
+}
+
 /*#[cfg(test)]
 mod tests {
     #[test]

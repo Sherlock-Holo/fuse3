@@ -472,7 +472,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
-                        let data = match fs.lookup(request, in_header.nodeid, name).await {
+                        let data = match fs.lookup(request, in_header.nodeid, &name).await {
                             Err(err) => {
                                 let out_header = fuse_out_header {
                                     len: FUSE_OUT_HEADER_SIZE as u32,
@@ -759,41 +759,42 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
-                        let data =
-                            match fs.symlink(request, in_header.nodeid, name, link_name).await {
-                                Err(err) => {
-                                    let out_header = fuse_out_header {
-                                        len: FUSE_OUT_HEADER_SIZE as u32,
-                                        error: err.into(),
-                                        unique: request.unique,
-                                    };
+                        let data = match fs
+                            .symlink(request, in_header.nodeid, &name, &link_name)
+                            .await
+                        {
+                            Err(err) => {
+                                let out_header = fuse_out_header {
+                                    len: FUSE_OUT_HEADER_SIZE as u32,
+                                    error: err.into(),
+                                    unique: request.unique,
+                                };
 
-                                    BINARY.serialize(&out_header).expect("won't happened")
-                                }
+                                BINARY.serialize(&out_header).expect("won't happened")
+                            }
 
-                                Ok(entry) => {
-                                    let entry_out: fuse_entry_out = entry.into();
+                            Ok(entry) => {
+                                let entry_out: fuse_entry_out = entry.into();
 
-                                    let out_header = fuse_out_header {
-                                        len: (FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE) as u32,
-                                        error: 0,
-                                        unique: request.unique,
-                                    };
+                                let out_header = fuse_out_header {
+                                    len: (FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE) as u32,
+                                    error: 0,
+                                    unique: request.unique,
+                                };
 
-                                    let mut data = Vec::with_capacity(
-                                        FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE,
-                                    );
+                                let mut data =
+                                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                                    BINARY
-                                        .serialize_into(&mut data, &out_header)
-                                        .expect("won't happened");
-                                    BINARY
-                                        .serialize_into(&mut data, &entry_out)
-                                        .expect("won't happened");
+                                BINARY
+                                    .serialize_into(&mut data, &out_header)
+                                    .expect("won't happened");
+                                BINARY
+                                    .serialize_into(&mut data, &entry_out)
+                                    .expect("won't happened");
 
-                                    data
-                                }
-                            };
+                                data
+                            }
+                        };
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -841,7 +842,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .mknod(
                                 request,
                                 in_header.nodeid,
-                                name,
+                                &name,
                                 mknod_in.mode,
                                 mknod_in.rdev,
                             )
@@ -918,7 +919,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .mkdir(
                                 request,
                                 in_header.nodeid,
-                                name,
+                                &name,
                                 mkdir_in.mode,
                                 mkdir_in.umask,
                             )
@@ -975,7 +976,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     spawn_without_return(async move {
                         let resp_value =
-                            if let Err(err) = fs.unlink(request, in_header.nodeid, name).await {
+                            if let Err(err) = fs.unlink(request, in_header.nodeid, &name).await {
                                 err.into()
                             } else {
                                 0
@@ -1015,7 +1016,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     spawn_without_return(async move {
                         let resp_value =
-                            if let Err(err) = fs.unlink(request, in_header.nodeid, name).await {
+                            if let Err(err) = fs.unlink(request, in_header.nodeid, &name).await {
                                 err.into()
                             } else {
                                 0
@@ -1089,7 +1090,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     spawn_without_return(async move {
                         let resp_value = if let Err(err) = fs
-                            .rename(request, in_header.nodeid, name, rename_in.newdir, new_name)
+                            .rename(
+                                request,
+                                in_header.nodeid,
+                                &name,
+                                rename_in.newdir,
+                                &new_name,
+                            )
                             .await
                         {
                             err.into()
@@ -1148,7 +1155,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     spawn_without_return(async move {
                         match fs
-                            .link(request, link_in.oldnodeid, in_header.nodeid, name)
+                            .link(request, link_in.oldnodeid, in_header.nodeid, &name)
                             .await
                         {
                             Err(err) => {
@@ -1331,8 +1338,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request,
                                 in_header.nodeid,
                                 write_in.fh,
-                                write_in.offset as i64,
-                                data,
+                                write_in.offset,
+                                &data,
                                 write_in.flags,
                             )
                             .await
@@ -1568,7 +1575,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         // TODO handle os X argument
                         let resp_value = if let Err(err) = fs
-                            .setxattr(request, in_header.nodeid, name, value, setxattr_in.flags, 0)
+                            .setxattr(
+                                request,
+                                in_header.nodeid,
+                                &name,
+                                &value,
+                                setxattr_in.flags,
+                                0,
+                            )
                             .await
                         {
                             err.into()
@@ -1624,7 +1638,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     spawn_without_return(async move {
                         let xattr = match fs
-                            .getxattr(request, in_header.nodeid, name, getxattr_in.size)
+                            .getxattr(request, in_header.nodeid, &name, getxattr_in.size)
                             .await
                         {
                             Err(err) => {
@@ -1790,7 +1804,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     spawn_without_return(async move {
                         let resp_value = if let Err(err) =
-                            fs.removexattr(request, in_header.nodeid, name).await
+                            fs.removexattr(request, in_header.nodeid, &name).await
                         {
                             err.into()
                         } else {
@@ -2303,7 +2317,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .create(
                                 request,
                                 in_header.nodeid,
-                                name,
+                                &name,
                                 create_in.mode,
                                 create_in.flags,
                             )
@@ -2795,9 +2809,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .rename2(
                                 request,
                                 in_header.nodeid,
-                                old_name,
+                                &old_name,
                                 rename2_in.newdir,
-                                new_name,
+                                &new_name,
                                 rename2_in.flags,
                             )
                             .await
