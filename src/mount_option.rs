@@ -16,6 +16,10 @@ pub struct MountOption {
     pub(crate) allow_other: bool,
 
     pub(crate) read_only: Option<bool>,
+
+    pub(crate) default_permissions: bool,
+
+    pub(crate) nonempty: bool,
 }
 
 impl MountOption {
@@ -61,6 +65,18 @@ impl MountOption {
         self
     }
 
+    pub fn default_permissions(mut self, default_permissions: bool) -> Self {
+        self.default_permissions = default_permissions;
+
+        self
+    }
+
+    pub fn nonempty(mut self, nonempty: bool) -> Self {
+        self.nonempty = nonempty;
+
+        self
+    }
+
     pub(crate) fn build(&self, fd: i32) -> OsString {
         let mut opts = vec![
             format!("fd={}", fd),
@@ -79,6 +95,10 @@ impl MountOption {
 
         if matches!(self.read_only, Some(true)) {
             opts.push("ro".to_string());
+        }
+
+        if self.default_permissions {
+            opts.push("default_permissions".to_string());
         }
 
         OsString::from(opts.join(","))

@@ -2,8 +2,11 @@ use std::io::Result as IoResult;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use nix::sys::stat::mode_t;
+
 pub use errno::Errno;
 pub use filesystem::Filesystem;
+pub use helper::perm_from_mode_and_kind;
 pub use mount_option::MountOption;
 pub use request::Request;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
@@ -130,6 +133,20 @@ pub enum FileType {
     Symlink,
     /// Unix domain socket (S_IFSOCK)
     Socket,
+}
+
+impl From<FileType> for mode_t {
+    fn from(kind: FileType) -> Self {
+        match kind {
+            FileType::NamedPipe => libc::S_IFIFO,
+            FileType::CharDevice => libc::S_IFCHR,
+            FileType::BlockDevice => libc::S_IFBLK,
+            FileType::Directory => libc::S_IFDIR,
+            FileType::RegularFile => libc::S_IFREG,
+            FileType::Symlink => libc::S_IFLNK,
+            FileType::Socket => libc::S_IFSOCK,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

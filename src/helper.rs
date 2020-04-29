@@ -1,5 +1,7 @@
 use std::mem;
 
+use nix::sys::stat::mode_t;
+
 use crate::FileType;
 
 pub trait Apply: Sized {
@@ -23,16 +25,11 @@ pub fn get_first_null_position(data: impl AsRef<[u8]>) -> Option<usize> {
 #[allow(trivial_numeric_casts)]
 /// Returns the mode for a given file kind and permission
 pub fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
-    (match kind {
-        FileType::NamedPipe => libc::S_IFIFO,
-        FileType::CharDevice => libc::S_IFCHR,
-        FileType::BlockDevice => libc::S_IFBLK,
-        FileType::Directory => libc::S_IFDIR,
-        FileType::RegularFile => libc::S_IFREG,
-        FileType::Symlink => libc::S_IFLNK,
-        FileType::Socket => libc::S_IFSOCK,
-    }) as u32
-        | perm as u32
+    mode_t::from(kind) | perm as u32
+}
+
+pub fn perm_from_mode_and_kind(kind: FileType, mode: u32) -> u16 {
+    (mode ^ mode_t::from(kind)) as u16
 }
 
 #[inline]

@@ -9,12 +9,16 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
+#[cfg(feature = "async-std-runtime")]
+use async_std::fs::read_dir;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
 use log::{debug, error};
 use nix::mount;
 use nix::mount::MsFlags;
 use nix::Error as NixError;
+#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+use tokio::fs::read_dir;
 
 use lazy_static::lazy_static;
 
@@ -43,6 +47,7 @@ pub struct Session<T> {
     fuse_connection: Arc<FuseConnection>,
     filesystem: Arc<T>,
     response_sender: UnboundedSender<Vec<u8>>,
+    mount_option: MountOption,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
@@ -51,6 +56,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     where
         P: AsRef<Path>,
     {
+        if !mount_option.nonempty && read_dir(mount_path.as_ref()).await?.next().await.is_some() {
+            return Err(IoError::new(
+                ErrorKind::AlreadyExists,
+                "mount point is not empty",
+            ));
+        }
+
         let fuse_file = Arc::new(FuseConnection::new().await?);
 
         let fd = fuse_file.as_raw_fd();
@@ -93,6 +105,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             fuse_connection: fuse_file,
             filesystem: Arc::new(fs),
             response_sender: sender,
+            mount_option,
         };
 
         let dispatch_task = session.dispatch().fuse();
@@ -162,8 +175,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 return Err(err);
             }
-
-            debug!("write done");
         }
 
         Ok(())
@@ -203,8 +214,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     &buffer[..n]
                 }
             };
-
-            debug!("read raw data done");
 
             let in_header = match BINARY.deserialize::<fuse_in_header>(data) {
                 Err(err) => {
@@ -355,7 +364,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_HANDLE_KILLPRIV;
                     }*/
 
-                    if init_in.flags & FUSE_POSIX_ACL > 0 {
+                    if init_in.flags & FUSE_POSIX_ACL > 0 && self.mount_option.default_permissions {
                         reply_flags |= FUSE_POSIX_ACL;
                     }
 
@@ -378,6 +387,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     if init_in.flags & FUSE_READ_LOCKOWNER > 0 {
                         reply_flags |= FUSE_READ_LOCKOWNER;
                     }
+
+                    reply_flags &= init_in.flags;
 
                     if let Err(err) = self.filesystem.init(request).await {
                         let init_out_header = fuse_out_header {
