@@ -16,8 +16,8 @@ use crate::abi::{
 use crate::helper::mode_from_kind_and_perm;
 
 mod abi;
+mod connection;
 mod errno;
-mod file;
 mod filesystem;
 mod helper;
 mod mount_option;

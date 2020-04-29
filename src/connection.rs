@@ -23,14 +23,14 @@ use crate::spawn::spawn_blocking;
 const DEV_FUSE: &str = "/dev/fuse";
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-pub struct FuseFile {
+pub struct FuseConnection {
     fd: RawFd,
     read_file: Mutex<Option<SysFile>>,
     write_file: Mutex<Option<SysFile>>,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-impl FuseFile {
+impl FuseConnection {
     pub async fn new() -> io::Result<Self> {
         #[cfg(feature = "async-std-runtime")]
         let fd = async_std::fs::OpenOptions::new()
@@ -113,14 +113,14 @@ impl FuseFile {
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-impl AsRawFd for FuseFile {
+impl AsRawFd for FuseConnection {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-impl Drop for FuseFile {
+impl Drop for FuseConnection {
     fn drop(&mut self) {
         let read_file = self
             .read_file

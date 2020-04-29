@@ -20,7 +20,7 @@ use lazy_static::lazy_static;
 
 use crate::abi::*;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-use crate::file::FuseFile;
+use crate::connection::FuseConnection;
 use crate::filesystem::Filesystem;
 use crate::helper::*;
 use crate::reply::ReplyXAttr;
@@ -40,7 +40,7 @@ lazy_static! {
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 pub struct Session<T> {
-    fuse_file: Arc<FuseFile>,
+    fuse_connection: Arc<FuseConnection>,
     filesystem: Arc<T>,
     response_sender: UnboundedSender<Vec<u8>>,
 }
@@ -51,7 +51,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     where
         P: AsRef<Path>,
     {
-        let fuse_file = Arc::new(FuseFile::new().await?);
+        let fuse_file = Arc::new(FuseConnection::new().await?);
 
         let fd = fuse_file.as_raw_fd();
 
@@ -90,7 +90,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let (sender, receiver) = unbounded();
 
         let mut session = Self {
-            fuse_file,
+            fuse_connection: fuse_file,
             filesystem: Arc::new(fs),
             response_sender: sender,
         };
@@ -151,7 +151,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     async fn reply_fuse(
-        fuse_file: Arc<FuseFile>,
+        fuse_file: Arc<FuseConnection>,
         mut response_receiver: UnboundedReceiver<Vec<u8>>,
     ) -> IoResult<()> {
         while let Some(response) = response_receiver.next().await {
@@ -173,7 +173,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut buffer = vec![0; BUFFER_SIZE];
 
         'dispatch_loop: loop {
-            let mut data = match self.fuse_file.read(buffer).await {
+            let mut data = match self.fuse_connection.read(buffer).await {
                 Err((_, err)) => {
                     if let Some(errno) = err.raw_os_error() {
                         if errno == libc::ENODEV {
@@ -256,7 +256,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 BINARY.serialize(&init_out_header).expect("won't happened");
 
                             if let Err((_, err)) = self
-                                .fuse_file
+                                .fuse_connection
                                 .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
                                 .await
                             {
@@ -390,7 +390,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             BINARY.serialize(&init_out_header).expect("won't happened");
 
                         if let Err((_, err)) = self
-                            .fuse_file
+                            .fuse_connection
                             .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
                             .await
                         {
@@ -432,7 +432,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .expect("won't happened");
 
                     if let Err((_, err)) = self
-                        .fuse_file
+                        .fuse_connection
                         .write(data, FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE)
                         .await
                     {
