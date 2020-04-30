@@ -1,3 +1,4 @@
+//! reply structures.
 use std::ffi::OsString;
 use std::time::Duration;
 
@@ -9,13 +10,14 @@ use crate::abi::{
 use crate::abi::{fuse_file_lock, fuse_lk_out};
 use crate::{FileAttr, FileType};
 
-#[derive(Debug, Default)]
-pub struct ReplyEmpty {}
-
 #[derive(Debug)]
+/// entry reply.
 pub struct ReplyEntry {
+    /// the attribute TTL.
     pub ttl: Duration,
+    /// the attribute.
     pub attr: FileAttr,
+    /// the generation.
     pub generation: u64,
 }
 
@@ -36,8 +38,11 @@ impl Into<fuse_entry_out> for ReplyEntry {
 }
 
 #[derive(Debug)]
+/// reply attr.
 pub struct ReplyAttr {
+    /// the attribute TTL.
     pub ttl: Duration,
+    /// the attribute.
     pub attr: FileAttr,
 }
 
@@ -52,13 +57,22 @@ impl Into<fuse_attr_out> for ReplyAttr {
     }
 }
 
+/// data reply.
 pub struct ReplyData {
+    /// the data.
     pub data: Vec<u8>,
 }
 
 #[derive(Debug)]
+/// open reply.
 pub struct ReplyOpen {
+    /// the file handle id.
+    ///
+    /// # Notes:
+    ///
+    /// if set fh 0, means use stateless IO.
     pub fh: u64,
+    /// the flags.
     pub flags: u32,
 }
 
@@ -73,7 +87,9 @@ impl Into<fuse_open_out> for ReplyOpen {
 }
 
 #[derive(Debug)]
+/// write reply.
 pub struct ReplyWrite {
+    /// the data written.
     pub written: u64,
 }
 
@@ -87,6 +103,8 @@ impl Into<fuse_write_out> for ReplyWrite {
 }
 
 #[derive(Debug)]
+// TODO need more detail.
+/// statfs reply.
 pub struct ReplyStatFs {
     pub blocks: u64,
     pub bfree: u64,
@@ -118,30 +136,45 @@ impl Into<fuse_statfs_out> for ReplyStatFs {
 }
 
 #[derive(Debug)]
+/// xattr reply.
 pub enum ReplyXAttr {
     Size(u32),
     Data(Vec<u8>),
 }
 
 #[derive(Debug)]
+/// directory entry.
 pub struct DirectoryEntry {
+    /// entry inode.
     pub inode: u64,
     /// index is point to next entry, for example, if entry is the first one, the index should be 1
     pub index: u64,
+    /// entry kind.
     pub kind: FileType,
+    /// entry name.
     pub name: OsString,
 }
 
+/// readdir reply.
 pub struct ReplyDirectory {
     pub entries: Box<dyn Iterator<Item = DirectoryEntry> + Send>,
 }
 
 #[cfg(feature = "file-lock")]
 #[derive(Debug)]
+/// file lock reply.
 pub struct ReplyLock {
+    /// starting offset for lock.
     pub start: u64,
+    /// end offset for lock.
     pub end: u64,
+    /// type of lock, such as: [`F_RDLCK`], [`F_WRLCK`] and [`F_UNLCK`]
+    ///
+    /// [`F_RDLCK`]: libc::F_RDLCK
+    /// [`F_WRLCK`]: libc::F_WRLCK
+    /// [`F_UNLCK`]: libc::F_UNLCK
     pub r#type: u32,
+    /// PID of process blocking our lock
     pub pid: u32,
 }
 
@@ -160,11 +193,17 @@ impl Into<fuse_lk_out> for ReplyLock {
 }
 
 #[derive(Debug)]
+/// crate reply.
 pub struct ReplyCreated {
+    /// the attribute TTL.
     pub ttl: Duration,
+    /// the attribute of file.
     pub attr: FileAttr,
+    /// the generation of file.
     pub generation: u64,
+    /// the file handle.
     pub fh: u64,
+    /// the flags.
     pub flags: u32,
 }
 
@@ -193,6 +232,8 @@ impl Into<(fuse_entry_out, fuse_open_out)> for ReplyCreated {
 }
 
 #[derive(Debug)]
+// TODO need more detail
+/// bmap reply.
 pub struct ReplyBmap {
     pub block: u64,
 }
@@ -203,15 +244,17 @@ impl Into<fuse_bmap_out> for ReplyBmap {
     }
 }
 
-#[derive(Debug)]
+/*#[derive(Debug)]
 pub struct ReplyIoctl {
     pub result: i32,
     pub flags: u32,
     pub in_iovs: u32,
     pub out_iovs: u32,
-}
+}*/
 
 #[derive(Debug)]
+// TODO need more detail
+/// poll reply
 pub struct ReplyPoll {
     pub revents: u32,
 }
@@ -226,25 +269,36 @@ impl Into<fuse_poll_out> for ReplyPoll {
 }
 
 #[derive(Debug)]
+/// directory entry with attribute
 pub struct DirectoryEntryPlus {
+    /// the entry inode.
     pub inode: u64,
+    /// the entry generation.
     pub generation: u64,
     /// index is point to next entry, for example, if entry is the first one, the index should be 1
     pub index: u64,
+    /// the entry kind.
     pub kind: FileType,
+    /// the entry name.
     pub name: OsString,
+    /// the entry attribute.
     pub attr: FileAttr,
+    /// the entry TTL.
     pub entry_ttl: Duration,
+    /// the attribute TTL.
     pub attr_ttl: Duration,
 }
 
 // use fuse_direntplus
+/// the readdirplus reply.
 pub struct ReplyDirectoryPlus {
     pub entries: Box<dyn Iterator<Item = DirectoryEntryPlus> + Send>,
 }
 
 #[derive(Debug)]
+/// the lseek reply.
 pub struct ReplyLSeek {
+    /// lseek offset.
     pub offset: u64,
 }
 
@@ -257,7 +311,9 @@ impl Into<fuse_lseek_out> for ReplyLSeek {
 }
 
 #[derive(Debug)]
+/// copy_file_range reply.
 pub struct ReplyCopyFileRange {
+    /// data copied size.
     pub copied: u64,
 }
 

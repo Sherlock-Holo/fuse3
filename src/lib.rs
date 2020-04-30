@@ -53,7 +53,7 @@ mod spawn;
 /// [`Errno`]: Errno
 pub type Result<T> = std::result::Result<T, Errno>;
 
-/// File attributes
+/// file attributes
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FileAttr {
     /// Inode number
