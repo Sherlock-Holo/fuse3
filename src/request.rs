@@ -1,10 +1,15 @@
 use crate::abi::fuse_in_header;
 
 #[derive(Debug, Copy, Clone)]
+/// Request data
 pub struct Request {
+    /// the unique identifier of this request.
     pub unique: u64,
+    /// the uid of this request.
     pub uid: u32,
+    /// the gid of this request.
     pub gid: u32,
+    /// the pid of this request.
     pub pid: u32,
 }
 

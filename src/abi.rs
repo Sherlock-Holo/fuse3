@@ -77,10 +77,9 @@ pub const FATTR_BKUPTIME: u32 = 1 << 30;
 pub const FATTR_FLAGS: u32 = 1 << 31;
 
 // Flags returned by the open request
-#[allow(dead_code)]
 /// bypass page cache for this open file
 pub const FOPEN_DIRECT_IO: u32 = 1 << 0;
-#[allow(dead_code)]
+
 /// don't invalidate the data cache on open
 pub const FOPEN_KEEP_CACHE: u32 = 1 << 1;
 

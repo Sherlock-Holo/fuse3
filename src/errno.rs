@@ -4,6 +4,7 @@ use std::io::Error as IoError;
 use std::os::raw::c_int;
 
 #[derive(Debug, Copy, Clone)]
+/// a linux errno wrap.
 pub struct Errno(pub c_int);
 
 impl From<Errno> for c_int {
@@ -13,7 +14,7 @@ impl From<Errno> for c_int {
 }
 
 impl From<c_int> for Errno {
-    fn from(errno: i32) -> Self {
+    fn from(errno: c_int) -> Self {
         Self(errno)
     }
 }
@@ -26,12 +27,6 @@ impl From<IoError> for Errno {
         } else {
             Self(libc::EIO)
         }
-    }
-}
-
-impl Errno {
-    pub fn try_from(err: IoError) -> Option<Self> {
-        err.raw_os_error().map(|errno| Self(errno))
     }
 }
 

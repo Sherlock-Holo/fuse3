@@ -7,11 +7,14 @@ an async version fuse library for rust
 - support `readdirplus` to improve read dir performance
 - support posix file lock
 - support handles the O_TRUNC open flag
+- support direct io
 - support enable no_open and no_open_dir option
 
 ## don't support
 - async dio
 - `ioctl` implement
+- fuseblk mode
+- macos support
 
 ## may not work well
 - `poll`

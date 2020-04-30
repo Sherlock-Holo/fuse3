@@ -1,3 +1,22 @@
+//! FUSE user-space library async version implementation.
+//!
+//! This is an improved rewrite of the FUSE user-space library (low-level interface) to fully take
+//! advantage of Rust's architecture.
+//!
+//! This library doesn't depend on `libfuse`, unless enable `unprivileged` feature, this feature
+//! will support mount the filesystem without root permission by using `fusermount3`.
+//!
+//! # Features;
+//!
+//! - `file-lock`: enable POSIX file lock feature.
+//! - `async-std-runtime`: use [async_std](https://docs.rs/async-std) runtime.
+//! - `tokio-runtime`: use [tokio](https://docs.rs/tokio) runtime.
+//! - `unprivileged`: allow mount filesystem without root permission by using `fusermount3`.
+//!
+//! # Notes:
+//!
+//! You must enable `async-std-runtime` or `tokio-runtime` feature.
+
 use std::io::Result as IoResult;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -29,6 +48,9 @@ mod request;
 mod session;
 mod spawn;
 
+/// pre-defined Result, the Err type is [`Errno`].
+///
+/// [`Errno`]: Errno
 pub type Result<T> = std::result::Result<T, Errno>;
 
 /// File attributes
@@ -149,18 +171,30 @@ impl From<FileType> for mode_t {
     }
 }
 
+/// the setattr argument.
 #[derive(Debug, Clone, Default)]
 pub struct SetAttr {
+    /// set file or directory mode.
     pub mode: Option<u32>,
+    /// set file or directory uid.
     pub uid: Option<u32>,
+    /// set file or directory gid.
     pub gid: Option<u32>,
+    /// set file or directory size.
     pub size: Option<u64>,
+    /// the lock_owner argument.
     pub lock_owner: Option<u64>,
+    /// set file or directory atime.
     pub atime: Option<SystemTime>,
+    /// set file or directory mtime.
     pub mtime: Option<SystemTime>,
+    /// the fh argument.
     pub fh: Option<u64>,
+    /// set file or directory atime_now.
     pub atime_now: Option<SystemTime>,
+    /// set file or directory mtime_now.
     pub mtime_now: Option<SystemTime>,
+    /// set file or directory ctime.
     pub ctime: Option<SystemTime>,
     #[cfg(target_os = "macos")]
     pub crtime: Option<SystemTime>,
@@ -220,6 +254,7 @@ impl From<&fuse_setattr_in> for SetAttr {
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+/// mount the filesystem. This function will block until the filesystem is unmounted.
 pub async fn mount<FS, P>(fs: FS, mount_path: P, mount_options: MountOptions) -> IoResult<()>
 where
     FS: Filesystem + Send + Sync + 'static,
@@ -232,6 +267,8 @@ where
     any(feature = "async-std-runtime", feature = "tokio-runtime"),
     feature = "unprivileged"
 ))]
+/// mount the filesystem without root permission. This function will block until the filesystem
+/// is unmounted.
 pub async fn mount_with_unprivileged<FS, P>(
     fs: FS,
     mount_path: P,

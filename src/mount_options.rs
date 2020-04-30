@@ -3,6 +3,7 @@ use std::os::unix::io::RawFd;
 
 use nix::unistd;
 
+/// mount options.
 #[derive(Debug, Clone, Default)]
 pub struct MountOptions {
     // mount syscall data field option
@@ -96,7 +97,7 @@ impl MountOptions {
     ///
     /// When default_permissions is set, the [`access`] is useless.
     ///
-    /// [`access`]: Filesystem::access
+    /// [`access`]: crate::Filesystem::access
     pub fn default_permissions(mut self, default_permissions: bool) -> Self {
         self.default_permissions = default_permissions;
 

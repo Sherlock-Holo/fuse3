@@ -305,6 +305,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut reply_flags = 0;
 
+                    if init_in.flags & FOPEN_DIRECT_IO > 0 {
+                        reply_flags |= FOPEN_DIRECT_IO;
+                    }
+
+                    if init_in.flags & FOPEN_KEEP_CACHE > 0 {
+                        reply_flags |= FOPEN_KEEP_CACHE;
+                    }
+
                     if init_in.flags & FUSE_ASYNC_READ > 0 {
                         reply_flags |= FUSE_ASYNC_READ;
                     }
