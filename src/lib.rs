@@ -23,6 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nix::sys::stat::mode_t;
 
+/// re-export async_trait.
 pub use async_trait::async_trait;
 pub use errno::Errno;
 pub use filesystem::Filesystem;
@@ -33,8 +34,8 @@ pub use request::Request;
 use session::Session;
 
 use crate::abi::{
-    fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_CTIME, FATTR_FH, FATTR_GID, FATTR_LOCKOWNER,
-    FATTR_MODE, FATTR_MTIME, FATTR_SIZE, FATTR_UID,
+    fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_FH, FATTR_GID,
+    FATTR_LOCKOWNER, FATTR_MODE, FATTR_MTIME, FATTR_MTIME_NOW, FATTR_SIZE, FATTR_UID,
 };
 use crate::helper::mode_from_kind_and_perm;
 
@@ -101,32 +102,32 @@ impl Into<fuse_attr> for FileAttr {
             atime: self
                 .atime
                 .duration_since(UNIX_EPOCH)
-                .expect("won't early")
+                .unwrap_or(Duration::from_secs(0))
                 .as_secs(),
             mtime: self
                 .mtime
                 .duration_since(UNIX_EPOCH)
-                .expect("won't early")
+                .unwrap_or(Duration::from_secs(0))
                 .as_secs(),
             ctime: self
                 .ctime
                 .duration_since(UNIX_EPOCH)
-                .expect("won't early")
+                .unwrap_or(Duration::from_secs(0))
                 .as_secs(),
             atimensec: self
                 .atime
                 .duration_since(UNIX_EPOCH)
-                .expect("won't early")
+                .unwrap_or(Duration::from_secs(0))
                 .subsec_nanos(),
             mtimensec: self
                 .mtime
                 .duration_since(UNIX_EPOCH)
-                .expect("won't early")
+                .unwrap_or(Duration::from_secs(0))
                 .subsec_nanos(),
             ctimensec: self
                 .ctime
                 .duration_since(UNIX_EPOCH)
-                .expect("won't early")
+                .unwrap_or(Duration::from_secs(0))
                 .subsec_nanos(),
             mode: mode_from_kind_and_perm(self.kind, self.perm),
             nlink: self.nlink,
@@ -191,10 +192,10 @@ pub struct SetAttr {
     pub mtime: Option<SystemTime>,
     /// the fh argument.
     pub fh: Option<u64>,
-    /// set file or directory atime_now.
-    pub atime_now: Option<SystemTime>,
-    /// set file or directory mtime_now.
-    pub mtime_now: Option<SystemTime>,
+    /// set file or directory atime now.
+    pub atime_now: Option<()>,
+    /// set file or directory mtime now.
+    pub mtime_now: Option<()>,
     /// set file or directory ctime.
     pub ctime: Option<SystemTime>,
     #[cfg(target_os = "macos")]
@@ -232,9 +233,17 @@ impl From<&fuse_setattr_in> for SetAttr {
                 Some(UNIX_EPOCH + Duration::new(setattr_in.atime, setattr_in.atimensec));
         }
 
+        if setattr_in.valid & FATTR_ATIME_NOW > 0 {
+            set_attr.atime = Some(SystemTime::now());
+        }
+
         if setattr_in.valid & FATTR_MTIME > 0 {
             set_attr.mtime =
                 Some(UNIX_EPOCH + Duration::new(setattr_in.mtime, setattr_in.mtimensec));
+        }
+
+        if setattr_in.valid & FATTR_MTIME_NOW > 0 {
+            set_attr.mtime = Some(SystemTime::now());
         }
 
         if setattr_in.valid & FATTR_FH > 0 {

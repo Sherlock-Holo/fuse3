@@ -33,69 +33,71 @@ pub struct MountOptions {
 
     pub(crate) write_cache: bool,
 
+    pub(crate) handle_killpriv: bool,
+
     pub(crate) custom_options: Option<OsString>,
 }
 
 impl MountOptions {
-    /// set fuse filesystem mount user_id, default is current uid.
+    /// set fuse filesystem mount `user_id`, default is current uid.
     pub fn uid(mut self, uid: u32) -> Self {
         self.uid.replace(uid);
 
         self
     }
 
-    /// set fuse filesystem mount group_id, default is current gid.
+    /// set fuse filesystem mount `group_id`, default is current gid.
     pub fn gid(mut self, gid: u32) -> Self {
         self.gid.replace(gid);
 
         self
     }
 
-    /// set fuse filesystem name, default is fuse.
+    /// set fuse filesystem name, default is **fuse**.
     pub fn fs_name(mut self, name: impl Into<OsString>) -> Self {
         self.fs_name.replace(name.into());
 
         self
     }
 
-    /// set fuse filesystem rootmode, default is 40000.
+    /// set fuse filesystem `rootmode`, default is 40000.
     pub fn rootmode(mut self, rootmode: u32) -> Self {
         self.rootmode.replace(rootmode);
 
         self
     }
 
-    /// set fuse filesystem allow_root mount option, default is disable.
+    /// set fuse filesystem `allow_root` mount option, default is disable.
     pub fn allow_root(mut self, allow_root: bool) -> Self {
         self.allow_root = allow_root;
 
         self
     }
 
-    /// set fuse filesystem allow_other mount option, default is disable.
+    /// set fuse filesystem `allow_other` mount option, default is disable.
     pub fn allow_other(mut self, allow_other: bool) -> Self {
         self.allow_other = allow_other;
 
         self
     }
 
-    /// set fuse filesystem ro mount option, default is disable.
+    /// set fuse filesystem `ro` mount option, default is disable.
     pub fn read_only(mut self, read_only: bool) -> Self {
         self.read_only.replace(read_only);
 
         self
     }
 
-    /// allow fuse filesystem mount on a nonempty directory, default is not allowed.
+    /// allow fuse filesystem mount on a non-empty directory, default is not allowed.
     pub fn nonempty(mut self, nonempty: bool) -> Self {
         self.nonempty = nonempty;
 
         self
     }
 
-    /// set fuse filesystem default_permissions mount option, default is disable.
+    /// set fuse filesystem `default_permissions` mount option, default is disable.
     ///
-    /// When default_permissions is set, the [`access`] is useless.
+    /// When `default_permissions` is set, the [`access`] is useless.
     ///
     /// [`access`]: crate::Filesystem::access
     pub fn default_permissions(mut self, default_permissions: bool) -> Self {
@@ -128,6 +130,13 @@ impl MountOptions {
     /// delayed write from page cache, file handle is guessed
     pub fn write_cache(mut self, write_cache: bool) -> Self {
         self.write_cache = write_cache;
+
+        self
+    }
+
+    /// fs handle killing `suid`/`sgid`/`cap` on `write`/`chown`/`trunc`, default is disable.
+    pub fn handle_killpriv(mut self, handle_killpriv: bool) -> Self {
+        self.handle_killpriv = handle_killpriv;
 
         self
     }

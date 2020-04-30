@@ -14,11 +14,10 @@ https://github.com/Sherlock-Holo/fuse3)
 - support `readdirplus` to improve read dir performance
 - support posix file lock
 - support handles the `O_TRUNC` open flag
-- support direct IO
+- support async direct IO
 - support enable `no_open` and `no_open_dir` option
 
 ## still not support
-- async DIO
 - `ioctl` implement
 - fuseblk mode
 - macos support

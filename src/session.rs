@@ -269,8 +269,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             match opcode {
                 fuse_opcode::FUSE_INIT => {
-                    debug!("receive FUSE INIT");
-
                     let init_in = match BINARY.deserialize::<fuse_init_in>(data) {
                         Err(err) => {
                             error!(
@@ -301,32 +299,32 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(init_in) => init_in,
                     };
 
-                    debug!("fuse_init_in {:?}", init_in);
+                    debug!("fuse_init {:?}", init_in);
 
                     let mut reply_flags = 0;
 
-                    if init_in.flags & FOPEN_DIRECT_IO > 0 {
-                        reply_flags |= FOPEN_DIRECT_IO;
-                    }
-
-                    if init_in.flags & FOPEN_KEEP_CACHE > 0 {
-                        reply_flags |= FOPEN_KEEP_CACHE;
-                    }
-
                     if init_in.flags & FUSE_ASYNC_READ > 0 {
+                        debug!("enable FUSE_ASYNC_READ");
+
                         reply_flags |= FUSE_ASYNC_READ;
                     }
 
                     #[cfg(feature = "file-lock")]
                     if init_in.flags & FUSE_POSIX_LOCKS > 0 {
+                        debug!("enable FUSE_POSIX_LOCKS");
+
                         reply_flags |= FUSE_POSIX_LOCKS;
                     }
 
                     if init_in.flags & FUSE_FILE_OPS > 0 {
+                        debug!("enable FUSE_FILE_OPS");
+
                         reply_flags |= FUSE_FILE_OPS;
                     }
 
                     if init_in.flags & FUSE_ATOMIC_O_TRUNC > 0 {
+                        debug!("enable FUSE_ATOMIC_O_TRUNC");
+
                         reply_flags |= FUSE_ATOMIC_O_TRUNC;
                     }
 
@@ -336,22 +334,32 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     }*/
 
                     if init_in.flags & FUSE_BIG_WRITES > 0 {
+                        debug!("enable FUSE_BIG_WRITES");
+
                         reply_flags |= FUSE_BIG_WRITES;
                     }
 
                     if init_in.flags & FUSE_DONT_MASK > 0 && self.mount_options.dont_mask {
+                        debug!("enable FUSE_DONT_MASK");
+
                         reply_flags |= FUSE_DONT_MASK;
                     }
 
                     if init_in.flags & FUSE_SPLICE_WRITE > 0 {
+                        debug!("enable FUSE_SPLICE_WRITE");
+
                         reply_flags |= FUSE_SPLICE_WRITE;
                     }
 
                     if init_in.flags & FUSE_SPLICE_MOVE > 0 {
+                        debug!("enable FUSE_SPLICE_MOVE");
+
                         reply_flags |= FUSE_SPLICE_MOVE;
                     }
 
                     if init_in.flags & FUSE_SPLICE_READ > 0 {
+                        debug!("enable FUSE_SPLICE_READ");
+
                         reply_flags |= FUSE_SPLICE_READ;
                     }
 
@@ -361,81 +369,113 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     }*/
 
                     if init_in.flags & FUSE_HAS_IOCTL_DIR > 0 {
+                        debug!("enable FUSE_HAS_IOCTL_DIR");
+
                         reply_flags |= FUSE_HAS_IOCTL_DIR;
                     }
 
                     if init_in.flags & FUSE_AUTO_INVAL_DATA > 0 {
+                        debug!("enable FUSE_AUTO_INVAL_DATA");
+
                         reply_flags |= FUSE_AUTO_INVAL_DATA;
                     }
 
                     if init_in.flags & FUSE_DO_READDIRPLUS > 0 {
+                        debug!("enable FUSE_DO_READDIRPLUS");
+
                         reply_flags |= FUSE_DO_READDIRPLUS;
                     }
 
                     if init_in.flags & FUSE_READDIRPLUS_AUTO > 0 {
+                        debug!("enable FUSE_READDIRPLUS_AUTO");
+
                         reply_flags |= FUSE_READDIRPLUS_AUTO;
                     }
 
-                    // TODO should we enable it or add feature?
-                    /*if init_in.flags&FUSE_ASYNC_DIO>0 {
+                    if init_in.flags & FUSE_ASYNC_DIO > 0 {
+                        debug!("enable FUSE_ASYNC_DIO");
+
                         reply_flags |= FUSE_ASYNC_DIO;
-                    }*/
+                    }
 
                     if init_in.flags & FUSE_WRITEBACK_CACHE > 0 {
+                        debug!("enable FUSE_WRITEBACK_CACHE");
+
                         reply_flags |= FUSE_WRITEBACK_CACHE;
                     }
 
                     if init_in.flags & FUSE_NO_OPEN_SUPPORT > 0
                         && self.mount_options.no_open_support
                     {
+                        debug!("enable FUSE_NO_OPEN_SUPPORT");
+
                         reply_flags |= FUSE_NO_OPEN_SUPPORT;
                     }
 
                     if init_in.flags & FUSE_PARALLEL_DIROPS > 0 {
+                        debug!("enable FUSE_PARALLEL_DIROPS");
+
                         reply_flags |= FUSE_PARALLEL_DIROPS;
                     }
 
-                    // TODO check if we need to enable it on default
-                    /*if init_in.flags&FUSE_HANDLE_KILLPRIV>0 {
+                    if init_in.flags & FUSE_HANDLE_KILLPRIV > 0
+                        && self.mount_options.handle_killpriv
+                    {
+                        debug!("enable FUSE_HANDLE_KILLPRIV");
+
                         reply_flags |= FUSE_HANDLE_KILLPRIV;
-                    }*/
+                    }
 
                     if init_in.flags & FUSE_POSIX_ACL > 0 && self.mount_options.default_permissions
                     {
+                        debug!("enable FUSE_POSIX_ACL");
+
                         reply_flags |= FUSE_POSIX_ACL;
                     }
 
                     if init_in.flags & FUSE_MAX_PAGES > 0 {
+                        debug!("enable FUSE_MAX_PAGES");
+
                         reply_flags |= FUSE_MAX_PAGES;
                     }
 
                     if init_in.flags & FUSE_CACHE_SYMLINKS > 0 {
+                        debug!("enable FUSE_CACHE_SYMLINKS");
+
                         reply_flags |= FUSE_CACHE_SYMLINKS;
                     }
 
                     if init_in.flags & FUSE_NO_OPENDIR_SUPPORT > 0
                         && self.mount_options.no_open_dir_support
                     {
+                        debug!("enable FUSE_NO_OPENDIR_SUPPORT");
+
                         reply_flags |= FUSE_NO_OPENDIR_SUPPORT;
                     }
 
                     if init_in.flags & FUSE_GETATTR_FH > 0 {
+                        debug!("enable FUSE_GETATTR_FH");
+
                         reply_flags |= FUSE_GETATTR_FH;
                     }
 
                     if init_in.flags & FUSE_WRITE_CACHE > 0 && self.mount_options.write_cache {
+                        debug!("enable FUSE_WRITE_CACHE");
+
                         reply_flags |= FUSE_WRITE_CACHE;
                     }
 
                     if init_in.flags & FUSE_WRITE_LOCKOWNER > 0 {
+                        debug!("enable FUSE_WRITE_LOCKOWNER");
+
                         reply_flags |= FUSE_WRITE_LOCKOWNER;
                     }
 
                     if init_in.flags & FUSE_READ_LOCKOWNER > 0 {
+                        debug!("enable FUSE_READ_LOCKOWNER");
+
                         reply_flags |= FUSE_READ_LOCKOWNER;
                     }
-
-                    reply_flags &= init_in.flags;
 
                     if let Err(err) = self.filesystem.init(request).await {
                         let init_out_header = fuse_out_header {
@@ -496,13 +536,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     {
                         error!("write init out data to /dev/fuse failed {}", err);
 
-                        unimplemented!("handle error")
+                        return Err(err);
                     }
 
                     debug!("fuse init done");
                 }
 
                 fuse_opcode::FUSE_DESTROY => {
+                    debug!("receive fuse destroy");
+
                     self.filesystem.destroy(request).await;
 
                     debug!("fuse destroyed");
@@ -525,11 +567,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    debug!("lookup name {:?} in parent {}", name, in_header.nodeid);
-
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "lookup unique {} name {:?} in parent {}",
+                            request.unique, name, in_header.nodeid
+                        );
+
                         let data = match fs.lookup(request, in_header.nodeid, &name).await {
                             Err(err) => {
                                 let out_header = fuse_out_header {
@@ -578,19 +623,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            // don't need reply
-                            /*spawn_without_return(async move {
-                                let out_header = fuse_out_header {
-                                    len: FUSE_OUT_HEADER_SIZE as u32,
-                                    error: libc::EIO,
-                                    unique: request.unique,
-                                };
-
-                                let data = BINARY.serialize(&out_header).expect("won't happened");
-
-                                let _ = resp_sender.send(data).await;
-                            });*/
-
+                            // no need to reply
                             continue;
                         }
 
@@ -600,6 +633,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "forget unique {} inode {} nlookup {}",
+                            request.unique, in_header.nodeid, forget_in.nlookup
+                        );
+
                         fs.forget(request, in_header.nodeid, forget_in.nlookup)
                             .await
                     });
@@ -626,6 +664,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "getattr unique {} inode {}",
+                            request.unique, in_header.nodeid
+                        );
+
                         let data = match fs
                             .getattr(
                                 request,
@@ -652,8 +695,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     dummy: getattr_in.dummy,
                                     attr: attr.attr.into(),
                                 };
-
-                                debug!("get attr response {:?}", attr_out);
 
                                 let out_header = fuse_out_header {
                                     len: (FUSE_OUT_HEADER_SIZE + FUSE_ATTR_OUT_SIZE) as u32,
@@ -702,6 +743,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let set_attr = SetAttr::from(&setattr_in);
 
+                        debug!(
+                            "setattr unique {} inode {} set_attr {:?}",
+                            request.unique, in_header.nodeid, set_attr
+                        );
+
                         let data = match fs.setattr(request, in_header.nodeid, set_attr).await {
                             Err(err) => {
                                 let out_header = fuse_out_header {
@@ -745,6 +791,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "readlink unique {} inode {}",
+                            request.unique, in_header.nodeid
+                        );
+
                         let data = match fs.readlink(request, in_header.nodeid).await {
                             Err(err) => {
                                 let out_header = fuse_out_header {
@@ -817,6 +868,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "symlink unique {} parent {} name {:?} link {:?}",
+                            request.unique, in_header.nodeid, name, link_name
+                        );
+
                         let data = match fs
                             .symlink(request, in_header.nodeid, &name, &link_name)
                             .await
@@ -896,6 +952,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "mknod unique {} parent {} name {:?} {:?}",
+                            request.unique, in_header.nodeid, name, mknod_in
+                        );
+
                         match fs
                             .mknod(
                                 request,
@@ -973,6 +1034,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "mkdir unique {} parent {} name {:?} {:?}",
+                            request.unique, in_header.nodeid, name, mkdir_in
+                        );
+
                         match fs
                             .mkdir(
                                 request,
@@ -1033,6 +1099,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "unlink unique {} parent {} name {:?}",
+                            request.unique, in_header.nodeid, name
+                        );
+
                         let resp_value =
                             if let Err(err) = fs.unlink(request, in_header.nodeid, &name).await {
                                 err.into()
@@ -1073,6 +1144,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "rmdir unique {} parent {} name {:?}",
+                            request.unique, in_header.nodeid, name
+                        );
+
                         let resp_value =
                             if let Err(err) = fs.unlink(request, in_header.nodeid, &name).await {
                                 err.into()
@@ -1147,6 +1223,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "rename unique {} parent {} name {:?} new parent {} new name {:?}",
+                            request.unique, in_header.nodeid, name, rename_in.newdir, new_name
+                        );
+
                         let resp_value = if let Err(err) = fs
                             .rename(
                                 request,
@@ -1212,6 +1293,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "link unique {} inode {} new parent {} new name {:?}",
+                            request.unique, link_in.oldnodeid, in_header.nodeid, name
+                        );
+
                         match fs
                             .link(request, link_in.oldnodeid, in_header.nodeid, &name)
                             .await
@@ -1266,6 +1352,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "open unique {} inode {} flags {}",
+                            request.unique, in_header.nodeid, open_in.flags
+                        );
+
                         let opened = match fs.open(request, in_header.nodeid, open_in.flags).await {
                             Err(err) => {
                                 reply_error_in_place(err, request, resp_sender).await;
@@ -1319,6 +1410,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "read unique {} inode {} {:?}",
+                            request.unique, in_header.nodeid, read_in
+                        );
+
                         let mut reply_data = match fs
                             .read(
                                 request,
@@ -1391,6 +1487,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "write unique {} inode {} {:?}",
+                            request.unique, in_header.nodeid, write_in
+                        );
+
                         let reply_write = match fs
                             .write(
                                 request,
@@ -1438,6 +1539,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "statfs unique {} inode {}",
+                            request.unique, in_header.nodeid
+                        );
+
                         let fs_stat = match fs.statsfs(request, in_header.nodeid).await {
                             Err(err) => {
                                 reply_error_in_place(err, request, resp_sender).await;
@@ -1493,6 +1599,16 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let flush = release_in.release_flags & FUSE_RELEASE_FLUSH > 0;
 
+                        debug!(
+                            "release unique {} inode {} fh {} flags {} lock_owner {} flush {}",
+                            request.unique,
+                            in_header.nodeid,
+                            release_in.fh,
+                            release_in.flags,
+                            release_in.lock_owner,
+                            flush
+                        );
+
                         let resp_value = if let Err(err) = fs
                             .release(
                                 request,
@@ -1543,6 +1659,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     spawn_without_return(async move {
                         let data_sync = fsync_in.fsync_flags & 1 > 0;
+
+                        debug!(
+                            "fsync unique {} inode {} fh {} data_sync {}",
+                            request.unique, in_header.nodeid, fsync_in.fh, data_sync
+                        );
 
                         let resp_value = if let Err(err) = fs
                             .fsync(request, in_header.nodeid, fsync_in.fh, data_sync)
@@ -1631,6 +1752,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "setxattr unique {} inode {}",
+                            request.unique, in_header.nodeid
+                        );
+
                         // TODO handle os X argument
                         let resp_value = if let Err(err) = fs
                             .setxattr(
@@ -1695,6 +1821,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "getxattr unique {} inode {}",
+                            request.unique, in_header.nodeid
+                        );
+
                         let xattr = match fs
                             .getxattr(request, in_header.nodeid, &name, getxattr_in.size)
                             .await
@@ -1778,6 +1909,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "listxattr unique {} inode {} size {}",
+                            request.unique, in_header.nodeid, listxattr_in.size
+                        );
+
                         let xattr = match fs
                             .listxattr(request, in_header.nodeid, listxattr_in.size)
                             .await
@@ -1861,6 +1997,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "removexattr unique {} inode {}",
+                            request.unique, in_header.nodeid
+                        );
+
                         let resp_value = if let Err(err) =
                             fs.removexattr(request, in_header.nodeid, &name).await
                         {
@@ -1902,6 +2043,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "flush unique {} inode {} fh {} lock_owner {}",
+                            request.unique, in_header.nodeid, flush_in.fh, flush_in.lock_owner
+                        );
+
                         let resp_value = if let Err(err) = fs
                             .flush(request, in_header.nodeid, flush_in.fh, flush_in.lock_owner)
                             .await
@@ -1944,6 +2090,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "opendir unique {} inode {} flags {}",
+                            request.unique, in_header.nodeid, open_in.flags
+                        );
+
                         let reply_open =
                             match fs.opendir(request, in_header.nodeid, open_in.flags).await {
                                 Err(err) => {
@@ -1998,6 +2149,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "readdir unique {} inode {} fh {} offset {}",
+                            request.unique, in_header.nodeid, read_in.fh, read_in.offset
+                        );
+
                         let reply_readdir = match fs
                             .readdir(request, in_header.nodeid, read_in.fh, read_in.offset as i64)
                             .await
@@ -2033,11 +2189,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 // learn from fuse-rs and golang bazil.org fuse DirentType
                                 r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
                             };
-
-                            debug!(
-                                "readdir response has fuse_dirent {:?}, name {:?}",
-                                dir_entry, name
-                            );
 
                             BINARY
                                 .serialize_into(&mut entry_data, &dir_entry)
@@ -2092,6 +2243,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "releasedir unique {} inode {} fh {} flags {}",
+                            request.unique, in_header.nodeid, release_in.fh, release_in.flags
+                        );
+
                         let resp_value = if let Err(err) = fs
                             .releasedir(request, in_header.nodeid, release_in.fh, release_in.flags)
                             .await
@@ -2136,6 +2292,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let data_sync = fsync_in.fsync_flags & 1 > 0;
 
+                        debug!(
+                            "fsyncdir unique {} inode {} fh {} data_sync {}",
+                            request.unique, in_header.nodeid, fsync_in.fh, data_sync
+                        );
+
                         let resp_value = if let Err(err) = fs
                             .fsyncdir(request, in_header.nodeid, fsync_in.fh, data_sync)
                             .await
@@ -2179,6 +2340,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "getlk unique {} inode {} {:?}",
+                            request.unique, in_header.nodeid, getlk_in
+                        );
+
                         let reply_lock = match fs
                             .getlk(
                                 request,
@@ -2246,6 +2412,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let block = opcode == fuse_opcode::FUSE_SETLKW;
 
+                        debug!(
+                            "setlk unique {} inode {} block {} {:?}",
+                            request.unique, in_header.nodeid, block, setlk_in
+                        );
+
                         let reply_lock = match fs
                             .setlk(
                                 request,
@@ -2311,6 +2482,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "access unique {} inode {} mask {}",
+                            request.unique, in_header.nodeid, access_in.mask
+                        );
+
                         let resp_value = if let Err(err) =
                             fs.access(request, in_header.nodeid, access_in.mask).await
                         {
@@ -2371,6 +2547,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "create unique {} parent {} name {:?} mode {} flags {}",
+                            request.unique, in_header.nodeid, name, create_in.mode, create_in.flags
+                        );
+
                         let created = match fs
                             .create(
                                 request,
@@ -2438,6 +2619,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "interrupt_in unique {} interrupt unique {}",
+                            request.unique, interrupt_in.unique
+                        );
+
                         let resp_value =
                             if let Err(err) = fs.interrupt(request, interrupt_in.unique).await {
                                 err.into()
@@ -2478,6 +2664,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "bmap unique {} inode {} block size {} idx {}",
+                            request.unique, in_header.nodeid, bmap_in.blocksize, bmap_in.block
+                        );
+
                         let reply_bmap = match fs
                             .bmap(request, in_header.nodeid, bmap_in.blocksize, bmap_in.block)
                             .await
@@ -2553,6 +2744,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "poll unique {} inode {} {:?}",
+                            request.unique, in_header.nodeid, poll_in
+                        );
+
                         let reply_poll = match fs
                             .poll(
                                 request,
@@ -2642,6 +2838,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .map(|forget_one| forget_one.nodeid)
                             .collect::<Vec<_>>();
 
+                        debug!("batch_forget unique {} inodes {:?}", request.unique, inodes);
+
                         fs.batch_forget(request, &inodes).await
                     });
                 }
@@ -2667,6 +2865,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "fallocate unique {} inode {} {:?}",
+                            request.unique, in_header.nodeid, fallocate_in
+                        );
+
                         let resp_value = if let Err(err) = fs
                             .fallocate(
                                 request,
@@ -2716,6 +2919,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "readdirplus unique {} parent {} {:?}",
+                            request.unique, in_header.nodeid, readdirplus_in
+                        );
+
                         let directory_plus = match fs
                             .readdirplus(
                                 request,
@@ -2770,11 +2978,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
                                 },
                             };
-
-                            debug!(
-                                "readdir response has fuse_dirent {:?}, name {:?}",
-                                dir_entry, name
-                            );
 
                             BINARY
                                 .serialize_into(&mut entry_data, &dir_entry)
@@ -2863,6 +3066,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!("rename2 unique {} parent {} name {:?} new parent {} new name {:?} flags {}", request.unique, in_header.nodeid, old_name, rename2_in.newdir, new_name, rename2_in.flags);
+
                         let resp_value = if let Err(err) = fs
                             .rename2(
                                 request,
@@ -2912,6 +3117,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "lseek unique {} inode {} {:?}",
+                            request.unique, in_header.nodeid, lseek_in
+                        );
+
                         let reply_lseek = match fs
                             .lseek(
                                 request,
@@ -2975,6 +3185,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = self.filesystem.clone();
 
                     spawn_without_return(async move {
+                        debug!(
+                            "reply_copy_file_range unique {} inode {} {:?}",
+                            request.unique, in_header.nodeid, copy_file_range_in
+                        );
+
                         let reply_copy_file_range = match fs
                             .copy_file_range(
                                 request,

@@ -39,8 +39,6 @@ pub const FUSE_KERNEL_VERSION: u32 = 7;
 
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 31;
 
-// pub const FUSE_ROOT_ID: u64 = 1;
-
 pub const DEFAULT_MAX_BACKGROUND: u16 = 12;
 
 pub const DEFAULT_CONGESTION_THRESHOLD: u16 = DEFAULT_MAX_BACKGROUND * 3 / 4;
@@ -60,9 +58,7 @@ pub const FATTR_SIZE: u32 = 1 << 3;
 pub const FATTR_ATIME: u32 = 1 << 4;
 pub const FATTR_MTIME: u32 = 1 << 5;
 pub const FATTR_FH: u32 = 1 << 6;
-#[allow(dead_code)]
 pub const FATTR_ATIME_NOW: u32 = 1 << 7;
-#[allow(dead_code)]
 pub const FATTR_MTIME_NOW: u32 = 1 << 8;
 pub const FATTR_LOCKOWNER: u32 = 1 << 9;
 pub const FATTR_CTIME: u32 = 1 << 10;
@@ -75,22 +71,6 @@ pub const FATTR_CHGTIME: u32 = 1 << 29;
 pub const FATTR_BKUPTIME: u32 = 1 << 30;
 #[cfg(target_os = "macos")]
 pub const FATTR_FLAGS: u32 = 1 << 31;
-
-// Flags returned by the open request
-/// bypass page cache for this open file
-pub const FOPEN_DIRECT_IO: u32 = 1 << 0;
-
-/// don't invalidate the data cache on open
-pub const FOPEN_KEEP_CACHE: u32 = 1 << 1;
-
-#[allow(dead_code)]
-/// the file is not seekable
-pub const FOPEN_NONSEEKABLE: u32 = 1 << 2;
-
-#[cfg(target_os = "macos")]
-pub const FOPEN_PURGE_ATTR: u32 = 1 << 30;
-#[cfg(target_os = "macos")]
-pub const FOPEN_PURGE_UBC: u32 = 1 << 31;
 
 // Init request/reply flags
 /// asynchronous read requests
@@ -144,7 +124,6 @@ pub const FUSE_DO_READDIRPLUS: u32 = 1 << 13;
 /// adaptive readdirplus
 pub const FUSE_READDIRPLUS_AUTO: u32 = 1 << 14;
 
-#[allow(dead_code)]
 /// asynchronous direct I/O submission
 pub const FUSE_ASYNC_DIO: u32 = 1 << 15;
 
@@ -157,7 +136,6 @@ pub const FUSE_NO_OPEN_SUPPORT: u32 = 1 << 17;
 /// allow parallel lookups and readdir
 pub const FUSE_PARALLEL_DIROPS: u32 = 1 << 18;
 
-#[allow(dead_code)]
 /// fs handles killing suid/sgid/cap on write/chown/trunc
 pub const FUSE_HANDLE_KILLPRIV: u32 = 1 << 19;
 
@@ -658,8 +636,6 @@ pub struct fuse_setattr_in {
     pub flags: u32, // see chflags(2)
 }
 
-// pub const FUSE_OPEN_IN_SIZE: usize = mem::size_of::<fuse_open_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_open_in {
@@ -688,8 +664,6 @@ pub struct fuse_open_out {
     pub padding: u32,
 }
 
-// pub const FUSE_RELEASE_IN_SIZE: usize = mem::size_of::<fuse_release_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_release_in {
@@ -699,8 +673,6 @@ pub struct fuse_release_in {
     pub lock_owner: u64,
 }
 
-// pub const FUSE_FLUSH_IN_SIZE: usize = mem::size_of::<fuse_flush_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_flush_in {
@@ -709,8 +681,6 @@ pub struct fuse_flush_in {
     pub padding: u32,
     pub lock_owner: u64,
 }
-
-// pub const FUSE_READ_IN_SIZE: usize = mem::size_of::<fuse_read_in>();
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -755,8 +725,6 @@ pub struct fuse_statfs_out {
     pub st: fuse_kstatfs,
 }
 
-// pub const FUSE_FSYNC_IN_SIZE: usize = mem::size_of::<fuse_fsync_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_fsync_in {
@@ -800,8 +768,6 @@ pub struct fuse_getxattr_out {
     pub padding: u32,
 }
 
-// pub const FUSE_LK_IN_SIZE: usize = mem::size_of::<fuse_lk_in>();
-
 #[cfg(feature = "file-lock")]
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -823,16 +789,12 @@ pub struct fuse_lk_out {
     pub lk: fuse_file_lock,
 }
 
-// pub const FUSE_ACCESS_IN_SIZE: usize = mem::size_of::<fuse_access_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_access_in {
     pub mask: u32,
     pub padding: u32,
 }
-
-// pub const FUSE_INIT_IN_SIZE: usize = mem::size_of::<fuse_init_in>();
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -861,8 +823,6 @@ pub struct fuse_init_out {
     pub unused: [u32; 8],
 }
 
-// pub const CUSE_INIT_IN_SIZE: usize = mem::size_of::<cuse_init_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct cuse_init_in {
@@ -871,8 +831,6 @@ pub struct cuse_init_in {
     pub unused: u32,
     pub flags: u32,
 }
-
-// pub const CUSE_INIT_OUT_SIZE: usize = mem::size_of::<cuse_init_out>();
 
 #[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
@@ -890,15 +848,11 @@ pub struct cuse_init_out {
     pub spare: [u32; 10],
 }
 
-// pub const FUSE_INTERRUPT_IN_SIZE: usize = mem::size_of::<fuse_interrupt_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_interrupt_in {
     pub unique: u64,
 }
-
-// pub const FUSE_BMAP_IN_SIZE: usize = mem::size_of::<fuse_bmap_in>();
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -915,8 +869,6 @@ pub const FUSE_BMAP_OUT_SIZE: usize = mem::size_of::<fuse_bmap_out>();
 pub struct fuse_bmap_out {
     pub block: u64,
 }
-
-// pub const FUSE_IOCTL_IN_SIZE: usize = mem::size_of::<fuse_ioctl_in>();
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -945,8 +897,6 @@ pub struct fuse_ioctl_out {
     pub out_iovs: u32,
 }
 
-// pub const FUSE_POLL_IN_SIZE: usize = mem::size_of::<fuse_poll_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_poll_in {
@@ -970,8 +920,6 @@ pub struct fuse_poll_out {
 pub struct fuse_notify_poll_wakeup_out {
     pub kh: u64,
 }
-
-// pub const FUSE_FALLOCATE_IN_SIZE: usize = mem::size_of::<fuse_fallocate_in>();
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -1085,8 +1033,6 @@ pub struct fuse_notify_retrieve_in {
     pub dummy4: u64,
 }
 
-// pub const FUSE_LSEEK_IN_SIZE: usize = mem::size_of::<fuse_lseek_in>();
-
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_lseek_in {
@@ -1103,8 +1049,6 @@ pub const FUSE_LSEEK_OUT_SIZE: usize = mem::size_of::<fuse_lseek_out>();
 pub struct fuse_lseek_out {
     pub offset: u64,
 }
-
-// pub const FUSE_COPY_FILE_RANGE_IN_SIZE: usize = mem::size_of::<fuse_copy_file_range_in>();
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
