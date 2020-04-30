@@ -591,7 +591,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                            reply_error_in_place(libc::EINVAL.into(), request, resp_sender).await;
 
                             continue;
                         }
@@ -765,7 +765,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         None => {
                             error!("symlink has no null, request unique {}", request.unique);
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                            reply_error_in_place(libc::EINVAL.into(), request, resp_sender).await;
 
                             continue;
                         }
@@ -883,7 +883,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
                             }
 
                             Ok(entry) => {
@@ -960,7 +960,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
                             }
 
                             Ok(entry) => {
@@ -1193,7 +1193,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
                             }
 
                             Ok(entry) => {
@@ -1244,7 +1244,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let opened = match fs.open(request, in_header.nodeid, open_in.flags).await {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -1306,7 +1306,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -1379,7 +1379,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -1416,7 +1416,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let fs_stat = match fs.statsfs(request, in_header.nodeid).await {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -1676,7 +1676,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -1759,7 +1759,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -1867,7 +1867,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                            reply_error_in_place(libc::EINVAL.into(), request, resp_sender).await;
 
                             continue;
                         }
@@ -1923,7 +1923,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let reply_open =
                             match fs.opendir(request, in_header.nodeid, open_in.flags).await {
                                 Err(err) => {
-                                    reply_error(err, request, resp_sender);
+                                    reply_error_in_place(err, request, resp_sender).await;
 
                                     return;
                                 }
@@ -1979,7 +1979,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2144,7 +2144,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                            reply_error_in_place(libc::EINVAL.into(), request, resp_sender).await;
 
                             continue;
                         }
@@ -2169,7 +2169,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2237,7 +2237,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2358,7 +2358,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2459,7 +2459,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2540,7 +2540,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2703,7 +2703,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2899,7 +2899,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -2966,7 +2966,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .await
                         {
                             Err(err) => {
-                                reply_error(err, request, resp_sender);
+                                reply_error_in_place(err, request, resp_sender).await;
 
                                 return;
                             }
@@ -3009,19 +3009,24 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 }
 
-fn reply_error<S>(err: Errno, request: Request, mut sender: S)
+fn reply_error<S>(err: Errno, request: Request, sender: S)
 where
     S: Sink<Vec<u8>> + Send + Sync + 'static + Unpin,
 {
-    spawn_without_return(async move {
-        let out_header = fuse_out_header {
-            len: FUSE_OUT_HEADER_SIZE as u32,
-            error: err.into(),
-            unique: request.unique,
-        };
+    spawn_without_return(reply_error_in_place(err, request, sender));
+}
 
-        let data = BINARY.serialize(&out_header).expect("won't happened");
+async fn reply_error_in_place<S>(err: Errno, request: Request, mut sender: S)
+where
+    S: Sink<Vec<u8>> + Send + Sync + 'static + Unpin,
+{
+    let out_header = fuse_out_header {
+        len: FUSE_OUT_HEADER_SIZE as u32,
+        error: err.into(),
+        unique: request.unique,
+    };
 
-        let _ = sender.send(data).await;
-    });
+    let data = BINARY.serialize(&out_header).expect("won't happened");
+
+    let _ = sender.send(data).await;
 }

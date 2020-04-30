@@ -844,7 +844,7 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    let mount_options = MountOptions::default().uid(uid).gid(gid);
+    let mount_options = MountOptions::default().allow_other(true).uid(uid).gid(gid);
 
     if let Some(mount_path) = mount_path {
         fuse3::mount(FS::default(), mount_path, mount_options)

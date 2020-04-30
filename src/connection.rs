@@ -115,9 +115,10 @@ impl FuseConnection {
         }
 
         let fd = spawn_blocking(move || {
-            let mut buf = vec![0; 10000]; // buf should large enough
+            // let mut buf = vec![0; 10000]; // buf should large enough
+            let mut buf = vec![]; // it seems 0 len still works well
 
-            let mut cmsg_buf = nix::cmsg_space!([RawFd; 2]);
+            let mut cmsg_buf = nix::cmsg_space!([RawFd; 1]);
 
             let bufs = [IoVec::from_mut_slice(&mut buf)];
 
