@@ -6,15 +6,19 @@ an async version fuse library for rust
 - support unprivileged mode by using `fusermount3`
 - support `readdirplus` to improve read dir performance
 - support posix file lock
-- support handles the O_TRUNC open flag
-- support direct io
-- support enable no_open and no_open_dir option
+- support handles the `O_TRUNC` open flag
+- support direct IO
+- support enable `no_open` and `no_open_dir` option
 
-## don't support
-- async dio
+## still not support
+- async DIO
 - `ioctl` implement
 - fuseblk mode
 - macos support
 
 ## may not work well
 - `poll`
+
+## License
+
+MIT

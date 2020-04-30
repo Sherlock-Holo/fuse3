@@ -3,6 +3,11 @@ name = "fuse3"
 version = "0.1.0"
 authors = ["Sherlock Holo <sherlockya@gmail.com>"]
 edition = "2018"
+readme = "README.md"
+keywords = ["fuse", "filesystem", "system", "bindings"]
+categories = ["api-bindings", "filesystem"]
+license = "MIT"
+repository = "https://github.com/Sherlock-Holo/fuse3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,7 +15,6 @@ edition = "2018"
 members = [".", "examples"]
 
 [features]
-default = []
 tokio-runtime = ["tokio"]
 async-std-runtime = ["async-std"]
 file-lock = []
