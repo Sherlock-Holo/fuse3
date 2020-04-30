@@ -81,7 +81,7 @@ impl FuseConnection {
             Ok((fd0, fd1)) => (fd0, fd1),
         };
 
-        let binary_path = match which::which("fusermount") {
+        let binary_path = match which::which("fusermount3") {
             Err(err) => {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
