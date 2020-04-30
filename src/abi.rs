@@ -97,6 +97,7 @@ pub const FOPEN_PURGE_UBC: u32 = 1 << 31;
 /// asynchronous read requests
 pub const FUSE_ASYNC_READ: u32 = 1 << 0;
 
+#[cfg(feature = "file-lock")]
 /// locking for POSIX file locks
 pub const FUSE_POSIX_LOCKS: u32 = 1 << 1;
 
@@ -113,7 +114,6 @@ pub const FUSE_EXPORT_SUPPORT: u32 = 1 << 4;
 /// filesystem can handle write size larger than 4kB
 pub const FUSE_BIG_WRITES: u32 = 1 << 5;
 
-#[allow(dead_code)]
 /// don't apply umask to file mode on create operations
 pub const FUSE_DONT_MASK: u32 = 1 << 6;
 
@@ -152,7 +152,6 @@ pub const FUSE_ASYNC_DIO: u32 = 1 << 15;
 /// use writeback cache for buffered writes
 pub const FUSE_WRITEBACK_CACHE: u32 = 1 << 16;
 
-#[allow(dead_code)]
 /// kernel supports zero-message opens
 pub const FUSE_NO_OPEN_SUPPORT: u32 = 1 << 17;
 
@@ -163,6 +162,7 @@ pub const FUSE_PARALLEL_DIROPS: u32 = 1 << 18;
 /// fs handles killing suid/sgid/cap on write/chown/trunc
 pub const FUSE_HANDLE_KILLPRIV: u32 = 1 << 19;
 
+// if enable this, means use default_permissions
 /// filesystem supports posix acls
 pub const FUSE_POSIX_ACL: u32 = 1 << 20;
 
@@ -176,7 +176,6 @@ pub const FUSE_MAX_PAGES: u32 = 1 << 22;
 /// cache READLINK responses
 pub const FUSE_CACHE_SYMLINKS: u32 = 1 << 23;
 
-#[allow(dead_code)]
 /// kernel supports zero-message opendir
 pub const FUSE_NO_OPENDIR_SUPPORT: u32 = 1 << 24;
 
@@ -213,11 +212,11 @@ pub const FUSE_RELEASE_FLOCK_UNLOCK: u32 = 1 << 1;
 // Getattr flags
 pub const FUSE_GETATTR_FH: u32 = 1 << 0;
 
-// Lock flags
+#[allow(dead_code)]
+// Lock flags, this is BSD file lock
 pub const FUSE_LK_FLOCK: u32 = 1 << 0;
 
 // Write flags
-#[allow(dead_code)]
 /// delayed write from page cache, file handle is guessed
 pub const FUSE_WRITE_CACHE: u32 = 1 << 0;
 
@@ -228,21 +227,27 @@ pub const FUSE_WRITE_LOCKOWNER: u32 = 1 << 1;
 pub const FUSE_READ_LOCKOWNER: u32 = 1 << 1;
 
 // IOCTL flags
+#[allow(dead_code)]
 /// 32bit compat ioctl on 64bit machine
 pub const FUSE_IOCTL_COMPAT: u32 = 1 << 0;
 
+#[allow(dead_code)]
 /// not restricted to well-formed ioctls, retry allowed
 pub const FUSE_IOCTL_UNRESTRICTED: u32 = 1 << 1;
 
+#[allow(dead_code)]
 /// retry with new iovecs
 pub const FUSE_IOCTL_RETRY: u32 = 1 << 2;
 
+#[allow(dead_code)]
 /// 32bit ioctl
 pub const FUSE_IOCTL_32BIT: u32 = 1 << 3;
 
+#[allow(dead_code)]
 /// is a directory
 pub const FUSE_IOCTL_DIR: u32 = 1 << 4;
 
+#[allow(dead_code)]
 /// maximum of in_iovecs + out_iovecs
 pub const FUSE_IOCTL_MAX_IOV: u32 = 256;
 
@@ -798,6 +803,7 @@ pub struct fuse_getxattr_out {
 
 // pub const FUSE_LK_IN_SIZE: usize = mem::size_of::<fuse_lk_in>();
 
+#[cfg(feature = "file-lock")]
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_lk_in {
@@ -808,8 +814,10 @@ pub struct fuse_lk_in {
     pub padding: u32,
 }
 
+#[cfg(feature = "file-lock")]
 pub const FUSE_LK_OUT_SIZE: usize = mem::size_of::<fuse_lk_out>();
 
+#[cfg(feature = "file-lock")]
 #[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_lk_out {

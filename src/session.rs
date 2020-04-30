@@ -61,13 +61,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     where
         P: AsRef<Path>,
     {
-        let fuse_file =
+        let fuse_connection =
             FuseConnection::new_with_unprivileged(mount_options.clone(), mount_path.as_ref())
                 .await?;
 
         debug!("mount {:?} success", mount_path.as_ref());
 
-        Self::inner_mount(fs, fuse_file, mount_options).await
+        Self::inner_mount(fs, fuse_connection, mount_options).await
     }
 
     pub async fn mount<P>(fs: FS, mount_path: P, mut mount_options: MountOptions) -> IoResult<()>
@@ -81,9 +81,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             ));
         }
 
-        let fuse_file = FuseConnection::new().await?;
+        let fuse_connection = FuseConnection::new().await?;
 
-        let fd = fuse_file.as_raw_fd();
+        let fd = fuse_connection.as_raw_fd();
 
         let options = mount_options.build(fd);
 
@@ -109,22 +109,22 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("mount {:?} success", mount_path.as_ref());
 
-        Self::inner_mount(fs, fuse_file, mount_options).await
+        Self::inner_mount(fs, fuse_connection, mount_options).await
     }
 
     async fn inner_mount(
         fs: FS,
-        fuse_file: FuseConnection,
+        fuse_connection: FuseConnection,
         mount_options: MountOptions,
     ) -> IoResult<()> {
-        let fuse_file = Arc::new(fuse_file);
+        let fuse_connection = Arc::new(fuse_connection);
 
-        let fuse_write_file = fuse_file.clone();
+        let fuse_write_connection = fuse_connection.clone();
 
         let (sender, receiver) = unbounded();
 
         let mut session = Self {
-            fuse_connection: fuse_file,
+            fuse_connection,
             filesystem: Arc::new(fs),
             response_sender: sender,
             mount_options,
@@ -136,11 +136,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         #[cfg(feature = "async-std-runtime")]
         {
-            let reply_task =
-                async_std::task::spawn(
-                    async move { Self::reply_fuse(fuse_write_file, receiver).await },
-                )
-                .fuse();
+            let reply_task = async_std::task::spawn(async move {
+                Self::reply_fuse(fuse_write_connection, receiver).await
+            })
+            .fuse();
 
             pin_mut!(reply_task);
 
@@ -162,8 +161,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
         {
             let reply_task =
-                tokio::spawn(async move { Self::reply_fuse(fuse_write_file, receiver).await })
-                    .fuse();
+                tokio::spawn(
+                    async move { Self::reply_fuse(fuse_write_connection, receiver).await },
+                )
+                .fuse();
 
             pin_mut!(reply_task);
 
@@ -186,13 +187,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     async fn reply_fuse(
-        fuse_file: Arc<FuseConnection>,
+        fuse_connection: Arc<FuseConnection>,
         mut response_receiver: UnboundedReceiver<Vec<u8>>,
     ) -> IoResult<()> {
         while let Some(response) = response_receiver.next().await {
             let n = response.len();
 
-            if let Err((_, err)) = fuse_file.write(response, n).await {
+            if let Err((_, err)) = fuse_connection.write(response, n).await {
                 error!("reply fuse failed {}", err);
 
                 return Err(err);
@@ -330,10 +331,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_BIG_WRITES;
                     }
 
-                    // TODO should we need it?
-                    /*if init_in.flags&FUSE_DONT_MASK>0 {
+                    if init_in.flags & FUSE_DONT_MASK > 0 && self.mount_options.dont_mask {
                         reply_flags |= FUSE_DONT_MASK;
-                    }*/
+                    }
 
                     if init_in.flags & FUSE_SPLICE_WRITE > 0 {
                         reply_flags |= FUSE_SPLICE_WRITE;
@@ -377,6 +377,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_WRITEBACK_CACHE;
                     }
 
+                    if init_in.flags & FUSE_NO_OPEN_SUPPORT > 0
+                        && self.mount_options.no_open_support
+                    {
+                        reply_flags |= FUSE_NO_OPEN_SUPPORT;
+                    }
+
                     if init_in.flags & FUSE_PARALLEL_DIROPS > 0 {
                         reply_flags |= FUSE_PARALLEL_DIROPS;
                     }
@@ -399,8 +405,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_CACHE_SYMLINKS;
                     }
 
+                    if init_in.flags & FUSE_NO_OPENDIR_SUPPORT > 0
+                        && self.mount_options.no_open_dir_support
+                    {
+                        reply_flags |= FUSE_NO_OPENDIR_SUPPORT;
+                    }
+
                     if init_in.flags & FUSE_GETATTR_FH > 0 {
                         reply_flags |= FUSE_GETATTR_FH;
+                    }
+
+                    if init_in.flags & FUSE_WRITE_CACHE > 0 && self.mount_options.write_cache {
+                        reply_flags |= FUSE_WRITE_CACHE;
                     }
 
                     if init_in.flags & FUSE_WRITE_LOCKOWNER > 0 {

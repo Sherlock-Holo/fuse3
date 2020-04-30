@@ -2,9 +2,11 @@ use std::ffi::OsString;
 use std::time::Duration;
 
 use crate::abi::{
-    fuse_attr_out, fuse_bmap_out, fuse_entry_out, fuse_file_lock, fuse_kstatfs, fuse_lk_out,
-    fuse_lseek_out, fuse_open_out, fuse_poll_out, fuse_statfs_out, fuse_write_out,
+    fuse_attr_out, fuse_bmap_out, fuse_entry_out, fuse_kstatfs, fuse_lseek_out, fuse_open_out,
+    fuse_poll_out, fuse_statfs_out, fuse_write_out,
 };
+#[cfg(feature = "file-lock")]
+use crate::abi::{fuse_file_lock, fuse_lk_out};
 use crate::{FileAttr, FileType};
 
 #[derive(Debug, Default)]
@@ -134,6 +136,7 @@ pub struct ReplyDirectory {
     pub entries: Box<dyn Iterator<Item = DirectoryEntry> + Send>,
 }
 
+#[cfg(feature = "file-lock")]
 #[derive(Debug)]
 pub struct ReplyLock {
     pub start: u64,
@@ -142,6 +145,7 @@ pub struct ReplyLock {
     pub pid: u32,
 }
 
+#[cfg(feature = "file-lock")]
 impl Into<fuse_lk_out> for ReplyLock {
     fn into(self) -> fuse_lk_out {
         fuse_lk_out {
