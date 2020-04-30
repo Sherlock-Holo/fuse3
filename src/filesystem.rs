@@ -8,6 +8,13 @@ use crate::{Result, SetAttr};
 
 #[async_trait]
 /// Filesystem trait.
+///
+/// # Notes:
+///
+/// this trait is defined with async_trait, you can use [`async_trait`] to implement it, or just
+/// implement it like it shows on docs.rs.
+///
+/// [`async_trait`]: async_trait::async_trait;
 pub trait Filesystem {
     /// initialize filesystem. Called before any other filesystem method.
     async fn init(&self, req: Request) -> Result<()>;

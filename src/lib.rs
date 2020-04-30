@@ -23,6 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nix::sys::stat::mode_t;
 
+pub use async_trait::async_trait;
 pub use errno::Errno;
 pub use filesystem::Filesystem;
 pub use helper::perm_from_mode_and_kind;
