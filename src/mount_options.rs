@@ -31,8 +31,6 @@ pub struct MountOptions {
     pub(crate) no_open_support: bool,
     pub(crate) no_open_dir_support: bool,
 
-    pub(crate) write_cache: bool,
-
     pub(crate) handle_killpriv: bool,
 
     pub(crate) custom_options: Option<OsString>,
@@ -123,13 +121,6 @@ impl MountOptions {
     /// make kernel support zero-message opendir, default is disable
     pub fn no_open_dir_support(mut self, no_open_dir_support: bool) -> Self {
         self.no_open_dir_support = no_open_dir_support;
-
-        self
-    }
-
-    /// delayed write from page cache, file handle is guessed
-    pub fn write_cache(mut self, write_cache: bool) -> Self {
-        self.write_cache = write_cache;
 
         self
     }

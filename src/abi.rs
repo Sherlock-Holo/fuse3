@@ -21,6 +21,7 @@
 // #![allow(missing_docs)]
 
 use std::convert::TryFrom;
+use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::mem;
 
@@ -186,6 +187,7 @@ pub const FUSE_RELEASE_FLUSH: u32 = 1 << 0;
 #[allow(dead_code)]
 pub const FUSE_RELEASE_FLOCK_UNLOCK: u32 = 1 << 1;
 
+#[allow(dead_code)]
 // Getattr flags
 pub const FUSE_GETATTR_FH: u32 = 1 << 0;
 
@@ -193,13 +195,16 @@ pub const FUSE_GETATTR_FH: u32 = 1 << 0;
 // Lock flags, this is BSD file lock
 pub const FUSE_LK_FLOCK: u32 = 1 << 0;
 
+#[allow(dead_code)]
 // Write flags
 /// delayed write from page cache, file handle is guessed
 pub const FUSE_WRITE_CACHE: u32 = 1 << 0;
 
+#[allow(dead_code)]
 /// lock_owner field is valid
 pub const FUSE_WRITE_LOCKOWNER: u32 = 1 << 1;
 
+#[allow(dead_code)]
 // Read flags
 pub const FUSE_READ_LOCKOWNER: u32 = 1 << 1;
 
@@ -439,7 +444,15 @@ impl TryFrom<u32> for fuse_opcode {
 
 /// Invalid notify code error.
 #[derive(Debug)]
-pub struct InvalidNotifyCodeError;
+pub struct InvalidNotifyCodeError(pub u32);
+
+impl Display for InvalidNotifyCodeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl Error for InvalidNotifyCodeError {}
 
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
@@ -474,7 +487,7 @@ impl TryFrom<u32> for fuse_notify_code {
 
             6 => Ok(fuse_notify_code::FUSE_NOTIFY_DELETE),
 
-            _ => Err(InvalidNotifyCodeError),
+            invalid_code => Err(InvalidNotifyCodeError(invalid_code)),
         }
     }
 }
@@ -915,7 +928,9 @@ pub struct fuse_poll_out {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE: usize = mem::size_of::<fuse_notify_poll_wakeup_out>();
+
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_poll_wakeup_out {
     pub kh: u64,
@@ -977,7 +992,9 @@ pub struct fuse_direntplus {
     pub dirent: fuse_dirent,
 }
 
-#[derive(Debug)]
+pub const FUSE_NOTIFY_INVAL_INODE_OUT_SIZE: usize = mem::size_of::<fuse_notify_inval_inode_out>();
+
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_inval_inode_out {
     pub ino: u64,
@@ -985,7 +1002,9 @@ pub struct fuse_notify_inval_inode_out {
     pub len: i64,
 }
 
-#[derive(Debug)]
+pub const FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE: usize = mem::size_of::<fuse_notify_inval_entry_out>();
+
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_inval_entry_out {
     pub parent: u64,
@@ -993,16 +1012,20 @@ pub struct fuse_notify_inval_entry_out {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_NOTIFY_DELETE_OUT_SIZE: usize = mem::size_of::<fuse_notify_delete_out>();
+
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_delete_out {
-    parent: u64,
-    child: u64,
-    namelen: u32,
-    padding: u32,
+    pub parent: u64,
+    pub child: u64,
+    pub namelen: u32,
+    pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_NOTIFY_STORE_OUT_SIZE: usize = mem::size_of::<fuse_notify_store_out>();
+
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_store_out {
     pub nodeid: u64,
@@ -1011,7 +1034,9 @@ pub struct fuse_notify_store_out {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_NOTIFY_RETRIEVE_OUT_SIZE: usize = mem::size_of::<fuse_notify_retrieve_out>();
+
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_retrieve_out {
     pub notify_unique: u64,

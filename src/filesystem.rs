@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use crate::reply::*;
 use crate::request::Request;
-use crate::{Result, SetAttr};
+use crate::{PollNotify, Result, SetAttr};
 
 #[async_trait]
 /// Filesystem trait.
@@ -436,6 +436,7 @@ pub trait Filesystem {
         _fh: u64,
         _kh: u64,
         _flags: u32,
+        _poll_notify: PollNotify,
     ) -> Result<ReplyPoll> {
         Err(libc::ENOSYS.into())
     }

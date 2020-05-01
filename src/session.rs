@@ -30,8 +30,8 @@ use crate::helper::*;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
 use crate::spawn::spawn_without_return;
-use crate::MountOptions;
 use crate::{Errno, SetAttr};
+use crate::{MountOptions, PollNotify};
 
 lazy_static! {
     static ref BINARY: bincode::Config = {
@@ -451,30 +451,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         debug!("enable FUSE_NO_OPENDIR_SUPPORT");
 
                         reply_flags |= FUSE_NO_OPENDIR_SUPPORT;
-                    }
-
-                    if init_in.flags & FUSE_GETATTR_FH > 0 {
-                        debug!("enable FUSE_GETATTR_FH");
-
-                        reply_flags |= FUSE_GETATTR_FH;
-                    }
-
-                    if init_in.flags & FUSE_WRITE_CACHE > 0 && self.mount_options.write_cache {
-                        debug!("enable FUSE_WRITE_CACHE");
-
-                        reply_flags |= FUSE_WRITE_CACHE;
-                    }
-
-                    if init_in.flags & FUSE_WRITE_LOCKOWNER > 0 {
-                        debug!("enable FUSE_WRITE_LOCKOWNER");
-
-                        reply_flags |= FUSE_WRITE_LOCKOWNER;
-                    }
-
-                    if init_in.flags & FUSE_READ_LOCKOWNER > 0 {
-                        debug!("enable FUSE_READ_LOCKOWNER");
-
-                        reply_flags |= FUSE_READ_LOCKOWNER;
                     }
 
                     if let Err(err) = self.filesystem.init(request).await {
@@ -2756,6 +2732,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 poll_in.fh,
                                 poll_in.kh,
                                 poll_in.flags,
+                                PollNotify::new(resp_sender.clone()),
                             )
                             .await
                         {
