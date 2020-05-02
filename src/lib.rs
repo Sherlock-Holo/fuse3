@@ -17,8 +17,6 @@
 //!
 //! You must enable `async-std-runtime` or `tokio-runtime` feature.
 
-use std::io::Result as IoResult;
-use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nix::sys::stat::mode_t;
@@ -33,7 +31,8 @@ pub use helper::perm_from_mode_and_kind;
 pub use mount_options::MountOptions;
 pub use request::Request;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-use session::Session;
+/// fuse filesystem session.
+pub use session::Session;
 
 use crate::abi::{
     fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_FH, FATTR_GID,
@@ -47,7 +46,7 @@ mod errno;
 mod filesystem;
 mod helper;
 mod mount_options;
-pub mod notify;
+pub mod poll;
 pub mod reply;
 mod request;
 mod session;
@@ -264,34 +263,6 @@ impl From<&fuse_setattr_in> for SetAttr {
 
         set_attr
     }
-}
-
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-/// mount the filesystem. This function will block until the filesystem is unmounted.
-pub async fn mount<FS, P>(fs: FS, mount_path: P, mount_options: MountOptions) -> IoResult<()>
-where
-    FS: Filesystem + Send + Sync + 'static,
-    P: AsRef<Path>,
-{
-    Session::mount(fs, mount_path, mount_options).await
-}
-
-#[cfg(all(
-    any(feature = "async-std-runtime", feature = "tokio-runtime"),
-    feature = "unprivileged"
-))]
-/// mount the filesystem without root permission. This function will block until the filesystem
-/// is unmounted.
-pub async fn mount_with_unprivileged<FS, P>(
-    fs: FS,
-    mount_path: P,
-    mount_options: MountOptions,
-) -> IoResult<()>
-where
-    FS: Filesystem + Send + Sync + 'static,
-    P: AsRef<Path>,
-{
-    Session::mount_with_unprivileged(fs, mount_path, mount_options).await
 }
 
 pub mod prelude {

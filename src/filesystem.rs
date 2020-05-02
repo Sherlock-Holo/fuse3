@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 
 use async_trait::async_trait;
 
-use crate::notify::PollNotify;
+use crate::poll::PollNotify;
 use crate::reply::*;
 use crate::request::Request;
 use crate::{Result, SetAttr};

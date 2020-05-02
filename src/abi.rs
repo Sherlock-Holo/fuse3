@@ -456,16 +456,22 @@ impl Error for InvalidNotifyCodeError {}
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub enum fuse_notify_code {
+    /// notify kernel that a poll waiting for IO on a file handle should wake up.
     FUSE_POLL = 1,
 
+    /// notify kernel that an inode should be invalidated.
     FUSE_NOTIFY_INVAL_INODE = 2,
 
+    /// notify kernel that a directory entry should be invalidated.
     FUSE_NOTIFY_INVAL_ENTRY = 3,
 
+    /// store data into kernel cache of an inode
     FUSE_NOTIFY_STORE = 4,
 
+    /// retrieve data from kernel cache of an inode
     FUSE_NOTIFY_RETRIEVE = 5,
 
+    /// notify kernel that a directory entry has been deleted
     FUSE_NOTIFY_DELETE = 6,
 }
 

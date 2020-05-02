@@ -12,7 +12,7 @@ use mio::unix::SourceFd;
 use mio::{Events, Interest, Token};
 
 use async_trait::async_trait;
-use fuse3::notify::*;
+use fuse3::poll::*;
 use fuse3::prelude::*;
 
 const CONTENT: &str = "hello world\n";

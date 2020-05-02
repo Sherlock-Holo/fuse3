@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "async-std-runtime")]
 use async_std::fs::read_dir;
+#[cfg(feature = "async-std-runtime")]
+use async_std::sync::Mutex;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
 use log::{debug, error};
@@ -19,6 +21,8 @@ use nix::mount;
 use nix::mount::MsFlags;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::fs::read_dir;
+#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+use tokio::sync::Mutex;
 
 use lazy_static::lazy_static;
 
@@ -27,7 +31,7 @@ use crate::abi::*;
 use crate::connection::FuseConnection;
 use crate::filesystem::Filesystem;
 use crate::helper::*;
-use crate::notify::PollNotify;
+use crate::poll::PollNotify;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
 use crate::spawn::spawn_without_return;
@@ -44,37 +48,58 @@ lazy_static! {
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-pub struct Session<T> {
-    fuse_connection: Arc<FuseConnection>,
-    filesystem: Arc<T>,
+pub struct Session<FS> {
+    fuse_connection: Mutex<Option<Arc<FuseConnection>>>,
+    filesystem: Arc<FS>,
     response_sender: UnboundedSender<Vec<u8>>,
+    response_receiver: Mutex<Option<UnboundedReceiver<Vec<u8>>>>,
     mount_options: MountOptions,
+}
+
+#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+impl<FS> Session<FS> {
+    pub fn new(fs: FS, mount_options: MountOptions) -> Self {
+        let (sender, receiver) = unbounded();
+
+        Self {
+            fuse_connection: Mutex::new(None),
+            filesystem: Arc::new(fs),
+            response_sender: sender,
+            response_receiver: Mutex::new(Some(receiver)),
+            mount_options,
+        }
+    }
+
+    pub fn get_poll_notify(&self) -> PollNotify {
+        PollNotify::new(self.response_sender.clone())
+    }
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     #[cfg(feature = "unprivileged")]
-    pub async fn mount_with_unprivileged<P>(
-        fs: FS,
-        mount_path: P,
-        mount_options: MountOptions,
-    ) -> IoResult<()>
-    where
-        P: AsRef<Path>,
-    {
+    /// mount the filesystem without root permission. This function will block until the filesystem
+    /// is unmounted.
+    pub async fn mount_with_unprivileged<P: AsRef<Path>>(&self, mount_path: P) -> IoResult<()> {
         let fuse_connection =
-            FuseConnection::new_with_unprivileged(mount_options.clone(), mount_path.as_ref())
+            FuseConnection::new_with_unprivileged(self.mount_options.clone(), mount_path.as_ref())
                 .await?;
+
+        // won't panic, no one get lock now by design
+        self.fuse_connection
+            .try_lock()
+            .expect("fuse connection has been locked")
+            .replace(Arc::new(fuse_connection));
 
         debug!("mount {:?} success", mount_path.as_ref());
 
-        Self::inner_mount(fs, fuse_connection, mount_options).await
+        self.inner_mount().await
     }
 
-    pub async fn mount<P>(fs: FS, mount_path: P, mut mount_options: MountOptions) -> IoResult<()>
-    where
-        P: AsRef<Path>,
-    {
+    /// mount the filesystem. This function will block until the filesystem is unmounted.
+    pub async fn mount<P: AsRef<Path>>(&self, mount_path: P) -> IoResult<()> {
+        let mut mount_options = self.mount_options.clone();
+
         if !mount_options.nonempty && read_dir(mount_path.as_ref()).await?.next().await.is_some() {
             return Err(IoError::new(
                 ErrorKind::AlreadyExists,
@@ -108,30 +133,36 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             return Err(io_error_from_nix_error(err));
         }
 
+        // won't panic, no one get lock now by design
+        self.fuse_connection
+            .try_lock()
+            .expect("fuse connection has been locked")
+            .replace(Arc::new(fuse_connection));
+
         debug!("mount {:?} success", mount_path.as_ref());
 
-        Self::inner_mount(fs, fuse_connection, mount_options).await
+        self.inner_mount().await
     }
 
-    async fn inner_mount(
-        fs: FS,
-        fuse_connection: FuseConnection,
-        mount_options: MountOptions,
-    ) -> IoResult<()> {
-        let fuse_connection = Arc::new(fuse_connection);
+    async fn inner_mount(&self) -> IoResult<()> {
+        // won't panic, no one get lock now by design
+        let fuse_write_connection = self
+            .fuse_connection
+            .try_lock()
+            .expect("fuse connection has been lock")
+            .as_ref()
+            .unwrap()
+            .clone();
 
-        let fuse_write_connection = fuse_connection.clone();
+        // won't panic, no one get lock now by design
+        let receiver = self
+            .response_receiver
+            .try_lock()
+            .expect("receiver has been lock")
+            .take()
+            .unwrap();
 
-        let (sender, receiver) = unbounded();
-
-        let mut session = Self {
-            fuse_connection,
-            filesystem: Arc::new(fs),
-            response_sender: sender,
-            mount_options,
-        };
-
-        let dispatch_task = session.dispatch().fuse();
+        let dispatch_task = self.dispatch().fuse();
 
         pin_mut!(dispatch_task);
 
@@ -204,11 +235,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         Ok(())
     }
 
-    pub async fn dispatch(&mut self) -> IoResult<()> {
+    async fn dispatch(&self) -> IoResult<()> {
         let mut buffer = vec![0; BUFFER_SIZE];
 
+        // won't panic, no one get lock now by design
+        let fuse_connection = self
+            .fuse_connection
+            .try_lock()
+            .expect("fuse connection not init")
+            .take()
+            .unwrap();
+
         'dispatch_loop: loop {
-            let mut data = match self.fuse_connection.read(buffer).await {
+            let mut data = match fuse_connection.read(buffer).await {
                 Err((_, err)) => {
                     if let Some(errno) = err.raw_os_error() {
                         if errno == libc::ENODEV {
@@ -286,8 +325,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             let init_out_header_data =
                                 BINARY.serialize(&init_out_header).expect("won't happened");
 
-                            if let Err((_, err)) = self
-                                .fuse_connection
+                            if let Err((_, err)) = fuse_connection
                                 .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
                                 .await
                             {
@@ -464,8 +502,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let init_out_header_data =
                             BINARY.serialize(&init_out_header).expect("won't happened");
 
-                        if let Err((_, err)) = self
-                            .fuse_connection
+                        if let Err((_, err)) = fuse_connection
                             .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
                             .await
                         {
@@ -506,8 +543,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &init_out)
                         .expect("won't happened");
 
-                    if let Err((_, err)) = self
-                        .fuse_connection
+                    if let Err((_, err)) = fuse_connection
                         .write(data, FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE)
                         .await
                     {
