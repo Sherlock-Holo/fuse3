@@ -1,3 +1,5 @@
+//! notify kernel event is done.
+
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 
@@ -25,6 +27,7 @@ lazy_static! {
 }
 
 #[derive(Debug)]
+/// notify that a poll event is done.
 pub struct PollNotify {
     sender: UnboundedSender<Vec<u8>>,
 }
@@ -34,6 +37,7 @@ impl PollNotify {
         Self { sender }
     }
 
+    /// notify a poll event is done. If notify failed, the `kind` will be return in `Err`.
     pub async fn notify(mut self, kind: PollNotifyKind) -> std::result::Result<(), PollNotifyKind> {
         let data = match &kind {
             PollNotifyKind::Wakeup { kh } => {
@@ -224,35 +228,33 @@ impl PollNotify {
 }
 
 #[derive(Debug)]
+/// the kind of poll notify.
 pub enum PollNotifyKind {
-    Wakeup {
-        kh: u64,
-    },
+    /// notify the IO is ready.
+    Wakeup { kh: u64 },
 
     // TODO need check is right or not
-    InvalidInode {
-        inode: u64,
-        offset: i64,
-        len: i64,
-    },
+    /// notify the cache invalidation about an inode.
+    InvalidInode { inode: u64, offset: i64, len: i64 },
 
-    InvalidEntry {
-        parent: u64,
-        name: OsString,
-    },
+    /// notify the invalidation about a directory entry.
+    InvalidEntry { parent: u64, name: OsString },
 
+    /// notify a directory entry has been deleted.
     Delete {
         parent: u64,
         child: u64,
         name: OsString,
     },
 
+    /// push the data in an inode for updating the kernel cache.
     Store {
         inode: u64,
         offset: u64,
         data: Vec<u8>,
     },
 
+    /// retrieve data in an inode from the kernel cache.
     Retrieve {
         notify_unique: u64,
         inode: u64,

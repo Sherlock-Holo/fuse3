@@ -22,7 +22,7 @@ https://github.com/Sherlock-Holo/fuse3)
 - fuseblk mode
 - macos support
 
-## may not work well
+## unstable
 - `poll`
 
 ## License

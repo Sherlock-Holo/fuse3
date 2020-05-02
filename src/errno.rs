@@ -4,7 +4,7 @@ use std::io::Error as IoError;
 use std::os::raw::c_int;
 
 #[derive(Debug, Copy, Clone)]
-/// a linux errno wrap.
+/// linux errno wrap.
 pub struct Errno(pub c_int);
 
 impl From<Errno> for c_int {

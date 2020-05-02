@@ -23,7 +23,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nix::sys::stat::mode_t;
 
-/// re-export async_trait.
+/// re-export [`async_trait`].
+///
+/// [`async_trait`]: async_trait::async_trait
 pub use async_trait::async_trait;
 pub use errno::Errno;
 pub use filesystem::Filesystem;
@@ -293,6 +295,8 @@ where
 }
 
 pub mod prelude {
+    //! the fuse3 prelude.
+
     pub use crate::reply::*;
     pub use crate::Errno;
     pub use crate::FileAttr;

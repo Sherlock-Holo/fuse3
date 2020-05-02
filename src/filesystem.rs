@@ -428,8 +428,9 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }*/
 
-    // TODO need more doc about it.
-    /// poll for IO readiness events.
+    /// poll for IO readiness events, [`PollNotify`] is used to notify event.
+    ///
+    /// [`PollNotify`]: crate::notify::PollNotify
     async fn poll(
         &self,
         _req: Request,
