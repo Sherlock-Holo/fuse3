@@ -1127,7 +1127,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         );
 
                         let resp_value =
-                            if let Err(err) = fs.unlink(request, in_header.nodeid, &name).await {
+                            if let Err(err) = fs.rmdir(request, in_header.nodeid, &name).await {
                                 err.into()
                             } else {
                                 0
