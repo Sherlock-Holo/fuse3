@@ -15,6 +15,10 @@ path = "src/helloworld/main.rs"
 name = "memfs"
 path = "src/memfs/main.rs"
 
+[[bin]]
+name = "poll"
+path = "src/poll/main.rs"
+
 [dependencies]
 fuse3 = { path = "../", features = ["async-std-runtime", "unprivileged"] }
 async-trait = "0.1"
@@ -23,3 +27,5 @@ async-std = { version = "1.5", features = ["attributes"] }
 pretty_env_logger = "0.4"
 log = "0.4"
 futures-util = "0.3"
+mio = { version = "0.7", features = ["os-poll", "os-util"] }
+tempfile = "3.1"

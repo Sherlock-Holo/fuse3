@@ -234,7 +234,6 @@ pub const FUSE_IOCTL_DIR: u32 = 1 << 4;
 pub const FUSE_IOCTL_MAX_IOV: u32 = 256;
 
 // Poll flags
-#[allow(dead_code)]
 /// request poll notify
 pub const FUSE_POLL_SCHEDULE_NOTIFY: u32 = 1 << 0;
 
@@ -916,7 +915,7 @@ pub struct fuse_poll_in {
     pub fh: u64,
     pub kh: u64,
     pub flags: u32,
-    pub padding: u32,
+    pub events: u32,
 }
 
 pub const FUSE_POLL_OUT_SIZE: usize = mem::size_of::<fuse_poll_out>();

@@ -27,11 +27,12 @@ use crate::abi::*;
 use crate::connection::FuseConnection;
 use crate::filesystem::Filesystem;
 use crate::helper::*;
+use crate::notify::PollNotify;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
 use crate::spawn::spawn_without_return;
+use crate::MountOptions;
 use crate::{Errno, SetAttr};
-use crate::{MountOptions, PollNotify};
 
 lazy_static! {
     static ref BINARY: bincode::Config = {
@@ -2725,13 +2726,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid, poll_in
                         );
 
+                        let kh = if poll_in.flags & FUSE_POLL_SCHEDULE_NOTIFY > 0 {
+                            Some(poll_in.kh)
+                        } else {
+                            None
+                        };
+
                         let reply_poll = match fs
                             .poll(
                                 request,
                                 in_header.nodeid,
                                 poll_in.fh,
-                                poll_in.kh,
+                                kh,
                                 poll_in.flags,
+                                poll_in.events,
                                 PollNotify::new(resp_sender.clone()),
                             )
                             .await
