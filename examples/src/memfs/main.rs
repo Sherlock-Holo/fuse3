@@ -576,7 +576,7 @@ impl Filesystem for FS {
                 .await;
 
             Ok(ReplyDirectory {
-                entries: Box::new(children.into_iter()),
+                entries: Box::pin(stream::iter(children)),
             })
         } else {
             Err(libc::ENOTDIR.into())
@@ -749,7 +749,7 @@ impl Filesystem for FS {
                 .await;
 
             Ok(ReplyDirectoryPlus {
-                entries: Box::new(children.into_iter()),
+                entries: Box::pin(stream::iter(children)),
             })
         } else {
             Err(libc::ENOTDIR.into())

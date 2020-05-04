@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use async_std::task;
+use futures_util::stream;
 use log::debug;
 use log::LevelFilter;
 use mio::unix::SourceFd;
@@ -188,7 +189,7 @@ impl Filesystem for Poll {
         ];
 
         Ok(ReplyDirectory {
-            entries: Box::new(entries.into_iter().skip(offset as usize)),
+            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
         })
     }
 
@@ -295,7 +296,7 @@ impl Filesystem for Poll {
         ];
 
         Ok(ReplyDirectoryPlus {
-            entries: Box::new(entries.into_iter().skip(offset as usize)),
+            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
         })
     }
 

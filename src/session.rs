@@ -2150,7 +2150,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid, read_in.fh, read_in.offset
                         );
 
-                        let reply_readdir = match fs
+                        let mut reply_readdir = match fs
                             .readdir(request, in_header.nodeid, read_in.fh, read_in.offset as i64)
                             .await
                         {
@@ -2167,7 +2167,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut entry_data = Vec::with_capacity(max_size);
 
-                        for entry in reply_readdir.entries {
+                        while let Some(entry) = reply_readdir.entries.next().await {
                             let name = &entry.name;
 
                             let dir_entry_size = FUSE_DIRENT_SIZE + name.len();
@@ -2980,7 +2980,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid, readdirplus_in
                         );
 
-                        let directory_plus = match fs
+                        let mut directory_plus = match fs
                             .readdirplus(
                                 request,
                                 in_header.nodeid,
@@ -3003,7 +3003,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut entry_data = Vec::with_capacity(max_size);
 
-                        for entry in directory_plus.entries {
+                        while let Some(entry) = directory_plus.entries.next().await {
                             let name = &entry.name;
 
                             let dir_entry_size = FUSE_DIRENTPLUS_SIZE + name.len();

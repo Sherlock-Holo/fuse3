@@ -1,6 +1,9 @@
 //! reply structures.
 use std::ffi::OsString;
+use std::pin::Pin;
 use std::time::Duration;
+
+use futures::stream::Stream;
 
 use crate::abi::{
     fuse_attr_out, fuse_bmap_out, fuse_entry_out, fuse_kstatfs, fuse_lseek_out, fuse_open_out,
@@ -157,7 +160,7 @@ pub struct DirectoryEntry {
 
 /// readdir reply.
 pub struct ReplyDirectory {
-    pub entries: Box<dyn Iterator<Item = DirectoryEntry> + Send>,
+    pub entries: Pin<Box<dyn Stream<Item = DirectoryEntry> + Send>>,
 }
 
 #[cfg(feature = "file-lock")]
@@ -292,7 +295,7 @@ pub struct DirectoryEntryPlus {
 // use fuse_direntplus
 /// the readdirplus reply.
 pub struct ReplyDirectoryPlus {
-    pub entries: Box<dyn Iterator<Item = DirectoryEntryPlus> + Send>,
+    pub entries: Pin<Box<dyn Stream<Item = DirectoryEntryPlus> + Send>>,
 }
 
 #[derive(Debug)]

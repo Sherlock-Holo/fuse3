@@ -2,6 +2,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::time::{Duration, SystemTime};
 
+use futures_util::stream;
 use log::LevelFilter;
 
 use async_trait::async_trait;
@@ -176,7 +177,7 @@ impl Filesystem for HelloWorld {
         ];
 
         Ok(ReplyDirectory {
-            entries: Box::new(entries.into_iter().skip(offset as usize)),
+            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
         })
     }
 
@@ -283,7 +284,7 @@ impl Filesystem for HelloWorld {
         ];
 
         Ok(ReplyDirectoryPlus {
-            entries: Box::new(entries.into_iter().skip(offset as usize)),
+            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
         })
     }
 }
