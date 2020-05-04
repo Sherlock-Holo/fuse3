@@ -187,7 +187,6 @@ pub const FUSE_RELEASE_FLUSH: u32 = 1 << 0;
 #[allow(dead_code)]
 pub const FUSE_RELEASE_FLOCK_UNLOCK: u32 = 1 << 1;
 
-#[allow(dead_code)]
 // Getattr flags
 pub const FUSE_GETATTR_FH: u32 = 1 << 0;
 

@@ -215,7 +215,13 @@ impl Filesystem for FS {
 
     async fn forget(&self, _req: Request, _inode: u64, _nlookup: u64) {}
 
-    async fn getattr(&self, _req: Request, inode: u64, _fh: u64, _flags: u32) -> Result<ReplyAttr> {
+    async fn getattr(
+        &self,
+        _req: Request,
+        inode: u64,
+        _fh: Option<u64>,
+        _flags: u32,
+    ) -> Result<ReplyAttr> {
         Ok(ReplyAttr {
             ttl: TTL,
             attr: self
@@ -230,7 +236,13 @@ impl Filesystem for FS {
         })
     }
 
-    async fn setattr(&self, _req: Request, inode: u64, set_attr: SetAttr) -> Result<ReplyAttr> {
+    async fn setattr(
+        &self,
+        _req: Request,
+        inode: u64,
+        _fh: Option<u64>,
+        set_attr: SetAttr,
+    ) -> Result<ReplyAttr> {
         Ok(ReplyAttr {
             ttl: TTL,
             attr: self

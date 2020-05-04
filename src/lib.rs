@@ -35,7 +35,7 @@ pub use request::Request;
 pub use session::Session;
 
 use crate::abi::{
-    fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_FH, FATTR_GID,
+    fuse_attr, fuse_setattr_in, FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_GID,
     FATTR_LOCKOWNER, FATTR_MODE, FATTR_MTIME, FATTR_MTIME_NOW, FATTR_SIZE, FATTR_UID,
 };
 use crate::helper::mode_from_kind_and_perm;
@@ -192,8 +192,6 @@ pub struct SetAttr {
     pub atime: Option<SystemTime>,
     /// set file or directory mtime.
     pub mtime: Option<SystemTime>,
-    /// the fh argument.
-    pub fh: Option<u64>,
     /// set file or directory atime now.
     pub atime_now: Option<()>,
     /// set file or directory mtime now.
@@ -246,10 +244,6 @@ impl From<&fuse_setattr_in> for SetAttr {
 
         if setattr_in.valid & FATTR_MTIME_NOW > 0 {
             set_attr.mtime = Some(SystemTime::now());
-        }
-
-        if setattr_in.valid & FATTR_FH > 0 {
-            set_attr.fh = Some(setattr_in.fh);
         }
 
         if setattr_in.valid & FATTR_LOCKOWNER > 0 {

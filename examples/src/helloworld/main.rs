@@ -59,7 +59,13 @@ impl Filesystem for HelloWorld {
         })
     }
 
-    async fn getattr(&self, _req: Request, inode: u64, _fh: u64, _flags: u32) -> Result<ReplyAttr> {
+    async fn getattr(
+        &self,
+        _req: Request,
+        inode: u64,
+        _fh: Option<u64>,
+        _flags: u32,
+    ) -> Result<ReplyAttr> {
         if inode == PARENT_INODE {
             Ok(ReplyAttr {
                 ttl: TTL,

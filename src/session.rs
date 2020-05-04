@@ -665,13 +665,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid
                         );
 
+                        let fh = if getattr_in.getattr_flags & FUSE_GETATTR_FH > 0 {
+                            Some(getattr_in.fh)
+                        } else {
+                            None
+                        };
+
                         let data = match fs
-                            .getattr(
-                                request,
-                                in_header.nodeid,
-                                getattr_in.fh,
-                                getattr_in.getattr_flags,
-                            )
+                            .getattr(request, in_header.nodeid, fh, getattr_in.getattr_flags)
                             .await
                         {
                             Err(err) => {
@@ -739,12 +740,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     spawn_without_return(async move {
                         let set_attr = SetAttr::from(&setattr_in);
 
+                        let fh = if setattr_in.valid & FATTR_FH > 0 {
+                            Some(setattr_in.fh)
+                        } else {
+                            None
+                        };
+
                         debug!(
                             "setattr unique {} inode {} set_attr {:?}",
                             request.unique, in_header.nodeid, set_attr
                         );
 
-                        let data = match fs.setattr(request, in_header.nodeid, set_attr).await {
+                        let data = match fs.setattr(request, in_header.nodeid, fh, set_attr).await {
                             Err(err) => {
                                 let out_header = fuse_out_header {
                                     len: FUSE_OUT_HEADER_SIZE as u32,

@@ -35,19 +35,25 @@ pub trait Filesystem {
     /// message.
     async fn forget(&self, _req: Request, _inode: u64, _nlookup: u64) {}
 
-    /// get file attributes.
+    /// get file attributes. If `fh` is None, means `fh` is not set.
     async fn getattr(
         &self,
         _req: Request,
         _inode: u64,
-        _fh: u64,
+        _fh: Option<u64>,
         _flags: u32,
     ) -> Result<ReplyAttr> {
         Err(libc::ENOSYS.into())
     }
 
-    /// set file attributes.
-    async fn setattr(&self, _req: Request, _inode: u64, _set_attr: SetAttr) -> Result<ReplyAttr> {
+    /// set file attributes.  If `fh` is None, means `fh` is not set.
+    async fn setattr(
+        &self,
+        _req: Request,
+        _inode: u64,
+        _fh: Option<u64>,
+        _set_attr: SetAttr,
+    ) -> Result<ReplyAttr> {
         Err(libc::ENOSYS.into())
     }
 
