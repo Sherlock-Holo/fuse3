@@ -347,8 +347,7 @@ pub enum fuse_opcode {
     // TODO implement it after get enough info about it
     // FUSE_IOCTL = 39,
     FUSE_POLL = 40,
-    // TODO implement it after get enough info about it
-    // FUSE_NOTIFY_REPLY = 41,
+    FUSE_NOTIFY_REPLY = 41,
     FUSE_BATCH_FORGET = 42,
     FUSE_FALLOCATE = 43,
     FUSE_READDIRPLUS = 44,
@@ -419,7 +418,7 @@ impl TryFrom<u32> for fuse_opcode {
             38 => Ok(fuse_opcode::FUSE_DESTROY),
             // 39 => Ok(fuse_opcode::FUSE_IOCTL),
             40 => Ok(fuse_opcode::FUSE_POLL),
-            // 41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
+            41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
             42 => Ok(fuse_opcode::FUSE_BATCH_FORGET),
             43 => Ok(fuse_opcode::FUSE_FALLOCATE),
             44 => Ok(fuse_opcode::FUSE_READDIRPLUS),
@@ -1051,7 +1050,9 @@ pub struct fuse_notify_retrieve_out {
     pub padding: u32,
 }
 
-#[derive(Debug)]
+pub const FUSE_NOTIFY_RETRIEVE_IN_SIZE: usize = mem::size_of::<fuse_notify_retrieve_in>();
+
+#[derive(Debug, Deserialize)]
 // matches the size of fuse_write_in
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_retrieve_in {

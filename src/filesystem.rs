@@ -2,7 +2,6 @@ use std::ffi::OsStr;
 
 use async_trait::async_trait;
 
-use crate::poll::PollNotify;
 use crate::reply::*;
 use crate::request::Request;
 use crate::{Result, SetAttr};
@@ -428,9 +427,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }*/
 
-    /// poll for IO readiness events, [`PollNotify`] is used to notify event.
-    ///
-    /// [`PollNotify`]: crate::notify::PollNotify
+    /// poll for IO readiness events.
     async fn poll(
         &self,
         _req: Request,
@@ -439,13 +436,20 @@ pub trait Filesystem {
         _kh: Option<u64>,
         _flags: u32,
         _events: u32,
-        _poll_notify: PollNotify,
     ) -> Result<ReplyPoll> {
         Err(libc::ENOSYS.into())
     }
 
-    // TODO handle notify
-    // async fn notify_reply(&self, )
+    /// receive notify reply from kernel.
+    async fn notify_reply(
+        &self,
+        _req: Request,
+        _inode: u64,
+        _offset: u64,
+        _data: Vec<u8>,
+    ) -> Result<()> {
+        Err(libc::ENOSYS.into())
+    }
 
     /// forget more than one inode. This is a batch version [`forget`]
     ///

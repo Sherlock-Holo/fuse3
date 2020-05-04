@@ -13,6 +13,7 @@ use log::LevelFilter;
 
 use async_trait::async_trait;
 use fuse3::prelude::*;
+use fuse3::Session;
 
 const TTL: Duration = Duration::from_secs(1);
 
@@ -846,11 +847,9 @@ async fn main() {
 
     let mount_options = MountOptions::default().allow_other(true).uid(uid).gid(gid);
 
-    if let Some(mount_path) = mount_path {
-        fuse3::mount(FS::default(), mount_path, mount_options)
-            .await
-            .unwrap()
-    } else {
-        panic!("no mount point specified")
-    }
+    let mount_path = mount_path.expect("no mount point specified");
+    Session::new(mount_options)
+        .mount(FS::default(), mount_path)
+        .await
+        .unwrap();
 }

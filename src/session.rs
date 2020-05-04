@@ -12,8 +12,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "async-std-runtime")]
 use async_std::fs::read_dir;
-#[cfg(feature = "async-std-runtime")]
-use async_std::sync::Mutex;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
 use log::{debug, error};
@@ -21,8 +19,6 @@ use nix::mount;
 use nix::mount::MsFlags;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::fs::read_dir;
-#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-use tokio::sync::Mutex;
 
 use lazy_static::lazy_static;
 
@@ -31,7 +27,7 @@ use crate::abi::*;
 use crate::connection::FuseConnection;
 use crate::filesystem::Filesystem;
 use crate::helper::*;
-use crate::poll::PollNotify;
+use crate::notify::Notify;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
 use crate::spawn::spawn_without_return;
@@ -48,30 +44,35 @@ lazy_static! {
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+/// fuse filesystem session.
 pub struct Session<FS> {
-    fuse_connection: Mutex<Option<Arc<FuseConnection>>>,
-    filesystem: Arc<FS>,
+    fuse_connection: Option<Arc<FuseConnection>>,
+    filesystem: Option<Arc<FS>>,
     response_sender: UnboundedSender<Vec<u8>>,
-    response_receiver: Mutex<Option<UnboundedReceiver<Vec<u8>>>>,
+    response_receiver: Option<UnboundedReceiver<Vec<u8>>>,
     mount_options: MountOptions,
 }
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl<FS> Session<FS> {
-    pub fn new(fs: FS, mount_options: MountOptions) -> Self {
+    /// new a fuse filesystem session.
+    pub fn new(mount_options: MountOptions) -> Self {
         let (sender, receiver) = unbounded();
 
         Self {
-            fuse_connection: Mutex::new(None),
-            filesystem: Arc::new(fs),
+            fuse_connection: None,
+            filesystem: None,
             response_sender: sender,
-            response_receiver: Mutex::new(Some(receiver)),
+            response_receiver: Some(receiver),
             mount_options,
         }
     }
 
-    pub fn get_poll_notify(&self) -> PollNotify {
-        PollNotify::new(self.response_sender.clone())
+    /// get a [`notify`].
+    ///
+    /// [`notify`]: Notify
+    pub fn get_notify(&self) -> Notify {
+        Notify::new(self.response_sender.clone())
     }
 }
 
@@ -80,16 +81,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     #[cfg(feature = "unprivileged")]
     /// mount the filesystem without root permission. This function will block until the filesystem
     /// is unmounted.
-    pub async fn mount_with_unprivileged<P: AsRef<Path>>(&self, mount_path: P) -> IoResult<()> {
+    pub async fn mount_with_unprivileged<P: AsRef<Path>>(
+        mut self,
+        fs: FS,
+        mount_path: P,
+    ) -> IoResult<()> {
         let fuse_connection =
             FuseConnection::new_with_unprivileged(self.mount_options.clone(), mount_path.as_ref())
                 .await?;
 
-        // won't panic, no one get lock now by design
-        self.fuse_connection
-            .try_lock()
-            .expect("fuse connection has been locked")
-            .replace(Arc::new(fuse_connection));
+        self.fuse_connection.replace(Arc::new(fuse_connection));
+
+        self.filesystem.replace(Arc::new(fs));
 
         debug!("mount {:?} success", mount_path.as_ref());
 
@@ -97,7 +100,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     /// mount the filesystem. This function will block until the filesystem is unmounted.
-    pub async fn mount<P: AsRef<Path>>(&self, mount_path: P) -> IoResult<()> {
+    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
         let mut mount_options = self.mount_options.clone();
 
         if !mount_options.nonempty && read_dir(mount_path.as_ref()).await?.next().await.is_some() {
@@ -133,34 +136,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             return Err(io_error_from_nix_error(err));
         }
 
-        // won't panic, no one get lock now by design
-        self.fuse_connection
-            .try_lock()
-            .expect("fuse connection has been locked")
-            .replace(Arc::new(fuse_connection));
+        self.fuse_connection.replace(Arc::new(fuse_connection));
+
+        self.filesystem.replace(Arc::new(fs));
 
         debug!("mount {:?} success", mount_path.as_ref());
 
         self.inner_mount().await
     }
 
-    async fn inner_mount(&self) -> IoResult<()> {
-        // won't panic, no one get lock now by design
-        let fuse_write_connection = self
-            .fuse_connection
-            .try_lock()
-            .expect("fuse connection has been lock")
-            .as_ref()
-            .unwrap()
-            .clone();
+    async fn inner_mount(&mut self) -> IoResult<()> {
+        let fuse_write_connection = self.fuse_connection.as_ref().unwrap().clone();
 
-        // won't panic, no one get lock now by design
-        let receiver = self
-            .response_receiver
-            .try_lock()
-            .expect("receiver has been lock")
-            .take()
-            .unwrap();
+        let receiver = self.response_receiver.take().unwrap();
 
         let dispatch_task = self.dispatch().fuse();
 
@@ -235,16 +223,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         Ok(())
     }
 
-    async fn dispatch(&self) -> IoResult<()> {
+    async fn dispatch(&mut self) -> IoResult<()> {
         let mut buffer = vec![0; BUFFER_SIZE];
 
-        // won't panic, no one get lock now by design
-        let fuse_connection = self
-            .fuse_connection
-            .try_lock()
-            .expect("fuse connection not init")
-            .take()
-            .unwrap();
+        let fuse_connection = self.fuse_connection.take().unwrap();
+
+        let fs = self.filesystem.take().expect("filesystem not init");
 
         'dispatch_loop: loop {
             let mut data = match fuse_connection.read(buffer).await {
@@ -253,14 +237,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         if errno == libc::ENODEV {
                             debug!("read from /dev/fuse failed with ENODEV, call destroy now");
 
-                            self.filesystem
-                                .destroy(Request {
-                                    unique: 0,
-                                    uid: 0,
-                                    gid: 0,
-                                    pid: 0,
-                                })
-                                .await;
+                            fs.destroy(Request {
+                                unique: 0,
+                                uid: 0,
+                                gid: 0,
+                                pid: 0,
+                            })
+                            .await;
 
                             return Ok(());
                         }
@@ -492,7 +475,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_NO_OPENDIR_SUPPORT;
                     }
 
-                    if let Err(err) = self.filesystem.init(request).await {
+                    if let Err(err) = fs.init(request).await {
                         let init_out_header = fuse_out_header {
                             len: FUSE_OUT_HEADER_SIZE as u32,
                             error: err.into(),
@@ -558,7 +541,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_DESTROY => {
                     debug!("receive fuse destroy");
 
-                    self.filesystem.destroy(request).await;
+                    fs.destroy(request).await;
 
                     debug!("fuse destroyed");
 
@@ -580,7 +563,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -643,7 +626,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(forget_in) => forget_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -674,7 +657,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(getattr_in) => getattr_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -751,7 +734,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(setattr_in) => setattr_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         let set_attr = SetAttr::from(&setattr_in);
@@ -801,7 +784,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 fuse_opcode::FUSE_READLINK => {
                     let mut resp_sender = self.response_sender.clone();
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -878,7 +861,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -962,7 +945,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1044,7 +1027,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1109,7 +1092,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1154,7 +1137,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1233,7 +1216,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1303,7 +1286,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1362,7 +1345,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(open_in) => open_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1420,7 +1403,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(read_in) => read_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1497,7 +1480,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let data = data.to_vec();
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1549,7 +1532,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 fuse_opcode::FUSE_STATFS => {
                     let mut resp_sender = self.response_sender.clone();
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1607,7 +1590,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(release_in) => release_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         let flush = release_in.release_flags & FUSE_RELEASE_FLUSH > 0;
@@ -1668,7 +1651,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(fsync_in) => fsync_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         let data_sync = fsync_in.fsync_flags & 1 > 0;
@@ -1762,7 +1745,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1831,7 +1814,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -1919,7 +1902,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(listxattr_in) => listxattr_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2007,7 +1990,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2053,7 +2036,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(flush_in) => flush_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2100,7 +2083,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(open_in) => open_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2159,7 +2142,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(read_in) => read_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2253,7 +2236,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(release_in) => release_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2300,7 +2283,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(fsync_in) => fsync_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         let data_sync = fsync_in.fsync_flags & 1 > 0;
@@ -2350,7 +2333,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(getlk_in) => getlk_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2420,7 +2403,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(setlk_in) => setlk_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         let block = opcode == fuse_opcode::FUSE_SETLKW;
@@ -2492,7 +2475,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(access_in) => access_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2557,7 +2540,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2629,7 +2612,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(interrupt_in) => interrupt_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2674,7 +2657,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(bmap_in) => bmap_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2734,7 +2717,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let ioctl_data = (&data[FUSE_IOCTL_IN_SIZE..]).to_vec();
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
                 }*/
                 fuse_opcode::FUSE_POLL => {
                     let mut resp_sender = self.response_sender.clone();
@@ -2754,7 +2737,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(poll_in) => poll_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2776,7 +2759,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 kh,
                                 poll_in.flags,
                                 poll_in.events,
-                                PollNotify::new(resp_sender.clone()),
                             )
                             .await
                         {
@@ -2811,7 +2793,56 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     });
                 }
 
-                // fuse_opcode::FUSE_NOTIFY_REPLY => {}
+                fuse_opcode::FUSE_NOTIFY_REPLY => {
+                    let resp_sender = self.response_sender.clone();
+
+                    let notify_retrieve_in = match BINARY
+                        .deserialize::<fuse_notify_retrieve_in>(data)
+                    {
+                        Err(err) => {
+                            error!(
+                                "deserialize fuse_notify_retrieve_in failed {}, request unique {}",
+                                err, request.unique
+                            );
+
+                            // TODO need to reply or not?
+                            continue;
+                        }
+
+                        Ok(notify_retrieve_in) => notify_retrieve_in,
+                    };
+
+                    data = &data[FUSE_NOTIFY_RETRIEVE_IN_SIZE..];
+
+                    if data.len() < notify_retrieve_in.size as usize {
+                        error!(
+                            "fuse_notify_retrieve unique {} data size is not right",
+                            request.unique
+                        );
+
+                        // TODO need to reply or not?
+                        continue;
+                    }
+
+                    let data = (&data[..notify_retrieve_in.size as usize]).to_vec();
+
+                    let fs = fs.clone();
+
+                    spawn_without_return(async move {
+                        if let Err(err) = fs
+                            .notify_reply(
+                                request,
+                                in_header.nodeid,
+                                notify_retrieve_in.offset,
+                                data,
+                            )
+                            .await
+                        {
+                            reply_error_in_place(err, request, resp_sender).await;
+                        }
+                    });
+                }
+
                 fuse_opcode::FUSE_BATCH_FORGET => {
                     let batch_forget_in = match BINARY.deserialize::<fuse_batch_forget_in>(data) {
                         Err(err) => {
@@ -2841,7 +2872,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 continue 'dispatch_loop;
                             }
 
-                            Ok(forget_one) => forgets.push(forget_one),
+                            Ok(forget_one) => {
+                                data = &data[FUSE_FORGET_ONE_SIZE..];
+
+                                forgets.push(forget_one);
+                            }
                         }
                     }
 
@@ -2851,7 +2886,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         continue;
                     }
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         let inodes = forgets
@@ -2883,7 +2918,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(fallocate_in) => fallocate_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -2937,7 +2972,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(readdirplus_in) => readdirplus_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -3084,7 +3119,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Some(index) => OsString::from_vec((&data[..index]).to_vec()),
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!("rename2 unique {} parent {} name {:?} new parent {} new name {:?} flags {}", request.unique, in_header.nodeid, old_name, rename2_in.newdir, new_name, rename2_in.flags);
@@ -3135,7 +3170,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         Ok(lseek_in) => lseek_in,
                     };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(
@@ -3203,7 +3238,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             Ok(copy_file_range_in) => copy_file_range_in,
                         };
 
-                    let fs = self.filesystem.clone();
+                    let fs = fs.clone();
 
                     spawn_without_return(async move {
                         debug!(

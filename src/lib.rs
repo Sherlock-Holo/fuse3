@@ -46,7 +46,7 @@ mod errno;
 mod filesystem;
 mod helper;
 mod mount_options;
-pub mod poll;
+pub mod notify;
 pub mod reply;
 mod request;
 mod session;

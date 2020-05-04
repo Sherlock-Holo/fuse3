@@ -24,6 +24,7 @@ https://github.com/Sherlock-Holo/fuse3)
 
 ## unstable
 - `poll`
+- `notify_reply`
 
 ## License
 

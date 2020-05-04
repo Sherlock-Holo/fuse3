@@ -6,6 +6,7 @@ use log::LevelFilter;
 
 use async_trait::async_trait;
 use fuse3::prelude::*;
+use fuse3::Session;
 
 const CONTENT: &str = "hello world\n";
 
@@ -300,13 +301,11 @@ async fn main() {
 
     let mount_options = MountOptions::default().uid(uid).gid(gid).read_only(true);
 
-    if let Some(mount_path) = mount_path {
-        fuse3::mount_with_unprivileged(HelloWorld {}, mount_path, mount_options)
-            .await
-            .unwrap()
-    } else {
-        panic!("no mount point specified")
-    }
+    let mount_path = mount_path.expect("no mount point specified");
+    Session::new(mount_options)
+        .mount_with_unprivileged(HelloWorld {}, mount_path)
+        .await
+        .unwrap()
 }
 
 fn log_init() {

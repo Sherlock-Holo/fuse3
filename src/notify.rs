@@ -1,4 +1,4 @@
-//! notify kernel poll event is done.
+//! notify kernel.
 
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
@@ -10,9 +10,10 @@ use lazy_static::lazy_static;
 
 use crate::abi::{
     fuse_notify_code, fuse_notify_delete_out, fuse_notify_inval_entry_out,
-    fuse_notify_inval_inode_out, fuse_notify_poll_wakeup_out, fuse_notify_store_out,
-    fuse_out_header, FUSE_NOTIFY_DELETE_OUT_SIZE, FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE,
-    FUSE_NOTIFY_INVAL_INODE_OUT_SIZE, FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE,
+    fuse_notify_inval_inode_out, fuse_notify_poll_wakeup_out, fuse_notify_retrieve_out,
+    fuse_notify_store_out, fuse_out_header, FUSE_NOTIFY_DELETE_OUT_SIZE,
+    FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE, FUSE_NOTIFY_INVAL_INODE_OUT_SIZE,
+    FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE, FUSE_NOTIFY_RETRIEVE_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE,
     FUSE_OUT_HEADER_SIZE,
 };
 
@@ -25,24 +26,22 @@ lazy_static! {
     };
 }
 
-#[derive(Debug)]
-/// notify that a poll event is done.
-pub struct PollNotify {
+#[derive(Debug, Clone)]
+/// notify kernel there are something need to handle.
+pub struct Notify {
     sender: UnboundedSender<Vec<u8>>,
 }
 
-impl PollNotify {
+impl Notify {
     pub(crate) fn new(sender: UnboundedSender<Vec<u8>>) -> Self {
         Self { sender }
     }
 
-    /// notify a poll event is done. If notify failed, the `kind` will be return in `Err`.
-    pub async fn notify(
-        &mut self,
-        kind: PollNotifyKind,
-    ) -> std::result::Result<(), PollNotifyKind> {
+    /// notify kernel there are something need to handle. If notify failed, the `kind` will be
+    /// return in `Err`.
+    pub async fn notify(&mut self, kind: NotifyKind) -> std::result::Result<(), NotifyKind> {
         let data = match &kind {
-            PollNotifyKind::Wakeup { kh } => {
+            NotifyKind::Wakeup { kh } => {
                 let out_header = fuse_out_header {
                     len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE) as u32,
                     error: fuse_notify_code::FUSE_POLL as i32,
@@ -64,7 +63,7 @@ impl PollNotify {
                 data
             }
 
-            PollNotifyKind::InvalidInode { inode, offset, len } => {
+            NotifyKind::InvalidInode { inode, offset, len } => {
                 let out_header = fuse_out_header {
                     len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_INODE_OUT_SIZE) as u32,
                     error: fuse_notify_code::FUSE_NOTIFY_INVAL_INODE as i32,
@@ -90,7 +89,7 @@ impl PollNotify {
                 data
             }
 
-            PollNotifyKind::InvalidEntry { parent, name } => {
+            NotifyKind::InvalidEntry { parent, name } => {
                 let out_header = fuse_out_header {
                     len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE) as u32,
                     error: fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY as i32,
@@ -121,7 +120,7 @@ impl PollNotify {
                 data
             }
 
-            PollNotifyKind::Delete {
+            NotifyKind::Delete {
                 parent,
                 child,
                 name,
@@ -157,7 +156,7 @@ impl PollNotify {
                 data
             }
 
-            PollNotifyKind::Store {
+            NotifyKind::Store {
                 inode,
                 offset,
                 data,
@@ -190,6 +189,39 @@ impl PollNotify {
 
                 data_buf
             }
+
+            NotifyKind::Retrieve {
+                notify_unique,
+                inode,
+                offset,
+                size,
+            } => {
+                let out_header = fuse_out_header {
+                    len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_RETRIEVE_OUT_SIZE) as u32,
+                    error: fuse_notify_code::FUSE_NOTIFY_RETRIEVE as i32,
+                    unique: 0,
+                };
+
+                let retrieve_out = fuse_notify_retrieve_out {
+                    notify_unique: *notify_unique,
+                    nodeid: *inode,
+                    offset: *offset,
+                    size: *size,
+                    padding: 0,
+                };
+
+                let mut data =
+                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_RETRIEVE_OUT_SIZE);
+
+                BINARY
+                    .serialize_into(&mut data, &out_header)
+                    .expect("vec size is not enough");
+                BINARY
+                    .serialize_into(&mut data, &retrieve_out)
+                    .expect("vec size is not enough");
+
+                data
+            }
         };
 
         self.sender.send(data).await.or(Err(kind))
@@ -197,8 +229,8 @@ impl PollNotify {
 }
 
 #[derive(Debug)]
-/// the kind of poll notify.
-pub enum PollNotifyKind {
+/// the kind of notify.
+pub enum NotifyKind {
     /// notify the IO is ready.
     Wakeup { kh: u64 },
 
@@ -221,5 +253,13 @@ pub enum PollNotifyKind {
         inode: u64,
         offset: u64,
         data: Vec<u8>,
+    },
+
+    /// retrieve data in an inode from the kernel cache.
+    Retrieve {
+        notify_unique: u64,
+        inode: u64,
+        offset: u64,
+        size: u32,
     },
 }

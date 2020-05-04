@@ -12,8 +12,9 @@ use mio::unix::SourceFd;
 use mio::{Events, Interest, Token};
 
 use async_trait::async_trait;
-use fuse3::poll::*;
+use fuse3::notify::*;
 use fuse3::prelude::*;
+use fuse3::Session;
 
 const CONTENT: &str = "hello world\n";
 
@@ -27,6 +28,7 @@ const TTL: Duration = Duration::from_secs(1);
 #[derive(Debug, Default)]
 struct Poll {
     ready: Arc<AtomicBool>,
+    notify: Option<Notify>,
 }
 
 #[async_trait]
@@ -305,7 +307,6 @@ impl Filesystem for Poll {
         kh: Option<u64>,
         flags: u32,
         events: u32,
-        poll_notify: PollNotify,
     ) -> Result<ReplyPoll> {
         if inode != PARENT_INODE && inode != FILE_INODE {
             return Err(libc::ENOENT.into());
@@ -322,6 +323,8 @@ impl Filesystem for Poll {
                 });
             }
 
+            let mut notify = self.notify.as_ref().unwrap().clone();
+
             task::spawn(async move {
                 debug!("start notify");
 
@@ -329,10 +332,7 @@ impl Filesystem for Poll {
 
                 ready.store(true, Ordering::SeqCst);
 
-                poll_notify
-                    .notify(PollNotifyKind::Wakeup { kh })
-                    .await
-                    .unwrap();
+                notify.notify(NotifyKind::Wakeup { kh }).await.unwrap();
 
                 debug!("notify done");
             });
@@ -355,6 +355,12 @@ async fn main() {
 
     let mount_path = temp_dir.path();
 
+    let mut poll = Poll::default();
+
+    let session = Session::new(mount_options);
+
+    poll.notify.replace(session.get_notify());
+
     {
         let mount_path = mount_path.as_os_str().to_os_string();
 
@@ -365,9 +371,10 @@ async fn main() {
         });
     }
 
-    fuse3::mount_with_unprivileged(Poll::default(), mount_path, mount_options)
+    session
+        .mount_with_unprivileged(poll, mount_path)
         .await
-        .unwrap()
+        .unwrap();
 }
 
 fn log_init() {
@@ -400,4 +407,6 @@ fn poll_file(mount_path: &OsStr) {
     for event in events.iter() {
         debug!("{:?}", event);
     }
+
+    poll.registry().deregister(&mut fd).unwrap();
 }
