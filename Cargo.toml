@@ -23,8 +23,8 @@ unprivileged = ["which"]
 doc = ["file-lock", "unprivileged", "async-std-runtime"]
 
 [dependencies]
-futures-util = "0.3"
-futures-channel = "0.3"
+futures-util = { version = "0.3", features = ["sink"] }
+futures-channel = { version = "0.3", features = ["sink"] }
 log = "0.4"
 async-trait = "0.1"
 libc = "0.2"
