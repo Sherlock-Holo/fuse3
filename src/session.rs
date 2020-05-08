@@ -350,10 +350,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_ATOMIC_O_TRUNC;
                     }
 
-                    // TODO should we need it?
-                    /*if init_in.flags&FUSE_EXPORT_SUPPORT>0 {
+                    if init_in.flags & FUSE_EXPORT_SUPPORT > 0 {
+                        debug!("enable FUSE_EXPORT_SUPPORT");
+
                         reply_flags |= FUSE_EXPORT_SUPPORT;
-                    }*/
+                    }
 
                     if init_in.flags & FUSE_BIG_WRITES > 0 {
                         debug!("enable FUSE_BIG_WRITES");
@@ -390,11 +391,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_FLOCK_LOCKS;
                     }*/
 
-                    if init_in.flags & FUSE_HAS_IOCTL_DIR > 0 {
+                    /*if init_in.flags & FUSE_HAS_IOCTL_DIR > 0 {
                         debug!("enable FUSE_HAS_IOCTL_DIR");
 
                         reply_flags |= FUSE_HAS_IOCTL_DIR;
-                    }
+                    }*/
 
                     if init_in.flags & FUSE_AUTO_INVAL_DATA > 0 {
                         debug!("enable FUSE_AUTO_INVAL_DATA");
@@ -420,7 +421,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_ASYNC_DIO;
                     }
 
-                    if init_in.flags & FUSE_WRITEBACK_CACHE > 0 {
+                    if init_in.flags & FUSE_WRITEBACK_CACHE > 0 && self.mount_options.write_back {
                         debug!("enable FUSE_WRITEBACK_CACHE");
 
                         reply_flags |= FUSE_WRITEBACK_CACHE;

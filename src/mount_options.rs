@@ -33,6 +33,8 @@ pub struct MountOptions {
 
     pub(crate) handle_killpriv: bool,
 
+    pub(crate) write_back: bool,
+
     pub(crate) custom_options: Option<OsString>,
 }
 
@@ -128,6 +130,17 @@ impl MountOptions {
     /// fs handle killing `suid`/`sgid`/`cap` on `write`/`chown`/`trunc`, default is disable.
     pub fn handle_killpriv(mut self, handle_killpriv: bool) -> Self {
         self.handle_killpriv = handle_killpriv;
+
+        self
+    }
+
+    /// enable write back cache for buffered writes, default is disable.
+    ///
+    /// # Notes:
+    ///
+    /// if enable this feature, when write flags has `FUSE_WRITE_CACHE`, file handle is guessed.
+    pub fn write_back(mut self, write_back: bool) -> Self {
+        self.write_back = write_back;
 
         self
     }

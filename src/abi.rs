@@ -18,8 +18,6 @@
 //!
 //! Items without a version annotation are valid with ABI 7.8 and later
 
-// #![allow(missing_docs)]
-
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
@@ -87,7 +85,6 @@ pub const FUSE_FILE_OPS: u32 = 1 << 2;
 /// handles the O_TRUNC open flag in the filesystem
 pub const FUSE_ATOMIC_O_TRUNC: u32 = 1 << 3;
 
-#[allow(dead_code)]
 /// filesystem handles lookups of "." and ".."
 pub const FUSE_EXPORT_SUPPORT: u32 = 1 << 4;
 
@@ -113,6 +110,7 @@ pub const FUSE_SPLICE_READ: u32 = 1 << 9;
 /// locking for BSD style file locks
 pub const FUSE_FLOCK_LOCKS: u32 = 1 << 10;
 
+#[allow(dead_code)]
 /// kernel supports ioctl on directories
 pub const FUSE_HAS_IOCTL_DIR: u32 = 1 << 11;
 
@@ -177,9 +175,8 @@ pub const FUSE_VOL_RENAME: u32 = 1 << 30;
 pub const FUSE_XTIMES: u32 = 1 << 31;
 
 // CUSE init request/reply flags
-#[allow(dead_code)]
 // use unrestricted ioctl
-pub const CUSE_UNRESTRICTED_IOCTL: u32 = 1 << 0;
+// pub const CUSE_UNRESTRICTED_IOCTL: u32 = 1 << 0;
 
 // Release flags
 pub const FUSE_RELEASE_FLUSH: u32 = 1 << 0;
@@ -361,7 +358,6 @@ pub enum fuse_opcode {
     FUSE_GETXTIMES = 62,
     #[cfg(target_os = "macos")]
     FUSE_EXCHANGE = 63,
-    // TODO implement it after get enough info about it
     // CUSE_INIT = 4096,
 }
 
@@ -839,16 +835,16 @@ pub struct fuse_init_out {
     pub unused: [u32; 8],
 }
 
-#[derive(Debug, Deserialize)]
+/*#[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub struct cuse_init_in {
     pub major: u32,
     pub minor: u32,
     pub unused: u32,
     pub flags: u32,
-}
+}*/
 
-#[derive(Debug, Serialize)]
+/*#[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub struct cuse_init_out {
     pub major: u32,
@@ -862,7 +858,7 @@ pub struct cuse_init_out {
     // chardev minor
     pub dev_minor: u32,
     pub spare: [u32; 10],
-}
+}*/
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]

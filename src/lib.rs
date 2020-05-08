@@ -272,11 +272,3 @@ pub mod prelude {
     pub use crate::Result;
     pub use crate::SetAttr;
 }
-
-/*#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}*/
