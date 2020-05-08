@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::pin::Pin;
 use std::time::Duration;
 
-use futures::stream::Stream;
+use futures_util::stream::Stream;
 
 use crate::abi::{
     fuse_attr_out, fuse_bmap_out, fuse_entry_out, fuse_kstatfs, fuse_lseek_out, fuse_open_out,

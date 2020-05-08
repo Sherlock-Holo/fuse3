@@ -3,8 +3,8 @@
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 
-use futures::channel::mpsc::UnboundedSender;
-use futures::SinkExt;
+use futures_channel::mpsc::UnboundedSender;
+use futures_util::sink::SinkExt;
 
 use lazy_static::lazy_static;
 

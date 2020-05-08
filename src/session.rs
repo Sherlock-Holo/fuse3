@@ -12,8 +12,11 @@ use std::sync::Arc;
 
 #[cfg(feature = "async-std-runtime")]
 use async_std::fs::read_dir;
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::{pin_mut, select, FutureExt, Sink, SinkExt, StreamExt};
+use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures_util::future::FutureExt;
+use futures_util::sink::{Sink, SinkExt};
+use futures_util::stream::StreamExt;
+use futures_util::{pin_mut, select};
 use log::{debug, error};
 use nix::mount;
 use nix::mount::MsFlags;
@@ -2804,21 +2807,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_NOTIFY_REPLY => {
                     let resp_sender = self.response_sender.clone();
 
-                    let notify_retrieve_in = match BINARY
-                        .deserialize::<fuse_notify_retrieve_in>(data)
-                    {
-                        Err(err) => {
-                            error!(
+                    let notify_retrieve_in =
+                        match BINARY.deserialize::<fuse_notify_retrieve_in>(data) {
+                            Err(err) => {
+                                error!(
                                 "deserialize fuse_notify_retrieve_in failed {}, request unique {}",
                                 err, request.unique
                             );
 
-                            // TODO need to reply or not?
-                            continue;
-                        }
+                                // TODO need to reply or not?
+                                continue;
+                            }
 
-                        Ok(notify_retrieve_in) => notify_retrieve_in,
-                    };
+                            Ok(notify_retrieve_in) => notify_retrieve_in,
+                        };
 
                     data = &data[FUSE_NOTIFY_RETRIEVE_IN_SIZE..];
 
