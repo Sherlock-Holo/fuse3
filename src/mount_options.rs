@@ -192,6 +192,10 @@ impl MountOptions {
             format!("user_id={}", self.uid.unwrap_or(unistd::getuid().as_raw())),
             format!("group_id={}", self.gid.unwrap_or(unistd::getgid().as_raw())),
             format!("rootmode={}", self.rootmode.unwrap_or(40000)),
+            format!(
+                "fsname={:?}",
+                self.fs_name.as_ref().unwrap_or(&OsString::from("fuse"))
+            ),
         ];
 
         if self.allow_root {
