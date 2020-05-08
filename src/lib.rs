@@ -6,7 +6,7 @@
 //! This library doesn't depend on `libfuse`, unless enable `unprivileged` feature, this feature
 //! will support mount the filesystem without root permission by using `fusermount3`.
 //!
-//! # Features;
+//! # Features:
 //!
 //! - `file-lock`: enable POSIX file lock feature.
 //! - `async-std-runtime`: use [async_std](https://docs.rs/async-std) runtime.
