@@ -17,6 +17,16 @@ const FILE_NAME: &str = "hello-world.txt";
 const PARENT_MODE: u16 = 0o755;
 const FILE_MODE: u16 = 0o644;
 const TTL: Duration = Duration::from_secs(1);
+const STATFS: ReplyStatFs = ReplyStatFs {
+    blocks: 1,
+    bfree: 0,
+    bavail: 0,
+    files: 1,
+    ffree: 0,
+    bsize: 4096,
+    namelen: u32::max_value(),
+    frsize: 0,
+};
 
 struct HelloWorld;
 
@@ -292,6 +302,10 @@ impl Filesystem for HelloWorld {
         Ok(ReplyDirectoryPlus {
             entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
         })
+    }
+
+    async fn statsfs(&self, _req: Request, _inode: u64) -> Result<ReplyStatFs> {
+        Ok(STATFS)
     }
 }
 

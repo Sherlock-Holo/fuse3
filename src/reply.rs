@@ -106,16 +106,23 @@ impl Into<fuse_write_out> for ReplyWrite {
 }
 
 #[derive(Debug)]
-// TODO need more detail.
 /// statfs reply.
 pub struct ReplyStatFs {
+    /// the number of blocks in the filesystem.
     pub blocks: u64,
+    /// the number of free blocks.
     pub bfree: u64,
+    /// the number of free blocks for non-priviledge users.
     pub bavail: u64,
+    /// the number of inodes.
     pub files: u64,
+    /// the number of free inodes.
     pub ffree: u64,
+    /// the block size.
     pub bsize: u32,
+    /// the maximum length of file name.
     pub namelen: u32,
+    /// the fragment size.
     pub frsize: u32,
 }
 
