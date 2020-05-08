@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::os::unix::io::RawFd;
 
 use nix::unistd;
@@ -146,8 +146,8 @@ impl MountOptions {
     }
 
     /// set custom options for fuse filesystem, the custom options will be used in mount
-    pub fn custom_options(mut self, custom_options: impl AsRef<OsStr>) -> Self {
-        self.custom_options = Some(custom_options.as_ref().to_os_string());
+    pub fn custom_options(mut self, custom_options: impl Into<OsString>) -> Self {
+        self.custom_options = Some(custom_options.into());
 
         self
     }
