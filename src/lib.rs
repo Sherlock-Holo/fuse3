@@ -192,10 +192,6 @@ pub struct SetAttr {
     pub atime: Option<SystemTime>,
     /// set file or directory mtime.
     pub mtime: Option<SystemTime>,
-    /// set file or directory atime now.
-    pub atime_now: Option<()>,
-    /// set file or directory mtime now.
-    pub mtime_now: Option<()>,
     /// set file or directory ctime.
     pub ctime: Option<SystemTime>,
     #[cfg(target_os = "macos")]
