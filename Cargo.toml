@@ -41,7 +41,7 @@ optional = true
 
 [dependencies.tokio]
 version = "0.2"
-features = ["fs", "io-util", "blocking", "sync", "stream"]
+features = ["fs", "blocking", "sync", "stream"]
 optional = true
 
 [package.metadata.docs.rs]
