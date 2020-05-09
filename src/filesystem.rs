@@ -354,7 +354,7 @@ pub trait Filesystem {
         _type: u32,
         _pid: u32,
         _block: bool,
-    ) -> Result<ReplyLock>;
+    ) -> Result<()>;
 
     /// check file access permissions. This will be called for the `access()` system call. If the
     /// `default_permissions` mount option is given, this method is not be called. This method is

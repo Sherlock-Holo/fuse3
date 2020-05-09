@@ -2424,7 +2424,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid, block, setlk_in
                         );
 
-                        let reply_lock = match fs
+                        let resp = if let Err(err) = fs
                             .setlk(
                                 request,
                                 in_header.nodeid,
@@ -2438,31 +2438,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             )
                             .await
                         {
-                            Err(err) => {
-                                reply_error_in_place(err, request, resp_sender).await;
-
-                                return;
-                            }
-
-                            Ok(reply_lock) => reply_lock,
+                            err.into()
+                        } else {
+                            0
                         };
 
-                        let setlk_out: fuse_lk_out = reply_lock.into();
-
                         let out_header = fuse_out_header {
-                            len: (FUSE_OUT_HEADER_SIZE + FUSE_LK_OUT_SIZE) as u32,
-                            error: 0,
+                            len: FUSE_OUT_HEADER_SIZE as u32,
+                            error: resp,
                             unique: request.unique,
                         };
 
-                        let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_LK_OUT_SIZE);
-
-                        BINARY
-                            .serialize_into(&mut data, &out_header)
-                            .expect("won't happened");
-                        BINARY
-                            .serialize_into(&mut data, &setlk_out)
-                            .expect("won't happened");
+                        let data = BINARY
+                            .serialize(&out_header)
+                            .expect("can't serialize into vec");
 
                         let _ = resp_sender.send(data).await;
                     });
