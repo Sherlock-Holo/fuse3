@@ -89,6 +89,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         fs: FS,
         mount_path: P,
     ) -> IoResult<()> {
+        if !self.mount_options.nonempty
+            && read_dir(mount_path.as_ref()).await?.next().await.is_some()
+        {
+            return Err(IoError::new(
+                ErrorKind::AlreadyExists,
+                "mount point is not empty",
+            ));
+        }
+
         let fuse_connection =
             FuseConnection::new_with_unprivileged(self.mount_options.clone(), mount_path.as_ref())
                 .await?;

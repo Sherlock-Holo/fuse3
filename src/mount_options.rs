@@ -210,10 +210,6 @@ impl MountOptions {
             opts.push("ro".to_string());
         }
 
-        if self.nonempty {
-            opts.push("nonempty".to_string());
-        }
-
         if self.default_permissions {
             opts.push("default_permissions".to_string());
         }
