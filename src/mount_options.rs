@@ -35,6 +35,8 @@ pub struct MountOptions {
 
     pub(crate) write_back: bool,
 
+    pub(crate) force_readdir_plus: bool,
+
     pub(crate) custom_options: Option<OsString>,
 }
 
@@ -141,6 +143,17 @@ impl MountOptions {
     /// if enable this feature, when write flags has `FUSE_WRITE_CACHE`, file handle is guessed.
     pub fn write_back(mut self, write_back: bool) -> Self {
         self.write_back = write_back;
+
+        self
+    }
+
+    /// force filesystem use readdirplus only, when kernel use readdir will return `ENOSYS`,
+    /// default is disable.
+    ///
+    /// # Notes:
+    /// this may don't work with some old Linux Kernel.
+    pub fn force_readdir_plus(mut self, force_readdir_plus: bool) -> Self {
+        self.force_readdir_plus = force_readdir_plus;
 
         self
     }

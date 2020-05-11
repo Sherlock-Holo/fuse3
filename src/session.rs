@@ -415,13 +415,17 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_AUTO_INVAL_DATA;
                     }
 
-                    if init_in.flags & FUSE_DO_READDIRPLUS > 0 {
+                    if init_in.flags & FUSE_DO_READDIRPLUS > 0
+                        || self.mount_options.force_readdir_plus
+                    {
                         debug!("enable FUSE_DO_READDIRPLUS");
 
                         reply_flags |= FUSE_DO_READDIRPLUS;
                     }
 
-                    if init_in.flags & FUSE_READDIRPLUS_AUTO > 0 {
+                    if init_in.flags & FUSE_READDIRPLUS_AUTO > 0
+                        && !self.mount_options.force_readdir_plus
+                    {
                         debug!("enable FUSE_READDIRPLUS_AUTO");
 
                         reply_flags |= FUSE_READDIRPLUS_AUTO;
@@ -2146,6 +2150,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 fuse_opcode::FUSE_READDIR => {
                     let mut resp_sender = self.response_sender.clone();
+
+                    if self.mount_options.force_readdir_plus {
+                        reply_error(libc::ENOSYS.into(), request, resp_sender);
+
+                        continue;
+                    }
 
                     let read_in = match BINARY.deserialize::<fuse_read_in>(data) {
                         Err(err) => {

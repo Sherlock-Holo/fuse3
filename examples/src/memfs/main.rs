@@ -545,7 +545,7 @@ impl Filesystem for FS {
         Ok(())
     }
 
-    async fn readdir(
+    /*async fn readdir(
         &self,
         _req: Request,
         parent: u64,
@@ -593,7 +593,7 @@ impl Filesystem for FS {
         } else {
             Err(libc::ENOTDIR.into())
         }
-    }
+    }*/
 
     async fn access(&self, _req: Request, _inode: u64, _mask: u32) -> Result<()> {
         Ok(())
@@ -857,7 +857,11 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    let mount_options = MountOptions::default().allow_other(true).uid(uid).gid(gid);
+    let mount_options = MountOptions::default()
+        .allow_other(true)
+        .force_readdir_plus(true)
+        .uid(uid)
+        .gid(gid);
 
     let mount_path = mount_path.expect("no mount point specified");
     Session::new(mount_options)
