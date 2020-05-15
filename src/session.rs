@@ -16,7 +16,7 @@ use futures_util::future::FutureExt;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
 use futures_util::{pin_mut, select};
-use log::{debug, error};
+use log::{debug, error, warn};
 use nix::mount;
 use nix::mount::MsFlags;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
@@ -225,6 +225,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             let n = response.len();
 
             if let Err((_, err)) = fuse_connection.write(response, n).await {
+                if err.kind() == ErrorKind::NotFound {
+                    warn!(
+                        "may reply interrupted fuse request, ignore this error {}",
+                        err
+                    );
+
+                    continue;
+                }
+
                 error!("reply fuse failed {}", err);
 
                 return Err(err);
