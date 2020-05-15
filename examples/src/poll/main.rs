@@ -144,7 +144,9 @@ impl Filesystem for Poll {
         }
 
         if offset as usize >= CONTENT.len() {
-            Ok(ReplyData { data: vec![] })
+            Ok(ReplyData {
+                data: Box::new(b""),
+            })
         } else {
             let mut data = &CONTENT.as_bytes()[offset as usize..];
 
@@ -153,7 +155,7 @@ impl Filesystem for Poll {
             }
 
             Ok(ReplyData {
-                data: data.to_vec(),
+                data: Box::new(data),
             })
         }
     }

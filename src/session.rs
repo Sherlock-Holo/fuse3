@@ -1,5 +1,4 @@
 use std::convert::TryFrom;
-use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
@@ -129,9 +128,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let options = mount_options.build(fd);
 
         let fs_name = if let Some(fs_name) = mount_options.fs_name.as_ref() {
-            Some(fs_name.as_os_str())
+            Some(fs_name.as_str())
         } else {
-            Some(OsStr::new("fuse"))
+            Some("fuse")
         };
 
         debug!("mount options {:?}", options);
@@ -828,7 +827,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             }
 
                             Ok(data) => {
-                                let content = data.data;
+                                let content = data.data.as_ref().as_ref();
 
                                 let out_header = fuse_out_header {
                                     len: (FUSE_OUT_HEADER_SIZE + content.len()) as u32,
@@ -843,7 +842,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
 
-                                data.extend_from_slice(&content);
+                                data.extend_from_slice(content);
 
                                 data
                             }
@@ -1435,7 +1434,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid, read_in
                         );
 
-                        let mut reply_data = match fs
+                        let reply_data = match fs
                             .read(
                                 request,
                                 in_header.nodeid,
@@ -1454,7 +1453,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             Ok(reply_data) => reply_data.data,
                         };
 
-                        reply_data.truncate(read_in.size as usize);
+                        let mut reply_data = reply_data.as_ref().as_ref();
+
+                        if reply_data.len() > read_in.size as _ {
+                            reply_data = &reply_data[..read_in.size as _];
+                        }
 
                         let out_header = fuse_out_header {
                             len: (FUSE_OUT_HEADER_SIZE + reply_data.len()) as u32,
@@ -1468,7 +1471,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
 
-                        data.extend_from_slice(&reply_data);
+                        data.extend_from_slice(reply_data);
 
                         let _ = resp_sender.send(data).await;
                     });

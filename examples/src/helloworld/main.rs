@@ -142,7 +142,9 @@ impl Filesystem for HelloWorld {
         }
 
         if offset as usize >= CONTENT.len() {
-            Ok(ReplyData { data: vec![] })
+            Ok(ReplyData {
+                data: Box::new(b""),
+            })
         } else {
             let mut data = &CONTENT.as_bytes()[offset as usize..];
 
@@ -151,7 +153,7 @@ impl Filesystem for HelloWorld {
             }
 
             Ok(ReplyData {
-                data: data.to_vec(),
+                data: Box::new(data),
             })
         }
     }

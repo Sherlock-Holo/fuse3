@@ -13,7 +13,7 @@ use crate::abi::{
 use crate::abi::{fuse_file_lock, fuse_lk_out};
 use crate::{FileAttr, FileType};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// entry reply.
 pub struct ReplyEntry {
     /// the attribute TTL.
@@ -40,7 +40,7 @@ impl Into<fuse_entry_out> for ReplyEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// reply attr.
 pub struct ReplyAttr {
     /// the attribute TTL.
@@ -63,10 +63,10 @@ impl Into<fuse_attr_out> for ReplyAttr {
 /// data reply.
 pub struct ReplyData {
     /// the data.
-    pub data: Vec<u8>,
+    pub data: Box<dyn AsRef<[u8]> + Send>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// open reply.
 pub struct ReplyOpen {
     /// the file handle id.
@@ -89,7 +89,7 @@ impl Into<fuse_open_out> for ReplyOpen {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// write reply.
 pub struct ReplyWrite {
     /// the data written.
@@ -105,7 +105,7 @@ impl Into<fuse_write_out> for ReplyWrite {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// statfs reply.
 pub struct ReplyStatFs {
     /// the number of blocks in the filesystem.
@@ -145,14 +145,14 @@ impl Into<fuse_statfs_out> for ReplyStatFs {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// xattr reply.
 pub enum ReplyXAttr {
     Size(u32),
     Data(Vec<u8>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// directory entry.
 pub struct DirectoryEntry {
     /// entry inode.
@@ -171,7 +171,7 @@ pub struct ReplyDirectory {
 }
 
 #[cfg(feature = "file-lock")]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// file lock reply.
 pub struct ReplyLock {
     /// starting offset for lock.
@@ -202,7 +202,7 @@ impl Into<fuse_lk_out> for ReplyLock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// crate reply.
 pub struct ReplyCreated {
     /// the attribute TTL.
@@ -241,7 +241,7 @@ impl Into<(fuse_entry_out, fuse_open_out)> for ReplyCreated {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 // TODO need more detail
 /// bmap reply.
 pub struct ReplyBmap {
@@ -262,7 +262,7 @@ pub struct ReplyIoctl {
     pub out_iovs: u32,
 }*/
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 // TODO need more detail
 /// poll reply
 pub struct ReplyPoll {
@@ -278,7 +278,7 @@ impl Into<fuse_poll_out> for ReplyPoll {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// directory entry with attribute
 pub struct DirectoryEntryPlus {
     /// the entry inode.
@@ -299,13 +299,12 @@ pub struct DirectoryEntryPlus {
     pub attr_ttl: Duration,
 }
 
-// use fuse_direntplus
 /// the readdirplus reply.
 pub struct ReplyDirectoryPlus {
     pub entries: Pin<Box<dyn Stream<Item = DirectoryEntryPlus> + Send>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// the lseek reply.
 pub struct ReplyLSeek {
     /// lseek offset.
@@ -320,7 +319,7 @@ impl Into<fuse_lseek_out> for ReplyLSeek {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 /// copy_file_range reply.
 pub struct ReplyCopyFileRange {
     /// data copied size.

@@ -456,7 +456,9 @@ impl Filesystem for FS {
             let file = file.read().await;
 
             if file.content.len() <= offset as _ {
-                return Ok(ReplyData { data: vec![] });
+                return Ok(ReplyData {
+                    data: Box::new(b""),
+                });
             }
 
             let mut data = &file.content[offset as _..];
@@ -466,7 +468,7 @@ impl Filesystem for FS {
             }
 
             Ok(ReplyData {
-                data: data.to_vec(),
+                data: Box::new(data.to_vec()),
             })
         } else {
             Err(libc::EISDIR.into())
@@ -832,8 +834,10 @@ impl Filesystem for FS {
     ) -> Result<ReplyCopyFileRange> {
         let data = self.read(req, inode, fh_in, off_in, length as _).await?;
 
+        let data = data.data.as_ref().as_ref();
+
         let ReplyWrite { written } = self
-            .write(req, inode_out, fh_out, off_out, &data.data, flags as _)
+            .write(req, inode_out, fh_out, off_out, data, flags as _)
             .await?;
 
         Ok(ReplyCopyFileRange { copied: written })
