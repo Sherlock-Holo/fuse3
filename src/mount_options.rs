@@ -10,7 +10,7 @@ pub struct MountOptions {
     pub(crate) uid: Option<u32>,
     pub(crate) gid: Option<u32>,
 
-    pub(crate) fs_name: Option<OsString>,
+    pub(crate) fs_name: Option<String>,
 
     // default 40000
     pub(crate) rootmode: Option<u32>,
@@ -56,7 +56,7 @@ impl MountOptions {
     }
 
     /// set fuse filesystem name, default is **fuse**.
-    pub fn fs_name(mut self, name: impl Into<OsString>) -> Self {
+    pub fn fs_name(mut self, name: impl Into<String>) -> Self {
         self.fs_name.replace(name.into());
 
         self
@@ -206,8 +206,8 @@ impl MountOptions {
             format!("group_id={}", self.gid.unwrap_or(unistd::getgid().as_raw())),
             format!("rootmode={}", self.rootmode.unwrap_or(40000)),
             format!(
-                "fsname={:?}",
-                self.fs_name.as_ref().unwrap_or(&OsString::from("fuse"))
+                "fsname={}",
+                self.fs_name.as_ref().unwrap_or(&"fuse".to_string())
             ),
         ];
 
