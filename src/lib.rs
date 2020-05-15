@@ -176,7 +176,7 @@ impl From<FileType> for mode_t {
 }
 
 /// the setattr argument.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct SetAttr {
     /// set file or directory mode.
     pub mode: Option<u32>,

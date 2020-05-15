@@ -4,7 +4,7 @@ use std::os::unix::io::RawFd;
 use nix::unistd;
 
 /// mount options.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct MountOptions {
     // mount syscall data field option
     pub(crate) uid: Option<u32>,

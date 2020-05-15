@@ -5,7 +5,7 @@ use std::os::raw::c_int;
 
 use nix::Error as NixError;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 /// linux errno wrap.
 pub struct Errno(pub c_int);
 
