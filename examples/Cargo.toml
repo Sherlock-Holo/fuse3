@@ -23,7 +23,7 @@ path = "src/poll/main.rs"
 fuse3 = { path = "../", features = ["async-std-runtime", "unprivileged"] }
 async-trait = "0.1"
 libc = "0.2"
-async-std = { version = "1.5", features = ["attributes"] }
+async-std = { version = "1.6", features = ["attributes"] }
 pretty_env_logger = "0.4"
 log = "0.4"
 futures-util = "0.3"
