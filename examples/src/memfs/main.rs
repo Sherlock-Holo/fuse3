@@ -6,12 +6,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use async_std::sync::RwLock;
+use async_trait::async_trait;
 use futures_util::stream;
 use futures_util::StreamExt;
 use log::LevelFilter;
+use tokio::sync::RwLock;
 
-use async_trait::async_trait;
 use fuse3::prelude::*;
 use fuse3::Session;
 
@@ -850,7 +850,7 @@ fn log_init() {
         .init();
 }
 
-#[async_std::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     log_init();
 
@@ -862,14 +862,14 @@ async fn main() {
     let gid = unsafe { libc::getgid() };
 
     let mount_options = MountOptions::default()
-        .allow_other(true)
+        // .allow_other(true)
         .force_readdir_plus(true)
         .uid(uid)
         .gid(gid);
 
     let mount_path = mount_path.expect("no mount point specified");
     Session::new(mount_options)
-        .mount(FS::default(), mount_path)
+        .mount_with_unprivileged(FS::default(), mount_path)
         .await
         .unwrap();
 }

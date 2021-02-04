@@ -9,8 +9,11 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(feature = "async-std-runtime")]
+#[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
 use async_std::fs::read_dir;
+#[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+use async_std::task::spawn;
+use bincode::Options;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures_util::future::FutureExt;
 use futures_util::sink::{Sink, SinkExt};
@@ -21,8 +24,10 @@ use nix::mount;
 use nix::mount::MsFlags;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::fs::read_dir;
-
-use lazy_static::lazy_static;
+#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+use tokio::spawn;
+#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+use tokio_stream::wrappers::ReadDirStream;
 
 use crate::abi::*;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
@@ -32,18 +37,8 @@ use crate::helper::*;
 use crate::notify::Notify;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
-use crate::spawn::spawn_without_return;
 use crate::MountOptions;
 use crate::{Errno, SetAttr};
-
-lazy_static! {
-    static ref BINARY: bincode::Config = {
-        let mut cfg = bincode::config();
-        cfg.little_endian();
-
-        cfg
-    };
-}
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 /// fuse filesystem session.
@@ -80,6 +75,31 @@ impl<FS> Session<FS> {
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
+    pub async fn mount_empty_check(&self, mount_path: &Path) -> IoResult<()> {
+        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+        if !self.mount_options.nonempty
+            && ReadDirStream::new(read_dir(mount_path).await?)
+                .next()
+                .await
+                .is_some()
+        {
+            return Err(IoError::new(
+                ErrorKind::AlreadyExists,
+                "mount point is not empty",
+            ));
+        }
+
+        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+        if !self.mount_options.nonempty && read_dir(mount_path).await?.next().await.is_some() {
+            return Err(IoError::new(
+                ErrorKind::AlreadyExists,
+                "mount point is not empty",
+            ));
+        }
+
+        Ok(())
+    }
+
     #[cfg(feature = "unprivileged")]
     /// mount the filesystem without root permission. This function will block until the filesystem
     /// is unmounted.
@@ -88,24 +108,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         fs: FS,
         mount_path: P,
     ) -> IoResult<()> {
-        if !self.mount_options.nonempty
-            && read_dir(mount_path.as_ref()).await?.next().await.is_some()
-        {
-            return Err(IoError::new(
-                ErrorKind::AlreadyExists,
-                "mount point is not empty",
-            ));
-        }
+        let mount_path = mount_path.as_ref();
+
+        self.mount_empty_check(mount_path).await?;
 
         let fuse_connection =
-            FuseConnection::new_with_unprivileged(self.mount_options.clone(), mount_path.as_ref())
-                .await?;
+            FuseConnection::new_with_unprivileged(self.mount_options.clone(), mount_path).await?;
 
         self.fuse_connection.replace(Arc::new(fuse_connection));
 
         self.filesystem.replace(Arc::new(fs));
 
-        debug!("mount {:?} success", mount_path.as_ref());
+        debug!("mount {:?} success", mount_path);
 
         self.inner_mount().await
     }
@@ -114,12 +128,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
         let mut mount_options = self.mount_options.clone();
 
-        if !mount_options.nonempty && read_dir(mount_path.as_ref()).await?.next().await.is_some() {
-            return Err(IoError::new(
-                ErrorKind::AlreadyExists,
-                "mount point is not empty",
-            ));
-        }
+        let mount_path = mount_path.as_ref();
+
+        self.mount_empty_check(mount_path).await?;
 
         let fuse_connection = FuseConnection::new().await?;
 
@@ -137,12 +148,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         if let Err(err) = mount::mount(
             fs_name,
-            mount_path.as_ref(),
+            mount_path,
             Some("fuse"),
             MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
             Some(options.as_os_str()),
         ) {
-            error!("mount {:?} failed", mount_path.as_ref());
+            error!("mount {:?} failed", mount_path);
 
             return Err(io_error_from_nix_error(err));
         }
@@ -151,7 +162,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         self.filesystem.replace(Arc::new(fs));
 
-        debug!("mount {:?} success", mount_path.as_ref());
+        debug!("mount {:?} success", mount_path);
 
         self.inner_mount().await
     }
@@ -165,7 +176,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         pin_mut!(dispatch_task);
 
-        #[cfg(feature = "async-std-runtime")]
+        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
         {
             let reply_task = async_std::task::spawn(async move {
                 Self::reply_fuse(fuse_write_connection, receiver).await
@@ -222,9 +233,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         mut response_receiver: UnboundedReceiver<Vec<u8>>,
     ) -> IoResult<()> {
         while let Some(response) = response_receiver.next().await {
-            let n = response.len();
-
-            if let Err((_, err)) = fuse_connection.write(response, n).await {
+            if let Err(err) = fuse_connection.write(&response).await {
                 if err.kind() == ErrorKind::NotFound {
                     warn!(
                         "may reply interrupted fuse request, ignore this error {}",
@@ -251,8 +260,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let fs = self.filesystem.take().expect("filesystem not init");
 
         'dispatch_loop: loop {
-            let mut data = match fuse_connection.read(buffer).await {
-                Err((_, err)) => {
+            let mut data = match fuse_connection.read(&mut buffer).await {
+                Err(err) => {
                     if let Some(errno) = err.raw_os_error() {
                         if errno == libc::ENODEV {
                             debug!("read from /dev/fuse failed with ENODEV, call destroy now");
@@ -274,14 +283,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     return Err(err);
                 }
 
-                Ok((buf, n)) => {
-                    buffer = buf;
-
-                    &buffer[..n]
-                }
+                Ok(n) => &buffer[..n],
             };
 
-            let in_header = match BINARY.deserialize::<fuse_in_header>(data) {
+            let in_header = match get_bincode_config().deserialize::<fuse_in_header>(data) {
                 Err(err) => {
                     error!("deserialize fuse_in_header failed {}", err);
 
@@ -312,7 +317,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             match opcode {
                 fuse_opcode::FUSE_INIT => {
-                    let init_in = match BINARY.deserialize::<fuse_init_in>(data) {
+                    let init_in = match get_bincode_config().deserialize::<fuse_init_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_init_in failed {}, request unique {}",
@@ -325,13 +330,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 unique: request.unique,
                             };
 
-                            let init_out_header_data =
-                                BINARY.serialize(&init_out_header).expect("won't happened");
+                            let init_out_header_data = get_bincode_config()
+                                .serialize(&init_out_header)
+                                .expect("won't happened");
 
-                            if let Err((_, err)) = fuse_connection
-                                .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
-                                .await
-                            {
+                            if let Err(err) = fuse_connection.write(&init_out_header_data).await {
                                 error!("write error init out data to /dev/fuse failed {}", err);
                             }
 
@@ -507,13 +510,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let init_out_header_data =
-                            BINARY.serialize(&init_out_header).expect("won't happened");
+                        let init_out_header_data = get_bincode_config()
+                            .serialize(&init_out_header)
+                            .expect("won't happened");
 
-                        if let Err((_, err)) = fuse_connection
-                            .write(init_out_header_data, FUSE_OUT_HEADER_SIZE)
-                            .await
-                        {
+                        if let Err(err) = fuse_connection.write(&init_out_header_data).await {
                             error!("write error init out data to /dev/fuse failed {}", err);
                         }
 
@@ -544,17 +545,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE);
 
-                    BINARY
+                    get_bincode_config()
                         .serialize_into(&mut data, &out_header)
                         .expect("won't happened");
-                    BINARY
+                    get_bincode_config()
                         .serialize_into(&mut data, &init_out)
                         .expect("won't happened");
 
-                    if let Err((_, err)) = fuse_connection
-                        .write(data, FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE)
-                        .await
-                    {
+                    if let Err(err) = fuse_connection.write(&data).await {
                         error!("write init out data to /dev/fuse failed {}", err);
 
                         return Err(err);
@@ -590,7 +588,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "lookup unique {} name {:?} in parent {}",
                             request.unique, name, in_header.nodeid
@@ -604,7 +602,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     unique: request.unique,
                                 };
 
-                                BINARY.serialize(&out_header).expect("won't happened")
+                                get_bincode_config()
+                                    .serialize(&out_header)
+                                    .expect("won't happened")
                             }
 
                             Ok(entry) => {
@@ -621,10 +621,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &entry_out)
                                     .expect("won't happened");
 
@@ -637,7 +637,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_FORGET => {
-                    let forget_in = match BINARY.deserialize::<fuse_forget_in>(data) {
+                    let forget_in = match get_bincode_config().deserialize::<fuse_forget_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_forget_in failed {}, request unique {}",
@@ -653,7 +653,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "forget unique {} inode {} nlookup {}",
                             request.unique, in_header.nodeid, forget_in.nlookup
@@ -667,7 +667,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_GETATTR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let getattr_in = match BINARY.deserialize::<fuse_getattr_in>(data) {
+                    let getattr_in = match get_bincode_config().deserialize::<fuse_getattr_in>(data)
+                    {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_forget_in failed {}, request unique {}",
@@ -684,7 +685,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "getattr unique {} inode {}",
                             request.unique, in_header.nodeid
@@ -707,7 +708,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     unique: request.unique,
                                 };
 
-                                BINARY.serialize(&out_header).expect("won't happened")
+                                get_bincode_config()
+                                    .serialize(&out_header)
+                                    .expect("won't happened")
                             }
 
                             Ok(attr) => {
@@ -727,10 +730,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ATTR_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &attr_out)
                                     .expect("won't happened");
 
@@ -745,7 +748,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_SETATTR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let setattr_in = match BINARY.deserialize::<fuse_setattr_in>(data) {
+                    let setattr_in = match get_bincode_config().deserialize::<fuse_setattr_in>(data)
+                    {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_setattr_in failed {}, request unique {}",
@@ -762,7 +766,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         let set_attr = SetAttr::from(&setattr_in);
 
                         let fh = if setattr_in.valid & FATTR_FH > 0 {
@@ -784,7 +788,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     unique: request.unique,
                                 };
 
-                                BINARY.serialize(&out_header).expect("won't happened")
+                                get_bincode_config()
+                                    .serialize(&out_header)
+                                    .expect("won't happened")
                             }
 
                             Ok(attr) => {
@@ -799,10 +805,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ATTR_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &attr_out)
                                     .expect("won't happened");
 
@@ -818,7 +824,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let mut resp_sender = self.response_sender.clone();
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "readlink unique {} inode {}",
                             request.unique, in_header.nodeid
@@ -832,7 +838,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     unique: request.unique,
                                 };
 
-                                BINARY.serialize(&out_header).expect("won't happened")
+                                get_bincode_config()
+                                    .serialize(&out_header)
+                                    .expect("won't happened")
                             }
 
                             Ok(data) => {
@@ -847,7 +855,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + content.len());
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
 
@@ -895,7 +903,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "symlink unique {} parent {} name {:?} link {:?}",
                             request.unique, in_header.nodeid, name, link_name
@@ -912,7 +920,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                     unique: request.unique,
                                 };
 
-                                BINARY.serialize(&out_header).expect("won't happened")
+                                get_bincode_config()
+                                    .serialize(&out_header)
+                                    .expect("won't happened")
                             }
 
                             Ok(entry) => {
@@ -927,10 +937,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &entry_out)
                                     .expect("won't happened");
 
@@ -945,7 +955,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_MKNOD => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let mknod_in = match BINARY.deserialize::<fuse_mknod_in>(data) {
+                    let mknod_in = match get_bincode_config().deserialize::<fuse_mknod_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_mknod_in failed {}, request unique {}",
@@ -979,7 +989,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "mknod unique {} parent {} name {:?} {:?}",
                             request.unique, in_header.nodeid, name, mknod_in
@@ -1011,10 +1021,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &entry_out)
                                     .expect("won't happened");
 
@@ -1027,7 +1037,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_MKDIR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let mkdir_in = match BINARY.deserialize::<fuse_mkdir_in>(data) {
+                    let mkdir_in = match get_bincode_config().deserialize::<fuse_mkdir_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_mknod_in failed {}, request unique {}",
@@ -1061,7 +1071,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "mkdir unique {} parent {} name {:?} {:?}",
                             request.unique, in_header.nodeid, name, mkdir_in
@@ -1093,10 +1103,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &entry_out)
                                     .expect("won't happened");
 
@@ -1126,7 +1136,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "unlink unique {} parent {} name {:?}",
                             request.unique, in_header.nodeid, name
@@ -1145,7 +1155,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -1171,7 +1183,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "rmdir unique {} parent {} name {:?}",
                             request.unique, in_header.nodeid, name
@@ -1190,7 +1202,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -1199,7 +1213,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_RENAME => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let rename_in = match BINARY.deserialize::<fuse_rename_in>(data) {
+                    let rename_in = match get_bincode_config().deserialize::<fuse_rename_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_rename_in failed {}, request unique {}",
@@ -1250,7 +1264,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "rename unique {} parent {} name {:?} new parent {} new name {:?}",
                             request.unique, in_header.nodeid, name, rename_in.newdir, new_name
@@ -1277,7 +1291,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -1286,7 +1302,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_LINK => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let link_in = match BINARY.deserialize::<fuse_link_in>(data) {
+                    let link_in = match get_bincode_config().deserialize::<fuse_link_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_link_in failed {}, request unique {}",
@@ -1320,7 +1336,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "link unique {} inode {} new parent {} new name {:?}",
                             request.unique, link_in.oldnodeid, in_header.nodeid, name
@@ -1346,10 +1362,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &entry_out)
                                     .expect("won't happened");
 
@@ -1362,7 +1378,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_OPEN => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let open_in = match BINARY.deserialize::<fuse_open_in>(data) {
+                    let open_in = match get_bincode_config().deserialize::<fuse_open_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_open_in failed {}, request unique {}",
@@ -1379,7 +1395,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "open unique {} inode {} flags {}",
                             request.unique, in_header.nodeid, open_in.flags
@@ -1406,10 +1422,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_OPEN_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &open_out)
                             .expect("won't happened");
 
@@ -1420,7 +1436,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_READ => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let read_in = match BINARY.deserialize::<fuse_read_in>(data) {
+                    let read_in = match get_bincode_config().deserialize::<fuse_read_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_read_in failed {}, request unique {}",
@@ -1437,7 +1453,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "read unique {} inode {} {:?}",
                             request.unique, in_header.nodeid, read_in
@@ -1476,7 +1492,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + reply_data.len());
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
 
@@ -1489,7 +1505,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_WRITE => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let write_in = match BINARY.deserialize::<fuse_write_in>(data) {
+                    let write_in = match get_bincode_config().deserialize::<fuse_write_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_write_in failed {}, request unique {}",
@@ -1518,7 +1534,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "write unique {} inode {} {:?}",
                             request.unique, in_header.nodeid, write_in
@@ -1555,10 +1571,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_WRITE_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &write_out)
                             .expect("won't happened");
 
@@ -1570,7 +1586,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let mut resp_sender = self.response_sender.clone();
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "statfs unique {} inode {}",
                             request.unique, in_header.nodeid
@@ -1597,10 +1613,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_STATFS_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &statfs_out)
                             .expect("won't happened");
 
@@ -1611,7 +1627,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_RELEASE => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let release_in = match BINARY.deserialize::<fuse_release_in>(data) {
+                    let release_in = match get_bincode_config().deserialize::<fuse_release_in>(data)
+                    {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_release_in failed {}, request unique {}",
@@ -1628,7 +1645,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         let flush = release_in.release_flags & FUSE_RELEASE_FLUSH > 0;
 
                         debug!(
@@ -1663,7 +1680,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -1672,7 +1691,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_FSYNC => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let fsync_in = match BINARY.deserialize::<fuse_fsync_in>(data) {
+                    let fsync_in = match get_bincode_config().deserialize::<fuse_fsync_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_fsync_in failed {}, request unique {}",
@@ -1689,7 +1708,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         let data_sync = fsync_in.fsync_flags & 1 > 0;
 
                         debug!(
@@ -1712,7 +1731,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -1721,20 +1742,21 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_SETXATTR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let setxattr_in = match BINARY.deserialize::<fuse_setxattr_in>(data) {
-                        Err(err) => {
-                            error!(
-                                "deserialize fuse_setxattr_in failed {}, request unique {}",
-                                err, request.unique
-                            );
+                    let setxattr_in =
+                        match get_bincode_config().deserialize::<fuse_setxattr_in>(data) {
+                            Err(err) => {
+                                error!(
+                                    "deserialize fuse_setxattr_in failed {}, request unique {}",
+                                    err, request.unique
+                                );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                                reply_error(libc::EINVAL.into(), request, resp_sender);
 
-                            continue;
-                        }
+                                continue;
+                            }
 
-                        Ok(setxattr_in) => setxattr_in,
-                    };
+                            Ok(setxattr_in) => setxattr_in,
+                        };
 
                     data = &data[FUSE_SETXATTR_IN_SIZE..];
 
@@ -1783,7 +1805,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "setxattr unique {} inode {}",
                             request.unique, in_header.nodeid
@@ -1812,7 +1834,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -1821,20 +1845,21 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_GETXATTR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let getxattr_in = match BINARY.deserialize::<fuse_getxattr_in>(data) {
-                        Err(err) => {
-                            error!(
-                                "deserialize fuse_getxattr_in failed {}, request unique {}",
-                                err, request.unique
-                            );
+                    let getxattr_in =
+                        match get_bincode_config().deserialize::<fuse_getxattr_in>(data) {
+                            Err(err) => {
+                                error!(
+                                    "deserialize fuse_getxattr_in failed {}, request unique {}",
+                                    err, request.unique
+                                );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                                reply_error(libc::EINVAL.into(), request, resp_sender);
 
-                            continue;
-                        }
+                                continue;
+                            }
 
-                        Ok(getxattr_in) => getxattr_in,
-                    };
+                            Ok(getxattr_in) => getxattr_in,
+                        };
 
                     data = &data[FUSE_GETXATTR_IN_SIZE..];
 
@@ -1852,7 +1877,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "getxattr unique {} inode {}",
                             request.unique, in_header.nodeid
@@ -1884,10 +1909,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_STATFS_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &getxattr_out)
                                     .expect("won't happened");
 
@@ -1906,7 +1931,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + xattr_data.len());
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
 
@@ -1923,7 +1948,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_LISTXATTR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let listxattr_in = match BINARY.deserialize::<fuse_getxattr_in>(data) {
+                    let listxattr_in = match get_bincode_config()
+                        .deserialize::<fuse_getxattr_in>(data)
+                    {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_getxattr_in in listxattr failed {}, request unique {}",
@@ -1940,7 +1967,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "listxattr unique {} inode {} size {}",
                             request.unique, in_header.nodeid, listxattr_in.size
@@ -1972,10 +1999,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_STATFS_OUT_SIZE);
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &getxattr_out)
                                     .expect("won't happened");
 
@@ -1994,7 +2021,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 let mut data =
                                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + xattr_data.len());
 
-                                BINARY
+                                get_bincode_config()
                                     .serialize_into(&mut data, &out_header)
                                     .expect("won't happened");
 
@@ -2028,7 +2055,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "removexattr unique {} inode {}",
                             request.unique, in_header.nodeid
@@ -2048,7 +2075,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -2057,7 +2086,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_FLUSH => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let flush_in = match BINARY.deserialize::<fuse_flush_in>(data) {
+                    let flush_in = match get_bincode_config().deserialize::<fuse_flush_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_flush_in failed {}, request unique {}",
@@ -2074,7 +2103,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "flush unique {} inode {} fh {} lock_owner {}",
                             request.unique, in_header.nodeid, flush_in.fh, flush_in.lock_owner
@@ -2095,7 +2124,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -2104,7 +2135,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_OPENDIR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let open_in = match BINARY.deserialize::<fuse_open_in>(data) {
+                    let open_in = match get_bincode_config().deserialize::<fuse_open_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_open_in in opendir failed {}, request unique {}",
@@ -2121,7 +2152,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "opendir unique {} inode {} flags {}",
                             request.unique, in_header.nodeid, open_in.flags
@@ -2149,10 +2180,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_OPEN_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &open_out)
                             .expect("won't happened");
 
@@ -2169,7 +2200,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         continue;
                     }
 
-                    let read_in = match BINARY.deserialize::<fuse_read_in>(data) {
+                    let read_in = match get_bincode_config().deserialize::<fuse_read_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_read_in in readdir failed {}, request unique {}",
@@ -2186,7 +2217,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "readdir unique {} inode {} fh {} offset {}",
                             request.unique, in_header.nodeid, read_in.fh, read_in.offset
@@ -2228,7 +2259,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
                             };
 
-                            BINARY
+                            get_bincode_config()
                                 .serialize_into(&mut entry_data, &dir_entry)
                                 .expect("won't happened");
 
@@ -2250,7 +2281,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + entry_data.len());
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
 
@@ -2263,7 +2294,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_RELEASEDIR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let release_in = match BINARY.deserialize::<fuse_release_in>(data) {
+                    let release_in = match get_bincode_config().deserialize::<fuse_release_in>(data)
+                    {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_release_in in releasedir failed {}, request unique {}",
@@ -2280,7 +2312,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "releasedir unique {} inode {} fh {} flags {}",
                             request.unique, in_header.nodeid, release_in.fh, release_in.flags
@@ -2301,7 +2333,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -2310,7 +2344,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_FSYNCDIR => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let fsync_in = match BINARY.deserialize::<fuse_fsync_in>(data) {
+                    let fsync_in = match get_bincode_config().deserialize::<fuse_fsync_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_fsync_in in fsyncdir failed {}, request unique {}",
@@ -2327,7 +2361,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         let data_sync = fsync_in.fsync_flags & 1 > 0;
 
                         debug!(
@@ -2350,7 +2384,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -2360,7 +2396,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_GETLK => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let getlk_in = match BINARY.deserialize::<fuse_lk_in>(data) {
+                    let getlk_in = match get_bincode_config().deserialize::<fuse_lk_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_lk_in in getlk failed {}, request unique {}",
@@ -2377,7 +2413,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "getlk unique {} inode {} {:?}",
                             request.unique, in_header.nodeid, getlk_in
@@ -2415,10 +2451,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_LK_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &getlk_out)
                             .expect("won't happened");
 
@@ -2430,7 +2466,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_SETLK | fuse_opcode::FUSE_SETLKW => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let setlk_in = match BINARY.deserialize::<fuse_lk_in>(data) {
+                    let setlk_in = match get_bincode_config().deserialize::<fuse_lk_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_lk_in in {:?} failed {}, request unique {}",
@@ -2447,7 +2483,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         let block = opcode == fuse_opcode::FUSE_SETLKW;
 
                         debug!(
@@ -2480,7 +2516,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY
+                        let data = get_bincode_config()
                             .serialize(&out_header)
                             .expect("can't serialize into vec");
 
@@ -2491,7 +2527,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_ACCESS => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let access_in = match BINARY.deserialize::<fuse_access_in>(data) {
+                    let access_in = match get_bincode_config().deserialize::<fuse_access_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_access_in failed {}, request unique {}",
@@ -2508,7 +2544,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "access unique {} inode {} mask {}",
                             request.unique, in_header.nodeid, access_in.mask
@@ -2530,7 +2566,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         debug!("access response {}", resp_value);
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -2539,7 +2577,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_CREATE => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let create_in = match BINARY.deserialize::<fuse_create_in>(data) {
+                    let create_in = match get_bincode_config().deserialize::<fuse_create_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_create_in failed {}, request unique {}",
@@ -2573,7 +2611,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "create unique {} parent {} name {:?} mode {} flags {}",
                             request.unique, in_header.nodeid, name, create_in.mode, create_in.flags
@@ -2611,13 +2649,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE + FUSE_OPEN_OUT_SIZE,
                         );
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &entry_out)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &open_out)
                             .expect("won't happened");
 
@@ -2628,24 +2666,25 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_INTERRUPT => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let interrupt_in = match BINARY.deserialize::<fuse_interrupt_in>(data) {
-                        Err(err) => {
-                            error!(
-                                "deserialize fuse_interrupt_in failed {}, request unique {}",
-                                err, request.unique
-                            );
+                    let interrupt_in =
+                        match get_bincode_config().deserialize::<fuse_interrupt_in>(data) {
+                            Err(err) => {
+                                error!(
+                                    "deserialize fuse_interrupt_in failed {}, request unique {}",
+                                    err, request.unique
+                                );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                                reply_error(libc::EINVAL.into(), request, resp_sender);
 
-                            continue;
-                        }
+                                continue;
+                            }
 
-                        Ok(interrupt_in) => interrupt_in,
-                    };
+                            Ok(interrupt_in) => interrupt_in,
+                        };
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "interrupt_in unique {} interrupt unique {}",
                             request.unique, interrupt_in.unique
@@ -2664,7 +2703,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -2673,7 +2714,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_BMAP => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let bmap_in = match BINARY.deserialize::<fuse_bmap_in>(data) {
+                    let bmap_in = match get_bincode_config().deserialize::<fuse_bmap_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_bmap_in failed {}, request unique {}",
@@ -2690,7 +2731,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "bmap unique {} inode {} block size {} idx {}",
                             request.unique, in_header.nodeid, bmap_in.blocksize, bmap_in.block
@@ -2720,10 +2761,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_BMAP_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &bmap_out)
                             .expect("won't happened");
 
@@ -2734,7 +2775,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 /*fuse_opcode::FUSE_IOCTL => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let ioctl_in = match BINARY.deserialize::<fuse_ioctl_in>(data) {
+                    let ioctl_in = match get_bincode_config().deserialize::<fuse_ioctl_in>(data) {
                         Err(err) => {
                             error!("deserialize fuse_ioctl_in failed {}", err);
 
@@ -2753,7 +2794,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_POLL => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let poll_in = match BINARY.deserialize::<fuse_poll_in>(data) {
+                    let poll_in = match get_bincode_config().deserialize::<fuse_poll_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_poll_in failed {}, request unique {}",
@@ -2770,7 +2811,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "poll unique {} inode {} {:?}",
                             request.unique, in_header.nodeid, poll_in
@@ -2813,10 +2854,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_POLL_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &poll_out)
                             .expect("won't happened");
 
@@ -2827,20 +2868,21 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_NOTIFY_REPLY => {
                     let resp_sender = self.response_sender.clone();
 
-                    let notify_retrieve_in =
-                        match BINARY.deserialize::<fuse_notify_retrieve_in>(data) {
-                            Err(err) => {
-                                error!(
+                    let notify_retrieve_in = match get_bincode_config()
+                        .deserialize::<fuse_notify_retrieve_in>(data)
+                    {
+                        Err(err) => {
+                            error!(
                                 "deserialize fuse_notify_retrieve_in failed {}, request unique {}",
                                 err, request.unique
                             );
 
-                                // TODO need to reply or not?
-                                continue;
-                            }
+                            // TODO need to reply or not?
+                            continue;
+                        }
 
-                            Ok(notify_retrieve_in) => notify_retrieve_in,
-                        };
+                        Ok(notify_retrieve_in) => notify_retrieve_in,
+                    };
 
                     data = &data[FUSE_NOTIFY_RETRIEVE_IN_SIZE..];
 
@@ -2858,7 +2900,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         if let Err(err) = fs
                             .notify_reply(
                                 request,
@@ -2874,19 +2916,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_BATCH_FORGET => {
-                    let batch_forget_in = match BINARY.deserialize::<fuse_batch_forget_in>(data) {
-                        Err(err) => {
-                            error!(
-                                "deserialize fuse_batch_forget_in failed {}, request unique {}",
-                                err, request.unique
-                            );
+                    let batch_forget_in =
+                        match get_bincode_config().deserialize::<fuse_batch_forget_in>(data) {
+                            Err(err) => {
+                                error!(
+                                    "deserialize fuse_batch_forget_in failed {}, request unique {}",
+                                    err, request.unique
+                                );
 
-                            // no need to reply
-                            continue;
-                        }
+                                // no need to reply
+                                continue;
+                            }
 
-                        Ok(batch_forget_in) => batch_forget_in,
-                    };
+                            Ok(batch_forget_in) => batch_forget_in,
+                        };
 
                     let mut forgets = vec![];
 
@@ -2894,7 +2937,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     // TODO if has less data, should I return error?
                     while data.len() >= FUSE_FORGET_ONE_SIZE {
-                        match BINARY.deserialize::<fuse_forget_one>(data) {
+                        match get_bincode_config().deserialize::<fuse_forget_one>(data) {
                             Err(err) => {
                                 error!("deserialize fuse_batch_forget_in body fuse_forget_one failed {}, request unique {}", err, request.unique);
 
@@ -2918,7 +2961,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         let inodes = forgets
                             .into_iter()
                             .map(|forget_one| forget_one.nodeid)
@@ -2933,24 +2976,25 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_FALLOCATE => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let fallocate_in = match BINARY.deserialize::<fuse_fallocate_in>(data) {
-                        Err(err) => {
-                            error!(
-                                "deserialize fuse_fallocate_in failed {}, request unique {}",
-                                err, request.unique
-                            );
+                    let fallocate_in =
+                        match get_bincode_config().deserialize::<fuse_fallocate_in>(data) {
+                            Err(err) => {
+                                error!(
+                                    "deserialize fuse_fallocate_in failed {}, request unique {}",
+                                    err, request.unique
+                                );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                                reply_error(libc::EINVAL.into(), request, resp_sender);
 
-                            continue;
-                        }
+                                continue;
+                            }
 
-                        Ok(fallocate_in) => fallocate_in,
-                    };
+                            Ok(fallocate_in) => fallocate_in,
+                        };
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "fallocate unique {} inode {} {:?}",
                             request.unique, in_header.nodeid, fallocate_in
@@ -2978,7 +3022,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -2987,7 +3033,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_READDIRPLUS => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let readdirplus_in = match BINARY.deserialize::<fuse_read_in>(data) {
+                    let readdirplus_in = match get_bincode_config()
+                        .deserialize::<fuse_read_in>(data)
+                    {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_read_in in readdirplus failed {}, request unique {}",
@@ -3004,7 +3052,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "readdirplus unique {} parent {} {:?}",
                             request.unique, in_header.nodeid, readdirplus_in
@@ -3065,7 +3113,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 },
                             };
 
-                            BINARY
+                            get_bincode_config()
                                 .serialize_into(&mut entry_data, &dir_entry)
                                 .expect("won't happened");
 
@@ -3087,7 +3135,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + entry_data.len());
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
 
@@ -3100,7 +3148,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_RENAME2 => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let rename2_in = match BINARY.deserialize::<fuse_rename2_in>(data) {
+                    let rename2_in = match get_bincode_config().deserialize::<fuse_rename2_in>(data)
+                    {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_rename2_in failed {}, request unique {}",
@@ -3151,7 +3200,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!("rename2 unique {} parent {} name {:?} new parent {} new name {:?} flags {}", request.unique, in_header.nodeid, old_name, rename2_in.newdir, new_name, rename2_in.flags);
 
                         let resp_value = if let Err(err) = fs
@@ -3176,7 +3225,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             unique: request.unique,
                         };
 
-                        let data = BINARY.serialize(&out_header).expect("won't happened");
+                        let data = get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened");
 
                         let _ = resp_sender.send(data).await;
                     });
@@ -3185,7 +3236,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_LSEEK => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let lseek_in = match BINARY.deserialize::<fuse_lseek_in>(data) {
+                    let lseek_in = match get_bincode_config().deserialize::<fuse_lseek_in>(data) {
                         Err(err) => {
                             error!(
                                 "deserialize fuse_lseek_in failed {}, request unique {}",
@@ -3202,7 +3253,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "lseek unique {} inode {} {:?}",
                             request.unique, in_header.nodeid, lseek_in
@@ -3238,10 +3289,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_OPEN_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &lseek_out)
                             .expect("won't happened");
 
@@ -3252,25 +3303,26 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_COPY_FILE_RANGE => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let copy_file_range_in =
-                        match BINARY.deserialize::<fuse_copy_file_range_in>(data) {
-                            Err(err) => {
-                                error!(
+                    let copy_file_range_in = match get_bincode_config()
+                        .deserialize::<fuse_copy_file_range_in>(data)
+                    {
+                        Err(err) => {
+                            error!(
                                 "deserialize fuse_copy_file_range_in failed {}, request unique {}",
                                 err, request.unique
                             );
 
-                                reply_error(libc::EINVAL.into(), request, resp_sender);
+                            reply_error(libc::EINVAL.into(), request, resp_sender);
 
-                                continue;
-                            }
+                            continue;
+                        }
 
-                            Ok(copy_file_range_in) => copy_file_range_in,
-                        };
+                        Ok(copy_file_range_in) => copy_file_range_in,
+                    };
 
                     let fs = fs.clone();
 
-                    spawn_without_return(async move {
+                    spawn(async move {
                         debug!(
                             "reply_copy_file_range unique {} inode {} {:?}",
                             request.unique, in_header.nodeid, copy_file_range_in
@@ -3310,10 +3362,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut data =
                             Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_WRITE_OUT_SIZE);
 
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &out_header)
                             .expect("won't happened");
-                        BINARY
+                        get_bincode_config()
                             .serialize_into(&mut data, &write_out)
                             .expect("won't happened");
 
@@ -3338,7 +3390,7 @@ fn reply_error<S>(err: Errno, request: Request, sender: S)
 where
     S: Sink<Vec<u8>> + Send + Sync + 'static + Unpin,
 {
-    spawn_without_return(reply_error_in_place(err, request, sender));
+    spawn(reply_error_in_place(err, request, sender));
 }
 
 async fn reply_error_in_place<S>(err: Errno, request: Request, mut sender: S)
@@ -3351,7 +3403,9 @@ where
         unique: request.unique,
     };
 
-    let data = BINARY.serialize(&out_header).expect("won't happened");
+    let data = get_bincode_config()
+        .serialize(&out_header)
+        .expect("won't happened");
 
     let _ = sender.send(data).await;
 }

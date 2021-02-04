@@ -2,10 +2,10 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::time::{Duration, SystemTime};
 
+use async_trait::async_trait;
 use futures_util::stream;
 use log::LevelFilter;
 
-use async_trait::async_trait;
 use fuse3::prelude::*;
 use fuse3::Session;
 
@@ -24,7 +24,7 @@ const STATFS: ReplyStatFs = ReplyStatFs {
     files: 1,
     ffree: 0,
     bsize: 4096,
-    namelen: u32::max_value(),
+    namelen: u32::MAX,
     frsize: 0,
 };
 
@@ -311,7 +311,7 @@ impl Filesystem for HelloWorld {
     }
 }
 
-#[async_std::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     log_init();
 

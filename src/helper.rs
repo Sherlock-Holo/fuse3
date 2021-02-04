@@ -2,6 +2,7 @@ use std::io;
 use std::io::ErrorKind;
 use std::mem;
 
+use bincode::{DefaultOptions, Options};
 use nix::sys::stat::mode_t;
 
 use crate::FileType;
@@ -52,4 +53,11 @@ pub fn io_error_from_nix_error(err: nix::Error) -> io::Error {
             io::Error::from(ErrorKind::InvalidInput)
         }
     }
+}
+
+pub fn get_bincode_config() -> impl Options {
+    DefaultOptions::new()
+        .with_little_endian()
+        .allow_trailing_bytes()
+        .with_fixint_encoding()
 }

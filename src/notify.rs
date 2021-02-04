@@ -3,10 +3,9 @@
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 
+use bincode::Options;
 use futures_channel::mpsc::UnboundedSender;
 use futures_util::sink::SinkExt;
-
-use lazy_static::lazy_static;
 
 use crate::abi::{
     fuse_notify_code, fuse_notify_delete_out, fuse_notify_inval_entry_out,
@@ -16,15 +15,7 @@ use crate::abi::{
     FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE, FUSE_NOTIFY_RETRIEVE_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE,
     FUSE_OUT_HEADER_SIZE,
 };
-
-lazy_static! {
-    static ref BINARY: bincode::Config = {
-        let mut cfg = bincode::config();
-        cfg.little_endian();
-
-        cfg
-    };
-}
+use crate::helper::get_bincode_config;
 
 #[derive(Debug, Clone)]
 /// notify kernel there are something need to handle.
@@ -53,10 +44,10 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE);
 
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &out_header)
                     .expect("vec size is not enough");
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &wakeup_out)
                     .expect("vec size is not enough");
 
@@ -79,10 +70,10 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_INODE_OUT_SIZE);
 
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &out_header)
                     .expect("vec size is not enough");
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &invalid_inode_out)
                     .expect("vec size is not enough");
 
@@ -106,10 +97,10 @@ impl Notify {
                     FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE + name.len(),
                 );
 
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &out_header)
                     .expect("vec size is not enough");
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &invalid_entry_out)
                     .expect("vec size is not enough");
 
@@ -142,10 +133,10 @@ impl Notify {
                     FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_DELETE_OUT_SIZE + name.len(),
                 );
 
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &out_header)
                     .expect("vec size is not enough");
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &delete_out)
                     .expect("vec size is not enough");
 
@@ -178,10 +169,10 @@ impl Notify {
                     FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_STORE_OUT_SIZE + data.len(),
                 );
 
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data_buf, &out_header)
                     .expect("vec size is not enough");
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data_buf, &store_out)
                     .expect("vec size is not enough");
 
@@ -213,10 +204,10 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_RETRIEVE_OUT_SIZE);
 
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &out_header)
                     .expect("vec size is not enough");
-                BINARY
+                get_bincode_config()
                     .serialize_into(&mut data, &retrieve_out)
                     .expect("vec size is not enough");
 

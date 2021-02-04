@@ -19,12 +19,12 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use nix::sys::stat::mode_t;
-
 /// re-export [`async_trait`].
 ///
 /// [`async_trait`]: async_trait::async_trait
 pub use async_trait::async_trait;
+use nix::sys::stat::mode_t;
+
 pub use errno::Errno;
 pub use filesystem::Filesystem;
 pub use helper::perm_from_mode_and_kind;
@@ -50,7 +50,6 @@ pub mod notify;
 pub mod reply;
 mod request;
 mod session;
-mod spawn;
 
 /// pre-defined Result, the Err type is [`Errno`].
 ///
