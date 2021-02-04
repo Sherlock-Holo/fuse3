@@ -47,6 +47,7 @@ mod filesystem;
 mod helper;
 mod mount_options;
 pub mod notify;
+pub mod path;
 pub mod reply;
 mod request;
 mod session;

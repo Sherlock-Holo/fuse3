@@ -2871,21 +2871,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_NOTIFY_REPLY => {
                     let resp_sender = self.response_sender.clone();
 
-                    let notify_retrieve_in = match get_bincode_config()
-                        .deserialize::<fuse_notify_retrieve_in>(data)
-                    {
-                        Err(err) => {
-                            error!(
+                    let notify_retrieve_in =
+                        match get_bincode_config().deserialize::<fuse_notify_retrieve_in>(data) {
+                            Err(err) => {
+                                error!(
                                 "deserialize fuse_notify_retrieve_in failed {}, request unique {}",
                                 err, request.unique
                             );
 
-                            // TODO need to reply or not?
-                            continue;
-                        }
+                                // TODO need to reply or not?
+                                continue;
+                            }
 
-                        Ok(notify_retrieve_in) => notify_retrieve_in,
-                    };
+                            Ok(notify_retrieve_in) => notify_retrieve_in,
+                        };
 
                     data = &data[FUSE_NOTIFY_RETRIEVE_IN_SIZE..];
 
@@ -3306,22 +3305,21 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 fuse_opcode::FUSE_COPY_FILE_RANGE => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let copy_file_range_in = match get_bincode_config()
-                        .deserialize::<fuse_copy_file_range_in>(data)
-                    {
-                        Err(err) => {
-                            error!(
+                    let copy_file_range_in =
+                        match get_bincode_config().deserialize::<fuse_copy_file_range_in>(data) {
+                            Err(err) => {
+                                error!(
                                 "deserialize fuse_copy_file_range_in failed {}, request unique {}",
                                 err, request.unique
                             );
 
-                            reply_error(libc::EINVAL.into(), request, resp_sender);
+                                reply_error(libc::EINVAL.into(), request, resp_sender);
 
-                            continue;
-                        }
+                                continue;
+                            }
 
-                        Ok(copy_file_range_in) => copy_file_range_in,
-                    };
+                            Ok(copy_file_range_in) => copy_file_range_in,
+                        };
 
                     let fs = fs.clone();
 
