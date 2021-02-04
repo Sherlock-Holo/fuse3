@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 
 use async_trait::async_trait;
 
+use crate::notify::Notify;
 use crate::reply::*;
 use crate::request::Request;
 use crate::{Result, SetAttr};
@@ -440,6 +441,7 @@ pub trait Filesystem {
         _kh: Option<u64>,
         _flags: u32,
         _events: u32,
+        _notify: &Notify,
     ) -> Result<ReplyPoll> {
         Err(libc::ENOSYS.into())
     }

@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 
 use bincode::Options;
+use bytes::{Buf, Bytes};
 use futures_channel::mpsc::UnboundedSender;
 use futures_util::sink::SinkExt;
 
@@ -217,6 +218,57 @@ impl Notify {
 
         self.sender.send(data).await.or(Err(kind))
     }
+
+    /// notify kernel the IO is ready, kernel can wakeup the waiting program.
+    pub async fn wakeup(mut self, kh: u64) {
+        let _ = self.notify(NotifyKind::Wakeup { kh }).await;
+    }
+
+    /// notify the cache invalidation about an inode.
+    pub async fn invalid_inode(mut self, inode: u64, offset: i64, len: i64) {
+        let _ = self
+            .notify(NotifyKind::InvalidInode { inode, offset, len })
+            .await;
+    }
+
+    /// notify the invalidation about a directory entry.
+    pub async fn invalid_entry(mut self, parent: u64, name: OsString) {
+        let _ = self.notify(NotifyKind::InvalidEntry { parent, name }).await;
+    }
+
+    /// notify a directory entry has been deleted.
+    pub async fn delete(mut self, parent: u64, child: u64, name: OsString) {
+        let _ = self
+            .notify(NotifyKind::Delete {
+                parent,
+                child,
+                name,
+            })
+            .await;
+    }
+
+    /// push the data in an inode for updating the kernel cache.
+    pub async fn store(mut self, inode: u64, offset: u64, mut data: impl Buf) {
+        let _ = self
+            .notify(NotifyKind::Store {
+                inode,
+                offset,
+                data: data.copy_to_bytes(data.remaining()),
+            })
+            .await;
+    }
+
+    /// retrieve data in an inode from the kernel cache.
+    pub async fn retrieve(mut self, notify_unique: u64, inode: u64, offset: u64, size: u32) {
+        let _ = self
+            .notify(NotifyKind::Retrieve {
+                notify_unique,
+                inode,
+                offset,
+                size,
+            })
+            .await;
+    }
 }
 
 #[derive(Debug)]
@@ -243,7 +295,7 @@ pub enum NotifyKind {
     Store {
         inode: u64,
         offset: u64,
-        data: Vec<u8>,
+        data: Bytes,
     },
 
     /// retrieve data in an inode from the kernel cache.

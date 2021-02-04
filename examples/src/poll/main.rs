@@ -5,14 +5,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use async_std::task;
+use async_trait::async_trait;
 use futures_util::stream;
-use log::debug;
 use log::LevelFilter;
+use log::{debug, info};
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Token};
+use tokio::time;
 
-use async_trait::async_trait;
 use fuse3::notify::*;
 use fuse3::prelude::*;
 use fuse3::Session;
@@ -29,7 +29,6 @@ const TTL: Duration = Duration::from_secs(1);
 #[derive(Debug, Default)]
 struct Poll {
     ready: Arc<AtomicBool>,
-    notify: Option<Notify>,
 }
 
 #[async_trait]
@@ -316,6 +315,7 @@ impl Filesystem for Poll {
         kh: Option<u64>,
         flags: u32,
         events: u32,
+        notify: &Notify,
     ) -> Result<ReplyPoll> {
         if inode != PARENT_INODE && inode != FILE_INODE {
             return Err(libc::ENOENT.into());
@@ -328,16 +328,17 @@ impl Filesystem for Poll {
 
             if ready.load(Ordering::SeqCst) {
                 return Ok(ReplyPoll {
-                    revents: events & libc::POLLIN as u32,
+                    revents: events,
+                    /*& libc::POLLIN as u32*/
                 });
             }
 
-            let mut notify = self.notify.as_ref().unwrap().clone();
+            let mut notify = notify.clone();
 
-            task::spawn(async move {
+            tokio::spawn(async move {
                 debug!("start notify");
 
-                task::sleep(Duration::from_secs(2)).await;
+                time::sleep(Duration::from_secs(2)).await;
 
                 ready.store(true, Ordering::SeqCst);
 
@@ -351,7 +352,7 @@ impl Filesystem for Poll {
     }
 }
 
-#[async_std::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     log_init();
 
@@ -364,11 +365,9 @@ async fn main() {
 
     let mount_path = temp_dir.path();
 
-    let mut poll = Poll::default();
+    let poll = Poll::default();
 
     let session = Session::new(mount_options);
-
-    poll.notify.replace(session.get_notify());
 
     {
         let mount_path = mount_path.as_os_str().to_os_string();
@@ -414,7 +413,7 @@ fn poll_file(mount_path: &OsStr) {
     poll.poll(&mut events, None).unwrap();
 
     for event in events.iter() {
-        debug!("{:?}", event);
+        info!("{:?}", event);
     }
 
     poll.registry().deregister(&mut fd).unwrap();

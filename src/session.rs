@@ -68,7 +68,7 @@ impl<FS> Session<FS> {
     /// get a [`notify`].
     ///
     /// [`notify`]: Notify
-    pub fn get_notify(&self) -> Notify {
+    fn get_notify(&self) -> Notify {
         Notify::new(self.response_sender.clone())
     }
 }
@@ -2811,6 +2811,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let fs = fs.clone();
 
+                    let notify = self.get_notify();
+
                     spawn(async move {
                         debug!(
                             "poll unique {} inode {} {:?}",
@@ -2831,6 +2833,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 kh,
                                 poll_in.flags,
                                 poll_in.events,
+                                &notify,
                             )
                             .await
                         {
