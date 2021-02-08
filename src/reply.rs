@@ -3,15 +3,16 @@ use std::ffi::OsString;
 use std::pin::Pin;
 use std::time::Duration;
 
+use bytes::Bytes;
 use futures_util::stream::Stream;
 
+use crate::{FileAttr, FileType};
 use crate::abi::{
     fuse_attr_out, fuse_bmap_out, fuse_entry_out, fuse_kstatfs, fuse_lseek_out, fuse_open_out,
     fuse_poll_out, fuse_statfs_out, fuse_write_out,
 };
 #[cfg(feature = "file-lock")]
 use crate::abi::{fuse_file_lock, fuse_lk_out};
-use crate::{FileAttr, FileType};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// entry reply.
@@ -63,7 +64,7 @@ impl Into<fuse_attr_out> for ReplyAttr {
 /// data reply.
 pub struct ReplyData {
     /// the data.
-    pub data: Box<dyn AsRef<[u8]> + Send>,
+    pub data: Bytes,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -149,7 +150,7 @@ impl Into<fuse_statfs_out> for ReplyStatFs {
 /// xattr reply.
 pub enum ReplyXAttr {
     Size(u32),
-    Data(Vec<u8>),
+    Data(Bytes),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

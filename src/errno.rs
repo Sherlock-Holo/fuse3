@@ -7,7 +7,7 @@ use nix::Error as NixError;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 /// linux errno wrap.
-pub struct Errno(pub c_int);
+pub struct Errno(c_int);
 
 impl From<Errno> for c_int {
     fn from(errno: Errno) -> Self {
@@ -57,6 +57,32 @@ impl From<Errno> for NixError {
 impl Display for Errno {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "errno is {}", self.0)
+    }
+}
+
+impl Errno {
+    pub fn new_not_exist() -> Self {
+        Self(libc::ENOENT)
+    }
+
+    pub fn new_exist() -> Self {
+        Self(libc::EEXIST)
+    }
+
+    pub fn is_not_exist(&self) -> bool {
+        self.0 == libc::ENOENT
+    }
+
+    pub fn is_exist(&self) -> bool {
+        self.0 == libc::EEXIST
+    }
+
+    pub fn is_dir(&self) -> bool {
+        self.0 == libc::EISDIR
+    }
+
+    pub fn is_not_dir(&self) -> bool {
+        self.0 == libc::ENOTDIR
     }
 }
 

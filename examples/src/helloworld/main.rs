@@ -3,6 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures_util::stream;
 use log::LevelFilter;
 
@@ -142,9 +143,7 @@ impl Filesystem for HelloWorld {
         }
 
         if offset as usize >= CONTENT.len() {
-            Ok(ReplyData {
-                data: Box::new(b""),
-            })
+            Ok(ReplyData { data: Bytes::new() })
         } else {
             let mut data = &CONTENT.as_bytes()[offset as usize..];
 
@@ -153,7 +152,7 @@ impl Filesystem for HelloWorld {
             }
 
             Ok(ReplyData {
-                data: Box::new(data),
+                data: Bytes::copy_from_slice(data),
             })
         }
     }

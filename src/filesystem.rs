@@ -1,11 +1,12 @@
 use std::ffi::OsStr;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 
+use crate::{Result, SetAttr};
 use crate::notify::Notify;
 use crate::reply::*;
 use crate::request::Request;
-use crate::{Result, SetAttr};
 
 #[async_trait]
 /// Filesystem trait.
@@ -452,7 +453,7 @@ pub trait Filesystem {
         _req: Request,
         _inode: u64,
         _offset: u64,
-        _data: Vec<u8>,
+        _data: Bytes,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }

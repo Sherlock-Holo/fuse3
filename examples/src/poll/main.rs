@@ -1,16 +1,17 @@
 use std::ffi::{OsStr, OsString};
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures_util::stream;
-use log::LevelFilter;
 use log::{debug, info};
-use mio::unix::SourceFd;
+use log::LevelFilter;
 use mio::{Events, Interest, Token};
+use mio::unix::SourceFd;
 use tokio::time;
 
 use fuse3::notify::*;
@@ -143,9 +144,7 @@ impl Filesystem for Poll {
         }
 
         if offset as usize >= CONTENT.len() {
-            Ok(ReplyData {
-                data: Box::new(b""),
-            })
+            Ok(ReplyData { data: Bytes::new() })
         } else {
             let mut data = &CONTENT.as_bytes()[offset as usize..];
 
@@ -154,7 +153,7 @@ impl Filesystem for Poll {
             }
 
             Ok(ReplyData {
-                data: Box::new(data),
+                data: Bytes::copy_from_slice(data),
             })
         }
     }

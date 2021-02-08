@@ -15,10 +15,10 @@ use async_std::fs::read_dir;
 use async_std::task::spawn;
 use bincode::Options;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures_util::{pin_mut, select};
 use futures_util::future::FutureExt;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
-use futures_util::{pin_mut, select};
 use log::{debug, error, warn};
 use nix::mount;
 use nix::mount::MsFlags;
@@ -29,16 +29,16 @@ use tokio::spawn;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio_stream::wrappers::ReadDirStream;
 
+use crate::{Errno, SetAttr};
 use crate::abi::*;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 use crate::connection::FuseConnection;
 use crate::filesystem::Filesystem;
 use crate::helper::*;
+use crate::MountOptions;
 use crate::notify::Notify;
 use crate::reply::ReplyXAttr;
 use crate::request::Request;
-use crate::MountOptions;
-use crate::{Errno, SetAttr};
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 /// fuse filesystem session.
@@ -518,7 +518,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             error!("write error init out data to /dev/fuse failed {}", err);
                         }
 
-                        return Err(IoError::from_raw_os_error(err.0));
+                        return Err(err.into());
                     }
 
                     let init_out = fuse_init_out {
@@ -2908,7 +2908,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 request,
                                 in_header.nodeid,
                                 notify_retrieve_in.offset,
-                                data,
+                                data.into(),
                             )
                             .await
                         {

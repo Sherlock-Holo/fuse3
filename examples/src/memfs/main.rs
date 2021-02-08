@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::io::{self};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures_util::stream;
 use futures_util::StreamExt;
 use log::LevelFilter;
@@ -456,9 +457,7 @@ impl Filesystem for FS {
             let file = file.read().await;
 
             if file.content.len() <= offset as _ {
-                return Ok(ReplyData {
-                    data: Box::new(b""),
-                });
+                return Ok(ReplyData { data: Bytes::new() });
             }
 
             let mut data = &file.content[offset as _..];
@@ -468,7 +467,7 @@ impl Filesystem for FS {
             }
 
             Ok(ReplyData {
-                data: Box::new(data.to_vec()),
+                data: Bytes::copy_from_slice(data),
             })
         } else {
             Err(libc::EISDIR.into())
@@ -513,8 +512,7 @@ impl Filesystem for FS {
                     written: data.len() as _,
                 })
             } else {
-                let new_len = file.content.len() + (offset as usize);
-                file.content.resize(new_len, 0);
+                file.content.resize(offset as _, 0);
 
                 file.content.extend_from_slice(&data);
 
