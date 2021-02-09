@@ -1,18 +1,104 @@
 //! reply structures.
 use std::ffi::OsString;
 use std::pin::Pin;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use futures_util::stream::Stream;
 
-use crate::{FileAttr, FileType};
-use crate::abi::{
-    fuse_attr_out, fuse_bmap_out, fuse_entry_out, fuse_kstatfs, fuse_lseek_out, fuse_open_out,
-    fuse_poll_out, fuse_statfs_out, fuse_write_out,
+use crate::helper::mode_from_kind_and_perm;
+use crate::raw::abi::{
+    fuse_attr, fuse_attr_out, fuse_bmap_out, fuse_entry_out, fuse_kstatfs, fuse_lseek_out,
+    fuse_open_out, fuse_poll_out, fuse_statfs_out, fuse_write_out,
 };
 #[cfg(feature = "file-lock")]
-use crate::abi::{fuse_file_lock, fuse_lk_out};
+use crate::raw::abi::{fuse_file_lock, fuse_lk_out};
+use crate::FileType;
+
+/// file attributes
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FileAttr {
+    /// Inode number
+    pub ino: u64,
+    /// Generation
+    pub generation: u64,
+    /// Size in bytes
+    pub size: u64,
+    /// Size in blocks
+    pub blocks: u64,
+    /// Time of last access
+    pub atime: SystemTime,
+    /// Time of last modification
+    pub mtime: SystemTime,
+    /// Time of last change
+    pub ctime: SystemTime,
+    #[cfg(target_os = "macos")]
+    /// Time of creation (macOS only)
+    pub crtime: SystemTime,
+    /// Kind of file (directory, file, pipe, etc)
+    pub kind: FileType,
+    /// Permissions
+    pub perm: u16,
+    /// Number of hard links
+    pub nlink: u32,
+    /// User id
+    pub uid: u32,
+    /// Group id
+    pub gid: u32,
+    /// Rdev
+    pub rdev: u32,
+    #[cfg(target_os = "macos")]
+    /// Flags (macOS only, see chflags(2))
+    pub flags: u32,
+    pub blksize: u32,
+}
+
+impl From<FileAttr> for fuse_attr {
+    fn from(attr: FileAttr) -> Self {
+        fuse_attr {
+            ino: attr.ino,
+            size: attr.size,
+            blocks: attr.blocks,
+            atime: attr
+                .atime
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .as_secs(),
+            mtime: attr
+                .mtime
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .as_secs(),
+            ctime: attr
+                .ctime
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .as_secs(),
+            atimensec: attr
+                .atime
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .subsec_nanos(),
+            mtimensec: attr
+                .mtime
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .subsec_nanos(),
+            ctimensec: attr
+                .ctime
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .subsec_nanos(),
+            mode: mode_from_kind_and_perm(attr.kind, attr.perm),
+            nlink: attr.nlink,
+            uid: attr.uid,
+            gid: attr.gid,
+            rdev: attr.rdev,
+            blksize: attr.blksize,
+            padding: 0,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// entry reply.
@@ -25,17 +111,17 @@ pub struct ReplyEntry {
     pub generation: u64,
 }
 
-impl Into<fuse_entry_out> for ReplyEntry {
-    fn into(self) -> fuse_entry_out {
-        let attr = self.attr;
+impl From<ReplyEntry> for fuse_entry_out {
+    fn from(entry: ReplyEntry) -> Self {
+        let attr = entry.attr;
 
         fuse_entry_out {
             nodeid: attr.ino,
-            generation: self.generation,
-            entry_valid: self.ttl.as_secs(),
-            attr_valid: self.ttl.as_secs(),
-            entry_valid_nsec: self.ttl.subsec_nanos(),
-            attr_valid_nsec: self.ttl.subsec_nanos(),
+            generation: entry.generation,
+            entry_valid: entry.ttl.as_secs(),
+            attr_valid: entry.ttl.as_secs(),
+            entry_valid_nsec: entry.ttl.subsec_nanos(),
+            attr_valid_nsec: entry.ttl.subsec_nanos(),
             attr: attr.into(),
         }
     }
@@ -50,13 +136,13 @@ pub struct ReplyAttr {
     pub attr: FileAttr,
 }
 
-impl Into<fuse_attr_out> for ReplyAttr {
-    fn into(self) -> fuse_attr_out {
+impl From<ReplyAttr> for fuse_attr_out {
+    fn from(attr: ReplyAttr) -> Self {
         fuse_attr_out {
-            attr_valid: self.ttl.as_secs(),
-            attr_valid_nsec: self.ttl.subsec_nanos(),
+            attr_valid: attr.ttl.as_secs(),
+            attr_valid_nsec: attr.ttl.subsec_nanos(),
             dummy: 0,
-            attr: self.attr.into(),
+            attr: attr.attr.into(),
         }
     }
 }
@@ -80,11 +166,11 @@ pub struct ReplyOpen {
     pub flags: u32,
 }
 
-impl Into<fuse_open_out> for ReplyOpen {
-    fn into(self) -> fuse_open_out {
+impl From<ReplyOpen> for fuse_open_out {
+    fn from(opened: ReplyOpen) -> Self {
         fuse_open_out {
-            fh: self.fh,
-            open_flags: self.flags,
+            fh: opened.fh,
+            open_flags: opened.flags,
             padding: 0,
         }
     }
@@ -97,10 +183,10 @@ pub struct ReplyWrite {
     pub written: u64,
 }
 
-impl Into<fuse_write_out> for ReplyWrite {
-    fn into(self) -> fuse_write_out {
+impl From<ReplyWrite> for fuse_write_out {
+    fn from(written: ReplyWrite) -> Self {
         fuse_write_out {
-            size: self.written as u32,
+            size: written.written as u32,
             padding: 0,
         }
     }
@@ -127,18 +213,18 @@ pub struct ReplyStatFs {
     pub frsize: u32,
 }
 
-impl Into<fuse_statfs_out> for ReplyStatFs {
-    fn into(self) -> fuse_statfs_out {
+impl From<ReplyStatFs> for fuse_statfs_out {
+    fn from(stat_fs: ReplyStatFs) -> Self {
         fuse_statfs_out {
             st: fuse_kstatfs {
-                blocks: self.blocks,
-                bfree: self.bfree,
-                bavail: self.bavail,
-                files: self.files,
-                ffree: self.ffree,
-                bsize: self.bsize,
-                namelen: self.namelen,
-                frsize: self.frsize,
+                blocks: stat_fs.blocks,
+                bfree: stat_fs.bfree,
+                bavail: stat_fs.bavail,
+                files: stat_fs.files,
+                ffree: stat_fs.ffree,
+                bsize: stat_fs.bsize,
+                namelen: stat_fs.namelen,
+                frsize: stat_fs.frsize,
                 padding: 0,
                 spare: [0; 6],
             },
@@ -190,14 +276,14 @@ pub struct ReplyLock {
 }
 
 #[cfg(feature = "file-lock")]
-impl Into<fuse_lk_out> for ReplyLock {
-    fn into(self) -> fuse_lk_out {
+impl From<ReplyLock> for fuse_lk_out {
+    fn from(lock: ReplyLock) -> Self {
         fuse_lk_out {
             lk: fuse_file_lock {
-                start: self.start,
-                end: self.end,
-                r#type: self.r#type,
-                pid: self.pid,
+                start: lock.start,
+                end: lock.end,
+                r#type: lock.r#type,
+                pid: lock.pid,
             },
         }
     }
@@ -218,23 +304,23 @@ pub struct ReplyCreated {
     pub flags: u32,
 }
 
-impl Into<(fuse_entry_out, fuse_open_out)> for ReplyCreated {
-    fn into(self) -> (fuse_entry_out, fuse_open_out) {
-        let attr = self.attr;
+impl From<ReplyCreated> for (fuse_entry_out, fuse_open_out) {
+    fn from(created: ReplyCreated) -> Self {
+        let attr = created.attr;
 
         let entry_out = fuse_entry_out {
             nodeid: attr.ino,
             generation: attr.generation,
-            entry_valid: self.ttl.as_secs(),
-            attr_valid: self.ttl.as_secs(),
-            entry_valid_nsec: self.ttl.subsec_micros(),
-            attr_valid_nsec: self.ttl.subsec_micros(),
+            entry_valid: created.ttl.as_secs(),
+            attr_valid: created.ttl.as_secs(),
+            entry_valid_nsec: created.ttl.subsec_micros(),
+            attr_valid_nsec: created.ttl.subsec_micros(),
             attr: attr.into(),
         };
 
         let open_out = fuse_open_out {
-            fh: self.fh,
-            open_flags: self.flags,
+            fh: created.fh,
+            open_flags: created.flags,
             padding: 0,
         };
 
@@ -249,9 +335,9 @@ pub struct ReplyBmap {
     pub block: u64,
 }
 
-impl Into<fuse_bmap_out> for ReplyBmap {
-    fn into(self) -> fuse_bmap_out {
-        fuse_bmap_out { block: self.block }
+impl From<ReplyBmap> for fuse_bmap_out {
+    fn from(bmap: ReplyBmap) -> Self {
+        fuse_bmap_out { block: bmap.block }
     }
 }
 
@@ -270,10 +356,10 @@ pub struct ReplyPoll {
     pub revents: u32,
 }
 
-impl Into<fuse_poll_out> for ReplyPoll {
-    fn into(self) -> fuse_poll_out {
+impl From<ReplyPoll> for fuse_poll_out {
+    fn from(poll: ReplyPoll) -> Self {
         fuse_poll_out {
-            revents: self.revents,
+            revents: poll.revents,
             padding: 0,
         }
     }
@@ -312,10 +398,10 @@ pub struct ReplyLSeek {
     pub offset: u64,
 }
 
-impl Into<fuse_lseek_out> for ReplyLSeek {
-    fn into(self) -> fuse_lseek_out {
+impl From<ReplyLSeek> for fuse_lseek_out {
+    fn from(seek: ReplyLSeek) -> Self {
         fuse_lseek_out {
-            offset: self.offset,
+            offset: seek.offset,
         }
     }
 }
@@ -327,10 +413,10 @@ pub struct ReplyCopyFileRange {
     pub copied: u64,
 }
 
-impl Into<fuse_write_out> for ReplyCopyFileRange {
-    fn into(self) -> fuse_write_out {
+impl From<ReplyCopyFileRange> for fuse_write_out {
+    fn from(copied: ReplyCopyFileRange) -> Self {
         fuse_write_out {
-            size: self.copied as u32,
+            size: copied.copied as u32,
             padding: 0,
         }
     }

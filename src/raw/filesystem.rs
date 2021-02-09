@@ -3,13 +3,14 @@ use std::ffi::OsStr;
 use async_trait::async_trait;
 use bytes::Bytes;
 
-use crate::{Result, SetAttr};
 use crate::notify::Notify;
-use crate::reply::*;
-use crate::request::Request;
+use crate::raw::reply::*;
+use crate::raw::request::Request;
+use crate::{Inode, Result, SetAttr};
 
+#[allow(unused_variables)]
 #[async_trait]
-/// Filesystem trait.
+/// Inode based filesystem trait.
 ///
 /// # Notes:
 ///
@@ -23,7 +24,7 @@ pub trait Filesystem {
     async fn destroy(&self, req: Request);
 
     /// look up a directory entry by name and get its attributes.
-    async fn lookup(&self, _req: Request, _parent: u64, _name: &OsStr) -> Result<ReplyEntry> {
+    async fn lookup(&self, req: Request, parent: Inode, name: &OsStr) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
 
@@ -33,15 +34,15 @@ pub trait Filesystem {
     /// forget. The filesystem may ignore forget calls, if the inodes don't need to have a limited
     /// lifetime. On unmount it is not guaranteed, that all referenced inodes will receive a forget
     /// message.
-    async fn forget(&self, _req: Request, _inode: u64, _nlookup: u64) {}
+    async fn forget(&self, req: Request, inode: Inode, nlookup: u64) {}
 
     /// get file attributes. If `fh` is None, means `fh` is not set.
     async fn getattr(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: Option<u64>,
-        _flags: u32,
+        req: Request,
+        inode: Inode,
+        fh: Option<u64>,
+        flags: u32,
     ) -> Result<ReplyAttr> {
         Err(libc::ENOSYS.into())
     }
@@ -49,26 +50,26 @@ pub trait Filesystem {
     /// set file attributes.  If `fh` is None, means `fh` is not set.
     async fn setattr(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: Option<u64>,
-        _set_attr: SetAttr,
+        req: Request,
+        inode: Inode,
+        fh: Option<u64>,
+        set_attr: SetAttr,
     ) -> Result<ReplyAttr> {
         Err(libc::ENOSYS.into())
     }
 
     /// read symbolic link.
-    async fn readlink(&self, _req: Request, _inode: u64) -> Result<ReplyData> {
+    async fn readlink(&self, req: Request, inode: Inode) -> Result<ReplyData> {
         Err(libc::ENOSYS.into())
     }
 
     /// create a symbolic link.
     async fn symlink(
         &self,
-        _req: Request,
-        _parent: u64,
-        _name: &OsStr,
-        _link: &OsStr,
+        req: Request,
+        parent: Inode,
+        name: &OsStr,
+        link: &OsStr,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
@@ -79,11 +80,11 @@ pub trait Filesystem {
     /// [`create`]: Filesystem::create
     async fn mknod(
         &self,
-        _req: Request,
-        _parent: u64,
-        _name: &OsStr,
-        _mode: u32,
-        _rdev: u32,
+        req: Request,
+        parent: Inode,
+        name: &OsStr,
+        mode: u32,
+        rdev: u32,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
@@ -91,33 +92,33 @@ pub trait Filesystem {
     /// create a directory.
     async fn mkdir(
         &self,
-        _req: Request,
-        _parent: u64,
-        _name: &OsStr,
-        _mode: u32,
-        _umask: u32,
+        req: Request,
+        parent: Inode,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
 
     /// remove a file.
-    async fn unlink(&self, _req: Request, _parent: u64, _name: &OsStr) -> Result<()> {
+    async fn unlink(&self, req: Request, parent: Inode, name: &OsStr) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
     /// remove a directory.
-    async fn rmdir(&self, _req: Request, _parent: u64, _name: &OsStr) -> Result<()> {
+    async fn rmdir(&self, req: Request, parent: Inode, name: &OsStr) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
     /// rename a file or directory.
     async fn rename(
         &self,
-        _req: Request,
-        _parent: u64,
-        _name: &OsStr,
-        _new_parent: u64,
-        _new_name: &OsStr,
+        req: Request,
+        parent: Inode,
+        name: &OsStr,
+        new_parent: Inode,
+        new_name: &OsStr,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -125,10 +126,10 @@ pub trait Filesystem {
     /// create a hard link.
     async fn link(
         &self,
-        _req: Request,
-        _inode: u64,
-        _new_parent: u64,
-        _new_name: &OsStr,
+        req: Request,
+        inode: Inode,
+        new_parent: Inode,
+        new_name: &OsStr,
     ) -> Result<ReplyEntry> {
         Err(libc::ENOSYS.into())
     }
@@ -145,7 +146,7 @@ pub trait Filesystem {
     /// See `fuse_file_info` structure in
     /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
     /// more details.
-    async fn open(&self, _req: Request, _inode: u64, _flags: u32) -> Result<ReplyOpen> {
+    async fn open(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
         Err(libc::ENOSYS.into())
     }
 
@@ -156,11 +157,11 @@ pub trait Filesystem {
     /// value set by the open method, or will be undefined if the open method didn't set any value.
     async fn read(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _offset: u64,
-        _size: u32,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        offset: u64,
+        size: u32,
     ) -> Result<ReplyData> {
         Err(libc::ENOSYS.into())
     }
@@ -172,18 +173,18 @@ pub trait Filesystem {
     /// didn't set any value.
     async fn write(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _offset: u64,
-        _data: &[u8],
-        _flags: u32,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        offset: u64,
+        data: &[u8],
+        flags: u32,
     ) -> Result<ReplyWrite> {
         Err(libc::ENOSYS.into())
     }
 
     /// get filesystem statistics.
-    async fn statsfs(&self, _req: Request, _inode: u64) -> Result<ReplyStatFs> {
+    async fn statsfs(&self, req: Request, inode: Inode) -> Result<ReplyStatFs> {
         Err(libc::ENOSYS.into())
     }
 
@@ -196,31 +197,31 @@ pub trait Filesystem {
     /// data or not when closing file.
     async fn release(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _flags: u32,
-        _lock_owner: u64,
-        _flush: bool,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        flags: u32,
+        lock_owner: u64,
+        flush: bool,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
     /// synchronize file contents. If the `datasync` is true, then only the user data should be
     /// flushed, not the metadata.
-    async fn fsync(&self, _req: Request, _inode: u64, _fh: u64, _datasync: bool) -> Result<()> {
+    async fn fsync(&self, req: Request, inode: Inode, fh: u64, datasync: bool) -> Result<()> {
         Ok(())
     }
 
     /// set an extended attribute.
     async fn setxattr(
         &self,
-        _req: Request,
-        _inode: u64,
-        _name: &OsStr,
-        _value: &OsStr,
-        _flags: u32,
-        _position: u32,
+        req: Request,
+        inode: Inode,
+        name: &OsStr,
+        value: &OsStr,
+        flags: u32,
+        position: u32,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -232,10 +233,10 @@ pub trait Filesystem {
     /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
     async fn getxattr(
         &self,
-        _req: Request,
-        _inode: u64,
-        _name: &OsStr,
-        _size: u32,
+        req: Request,
+        inode: Inode,
+        name: &OsStr,
+        size: u32,
     ) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS.into())
     }
@@ -245,12 +246,12 @@ pub trait Filesystem {
     ///
     /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
     /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
-    async fn listxattr(&self, _req: Request, _inode: u64, _size: u32) -> Result<ReplyXAttr> {
+    async fn listxattr(&self, req: Request, inode: Inode, size: u32) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS.into())
     }
 
     /// remove an extended attribute.
-    async fn removexattr(&self, _req: Request, _inode: u64, _name: &OsStr) -> Result<()> {
+    async fn removexattr(&self, req: Request, inode: Inode, name: &OsStr) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
@@ -269,7 +270,7 @@ pub trait Filesystem {
     ///
     /// [`setlk`]: Filesystem::setlk
     /// [`getlk`]: Filesystem::getlk
-    async fn flush(&self, _req: Request, _inode: u64, _fh: u64, _lock_owner: u64) -> Result<()> {
+    async fn flush(&self, req: Request, inode: Inode, fh: u64, lock_owner: u64) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
@@ -284,7 +285,7 @@ pub trait Filesystem {
     /// [`releasedir`]: Filesystem::releasedir
     /// [`fsyncdir`]: Filesystem::fsyncdir
     /// [`releasedir`]: Filesystem::releasedir
-    async fn opendir(&self, _req: Request, _inode: u64, _flags: u32) -> Result<ReplyOpen> {
+    async fn opendir(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
         Ok(ReplyOpen { fh: 0, flags: 0 })
     }
 
@@ -295,10 +296,10 @@ pub trait Filesystem {
     /// [`opendir`]: Filesystem::opendir
     async fn readdir(
         &self,
-        _req: Request,
-        _parent: u64,
-        _fh: u64,
-        _offset: i64,
+        req: Request,
+        parent: Inode,
+        fh: u64,
+        offset: i64,
     ) -> Result<ReplyDirectory> {
         Err(libc::ENOSYS.into())
     }
@@ -308,7 +309,7 @@ pub trait Filesystem {
     /// undefined if the [`opendir`] method didn't set any value.
     ///
     /// [`opendir`]: Filesystem::opendir
-    async fn releasedir(&self, _req: Request, _inode: u64, _fh: u64, _flags: u32) -> Result<()> {
+    async fn releasedir(&self, req: Request, inode: Inode, fh: u64, flags: u32) -> Result<()> {
         Ok(())
     }
 
@@ -317,7 +318,7 @@ pub trait Filesystem {
     /// method, or will be undefined if the [`opendir`] method didn't set any value.
     ///
     /// [`opendir`]: Filesystem::opendir
-    async fn fsyncdir(&self, _req: Request, _inode: u64, _fh: u64, _datasync: bool) -> Result<()> {
+    async fn fsyncdir(&self, req: Request, inode: Inode, fh: u64, datasync: bool) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
@@ -327,16 +328,17 @@ pub trait Filesystem {
     /// # Notes:
     ///
     /// this is supported on enable **`file-lock`** feature.
+    #[allow(clippy::too_many_arguments)]
     async fn getlk(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _lock_owner: u64,
-        _start: u64,
-        _end: u64,
-        _type: u32,
-        _pid: u32,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        lock_owner: u64,
+        start: u64,
+        end: u64,
+        r#type: u32,
+        pid: u32,
     ) -> Result<ReplyLock>;
 
     #[cfg(feature = "file-lock")]
@@ -345,23 +347,24 @@ pub trait Filesystem {
     /// # Notes:
     ///
     /// this is supported on enable **`file-lock`** feature.
+    #[allow(clippy::too_many_arguments)]
     async fn setlk(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _lock_owner: u64,
-        _start: u64,
-        _end: u64,
-        _type: u32,
-        _pid: u32,
-        _block: bool,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        lock_owner: u64,
+        start: u64,
+        end: u64,
+        r#type: u32,
+        pid: u32,
+        block: bool,
     ) -> Result<()>;
 
     /// check file access permissions. This will be called for the `access()` system call. If the
     /// `default_permissions` mount option is given, this method is not be called. This method is
     /// not called under Linux kernel versions 2.4.x.
-    async fn access(&self, _req: Request, _inode: u64, _mask: u32) -> Result<()> {
+    async fn access(&self, req: Request, inode: Inode, mask: u32) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
@@ -389,18 +392,18 @@ pub trait Filesystem {
     /// [`open`]: Filesystem::open
     async fn create(
         &self,
-        _req: Request,
-        _parent: u64,
-        _name: &OsStr,
-        _mode: u32,
-        _flags: u32,
+        req: Request,
+        parent: Inode,
+        name: &OsStr,
+        mode: u32,
+        flags: u32,
     ) -> Result<ReplyCreated> {
         Err(libc::ENOSYS.into())
     }
 
     /// handle interrupt. When a operation is interrupted, an interrupt request will send to fuse
     /// server with the unique id of the operation.
-    async fn interrupt(&self, _req: Request, _unique: u64) -> Result<()> {
+    async fn interrupt(&self, req: Request, unique: u64) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
@@ -408,41 +411,42 @@ pub trait Filesystem {
     ///
     /// # Notes:
     ///
-    /// This may not works because currently this crate doesn't support fuseblk mode.
+    /// This may not works because currently this crate doesn't support fuseblk mode yet.
     async fn bmap(
         &self,
-        _req: Request,
-        _inode: u64,
-        _blocksize: u32,
-        _idx: u64,
+        req: Request,
+        inode: Inode,
+        blocksize: u32,
+        idx: u64,
     ) -> Result<ReplyBmap> {
         Err(libc::ENOSYS.into())
     }
 
     /*async fn ioctl(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _flags: u32,
-        _cmd: u32,
-        _arg: u64,
-        _in_size: u32,
-        _out_size: u32,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        flags: u32,
+        cmd: u32,
+        arg: u64,
+        in_size: u32,
+        out_size: u32,
     ) -> Result<ReplyIoctl> {
         Err(libc::ENOSYS.into())
     }*/
 
     /// poll for IO readiness events.
+    #[allow(clippy::too_many_arguments)]
     async fn poll(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _kh: Option<u64>,
-        _flags: u32,
-        _events: u32,
-        _notify: &Notify,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        kh: Option<u64>,
+        flags: u32,
+        events: u32,
+        notify: &Notify,
     ) -> Result<ReplyPoll> {
         Err(libc::ENOSYS.into())
     }
@@ -450,10 +454,10 @@ pub trait Filesystem {
     /// receive notify reply from kernel.
     async fn notify_reply(
         &self,
-        _req: Request,
-        _inode: u64,
-        _offset: u64,
-        _data: Bytes,
+        req: Request,
+        inode: Inode,
+        offset: u64,
+        data: Bytes,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -461,7 +465,7 @@ pub trait Filesystem {
     /// forget more than one inode. This is a batch version [`forget`]
     ///
     /// [`forget`]: Filesystem::forget
-    async fn batch_forget(&self, _req: Request, _inodes: &[u64]) {}
+    async fn batch_forget(&self, req: Request, inodes: &[Inode]) {}
 
     /// allocate space for an open file. This function ensures that required space is allocated for
     /// specified file.
@@ -471,12 +475,12 @@ pub trait Filesystem {
     /// more infomation about `fallocate`, please see **`man 2 fallocate`**
     async fn fallocate(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _offset: u64,
-        _length: u64,
-        _mode: u32,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        offset: u64,
+        length: u64,
+        mode: u32,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -488,11 +492,11 @@ pub trait Filesystem {
     /// [`lookup`]: Filesystem::lookup
     async fn readdirplus(
         &self,
-        _req: Request,
-        _parent: u64,
-        _fh: u64,
-        _offset: u64,
-        _lock_owner: u64,
+        req: Request,
+        parent: Inode,
+        fh: u64,
+        offset: u64,
+        lock_owner: u64,
     ) -> Result<ReplyDirectoryPlus> {
         Err(libc::ENOSYS.into())
     }
@@ -500,12 +504,12 @@ pub trait Filesystem {
     /// rename a file or directory with flags.
     async fn rename2(
         &self,
-        _req: Request,
-        _parent: u64,
-        _name: &OsStr,
-        _new_parent: u64,
-        _new_name: &OsStr,
-        _flags: u32,
+        req: Request,
+        parent: Inode,
+        name: &OsStr,
+        new_parent: Inode,
+        new_name: &OsStr,
+        flags: u32,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -513,11 +517,11 @@ pub trait Filesystem {
     /// find next data or hole after the specified offset.
     async fn lseek(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh: u64,
-        _offset: u64,
-        _whence: u32,
+        req: Request,
+        inode: Inode,
+        fh: u64,
+        offset: u64,
+        whence: u32,
     ) -> Result<ReplyLSeek> {
         Err(libc::ENOSYS.into())
     }
@@ -526,17 +530,18 @@ pub trait Filesystem {
     /// reduce data copy: in normal, data will copy from FUSE server to kernel, then to user-space,
     /// then to kernel, finally send back to FUSE server. By implement this method, data will only
     /// copy in FUSE server internal.
+    #[allow(clippy::too_many_arguments)]
     async fn copy_file_range(
         &self,
-        _req: Request,
-        _inode: u64,
-        _fh_in: u64,
-        _off_in: u64,
-        _inode_out: u64,
-        _fh_out: u64,
-        _off_out: u64,
-        _length: u64,
-        _flags: u64,
+        req: Request,
+        inode: Inode,
+        fh_in: u64,
+        off_in: u64,
+        inode_out: Inode,
+        fh_out: u64,
+        off_out: u64,
+        length: u64,
+        flags: u64,
     ) -> Result<ReplyCopyFileRange> {
         Err(libc::ENOSYS.into())
     }

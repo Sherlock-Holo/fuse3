@@ -7,8 +7,8 @@ use bytes::Bytes;
 use futures_util::stream;
 use log::LevelFilter;
 
-use fuse3::prelude::*;
-use fuse3::Session;
+use fuse3::raw::prelude::*;
+use fuse3::{MountOptions, Result};
 
 const CONTENT: &str = "hello world\n";
 

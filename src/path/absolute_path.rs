@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
-use std::path::{Path as StdPath, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::helper::Apply;
@@ -32,7 +32,7 @@ impl Hash for InnerPath {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // quick path for root /
         if matches!(self, Self::Root) {
-            StdPath::new("/").hash(state)
+            Path::new("/").hash(state)
         } else {
             self.absolute_path().hash(state)
         }
@@ -69,14 +69,14 @@ impl InnerPath {
 }
 
 #[derive(Debug, Clone)]
-pub struct Path(InnerPath);
+pub struct AbsolutePath(InnerPath);
 
-impl Path {
+impl AbsolutePath {
     pub fn root() -> Self {
         Self(InnerPath::Root)
     }
 
-    pub fn new(parent: &Path, name: &OsStr) -> Self {
+    pub fn new(parent: &AbsolutePath, name: &OsStr) -> Self {
         match &parent.0 {
             InnerPath::Root => Self(InnerPath::Child {
                 parent: Arc::new(InnerPath::Root),
@@ -89,39 +89,39 @@ impl Path {
         }
     }
 
-    pub fn name(&self) -> &StdPath {
+    /*pub fn name(&self) -> &Path {
         match &self.0 {
-            InnerPath::Root => StdPath::new("/"),
-            InnerPath::Child { name, .. } => StdPath::new(name.as_os_str()),
+            InnerPath::Root => Path::new("/"),
+            InnerPath::Child { name, .. } => Path::new(name.as_os_str()),
         }
-    }
+    }*/
 
-    pub fn absolute_path(&self) -> PathBuf {
+    pub fn absolute_path_buf(&self) -> PathBuf {
         self.0.absolute_path()
     }
 }
 
-impl PartialEq for Path {
+impl PartialEq for AbsolutePath {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl Eq for Path {}
+impl Eq for AbsolutePath {}
 
-impl Hash for Path {
+impl Hash for AbsolutePath {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state)
     }
 }
 
-impl PartialOrd for Path {
+impl PartialOrd for AbsolutePath {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.0.partial_cmp(&other.0)
     }
 }
 
-impl Ord for Path {
+impl Ord for AbsolutePath {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.cmp(&other.0)

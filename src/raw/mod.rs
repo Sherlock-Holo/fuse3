@@ -1,15 +1,16 @@
-//! path based
+//! inode based
 
-pub use path_filesystem::PathFilesystem;
+pub use filesystem::Filesystem;
+pub use request::Request;
+#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 pub use session::Session;
 
-pub use crate::raw::Request;
-
-mod absolute_path;
-mod inode_path_bridge;
-mod path_filesystem;
+pub(crate) mod abi;
+mod connection;
+mod filesystem;
 pub mod reply;
-mod session;
+pub mod request;
+pub(crate) mod session;
 
 pub mod prelude {
     pub use crate::notify::Notify;
@@ -18,7 +19,7 @@ pub mod prelude {
 
     pub use super::reply::FileAttr;
     pub use super::reply::*;
-    pub use super::PathFilesystem;
+    pub use super::Filesystem;
     pub use super::Request;
     pub use super::Session;
 }

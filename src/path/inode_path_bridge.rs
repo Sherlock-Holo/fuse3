@@ -9,23 +9,25 @@ use futures_util::stream;
 use futures_util::StreamExt;
 use slab::Slab;
 
-use crate::{Errno, Filesystem, Request, SetAttr};
-use crate::{Inode, Result};
 use crate::notify::Notify;
-use crate::reply::*;
+use crate::raw::reply::*;
+use crate::raw::request::Request;
+use crate::raw::Filesystem;
+use crate::{Errno, SetAttr};
+use crate::{Inode, Result};
 
-use super::path::Path;
+use super::absolute_path::AbsolutePath;
 use super::path_filesystem::PathFilesystem;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct InodePathMap {
-    inode_paths: BTreeMap<Inode, Vec<Path>>,
-    path_inode: BTreeMap<Path, Inode>,
+    inode_paths: BTreeMap<Inode, Vec<AbsolutePath>>,
+    path_inode: BTreeMap<AbsolutePath, Inode>,
     slab: Slab<()>,
 }
 
 impl InodePathMap {
-    fn remove_path(&mut self, path: &Path) -> Option<Inode> {
+    fn remove_path(&mut self, path: &AbsolutePath) -> Option<Inode> {
         if let Some(inode) = self.path_inode.remove(path) {
             let paths = self
                 .inode_paths
@@ -57,7 +59,7 @@ impl InodePathMap {
         }
     }
 
-    fn remove_inode(&mut self, inode: Inode) -> Option<Vec<Path>> {
+    fn remove_inode(&mut self, inode: Inode) -> Option<Vec<AbsolutePath>> {
         if let Some(paths) = self.inode_paths.remove(&inode) {
             paths.iter().for_each(|path| {
                 self.path_inode.remove(path);
@@ -71,7 +73,7 @@ impl InodePathMap {
         }
     }
 
-    fn insert_path(&mut self, path: Path) -> Inode {
+    fn insert_path(&mut self, path: AbsolutePath) -> Inode {
         match self.path_inode.get(&path) {
             Some(inode) => *inode,
             None => {
@@ -85,21 +87,42 @@ impl InodePathMap {
     }
 }
 
-pub struct InodePathBridge<P> {
-    path_filesystem: P,
+pub struct InodePathBridge<FS> {
+    path_filesystem: FS,
     inode_path_map: Mutex<InodePathMap>,
 }
 
-impl<P> Debug for InodePathBridge<P> {
+impl<FS> InodePathBridge<FS> {
+    pub fn new(path_filesystem: FS) -> Self {
+        let mut slab = Slab::new();
+        // drop 0 key
+        slab.insert(());
+
+        let mut inode_path_map = InodePathMap {
+            inode_paths: Default::default(),
+            path_inode: Default::default(),
+            slab,
+        };
+
+        inode_path_map.insert_path(AbsolutePath::root());
+
+        Self {
+            path_filesystem,
+            inode_path_map: Mutex::new(inode_path_map),
+        }
+    }
+}
+
+impl<FS> Debug for InodePathBridge<FS> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("")
+        f.debug_struct("InodePathBridge").finish()
     }
 }
 
 #[async_trait]
-impl<P> Filesystem for InodePathBridge<P>
-    where
-        P: PathFilesystem + Send + Sync,
+impl<FS> Filesystem for InodePathBridge<FS>
+where
+    FS: PathFilesystem + Send + Sync,
 {
     async fn init(&self, req: Request) -> Result<()> {
         self.path_filesystem.init(req).await
@@ -119,11 +142,11 @@ impl<P> Filesystem for InodePathBridge<P>
 
         match self
             .path_filesystem
-            .lookup(req, parent_path.absolute_path().as_os_str(), name)
+            .lookup(req, parent_path.absolute_path_buf().as_os_str(), name)
             .await
         {
             Err(err) if err.is_not_exist() => {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
 
                 inode_path_map.remove_path(&path);
 
@@ -133,7 +156,7 @@ impl<P> Filesystem for InodePathBridge<P>
             Err(err) => Err(err),
 
             Ok(entry) => {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
 
                 let inode = inode_path_map.insert_path(path);
 
@@ -152,7 +175,7 @@ impl<P> Filesystem for InodePathBridge<P>
             let path = &paths[0];
 
             self.path_filesystem
-                .forget(req, path.absolute_path().as_ref(), nlookup)
+                .forget(req, path.absolute_path_buf().as_ref(), nlookup)
                 .await
         }
     }
@@ -168,8 +191,8 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = inode_path_map
             .inode_paths
             .get(&inode)
-            .map(|path| path[0].absolute_path().into_os_string());
-        let path = path.as_ref().map(|path| path.as_os_str());
+            .map(|path| path[0].absolute_path_buf().into_os_string());
+        let path = path.as_deref();
 
         match self.path_filesystem.getattr(req, path, fh, flags).await {
             Err(err) if err.is_not_exist() => {
@@ -195,8 +218,8 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = inode_path_map
             .inode_paths
             .get(&inode)
-            .map(|path| path[0].absolute_path().into_os_string());
-        let path = path.as_ref().map(|path| path.as_os_str());
+            .map(|path| path[0].absolute_path_buf().into_os_string());
+        let path = path.as_deref();
 
         match self.path_filesystem.setattr(req, path, fh, set_attr).await {
             Err(err) if err.is_not_exist() => {
@@ -221,7 +244,7 @@ impl<P> Filesystem for InodePathBridge<P>
 
         match self
             .path_filesystem
-            .readlink(req, path.absolute_path().as_os_str())
+            .readlink(req, path.absolute_path_buf().as_os_str())
             .await
         {
             Err(err) if err.is_not_exist() => {
@@ -249,12 +272,12 @@ impl<P> Filesystem for InodePathBridge<P>
 
         match self
             .path_filesystem
-            .symlink(req, parent_path.absolute_path().as_os_str(), name, link)
+            .symlink(req, parent_path.absolute_path_buf().as_os_str(), name, link)
             .await
         {
             Err(err) => {
                 if err.is_exist() {
-                    let path = Path::new(parent_path, name);
+                    let path = AbsolutePath::new(parent_path, name);
                     inode_path_map.insert_path(path);
                 }
 
@@ -262,7 +285,7 @@ impl<P> Filesystem for InodePathBridge<P>
             }
 
             Ok(entry) => {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
                 let inode = inode_path_map.insert_path(path);
 
                 Ok(ReplyEntry {
@@ -292,7 +315,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .path_filesystem
             .mknod(
                 req,
-                parent_path.absolute_path().as_os_str(),
+                parent_path.absolute_path_buf().as_os_str(),
                 name,
                 mode,
                 rdev,
@@ -301,7 +324,7 @@ impl<P> Filesystem for InodePathBridge<P>
         {
             Err(err) => {
                 if err.is_exist() {
-                    let path = Path::new(parent_path, name);
+                    let path = AbsolutePath::new(parent_path, name);
                     inode_path_map.insert_path(path);
                 }
 
@@ -309,7 +332,7 @@ impl<P> Filesystem for InodePathBridge<P>
             }
 
             Ok(entry) => {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
                 let inode = inode_path_map.insert_path(path);
 
                 Ok(ReplyEntry {
@@ -339,7 +362,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .path_filesystem
             .mkdir(
                 req,
-                parent_path.absolute_path().as_os_str(),
+                parent_path.absolute_path_buf().as_os_str(),
                 name,
                 mode,
                 umask,
@@ -348,7 +371,7 @@ impl<P> Filesystem for InodePathBridge<P>
         {
             Err(err) => {
                 if err.is_exist() {
-                    let path = Path::new(parent_path, name);
+                    let path = AbsolutePath::new(parent_path, name);
                     inode_path_map.insert_path(path);
                 }
 
@@ -356,7 +379,7 @@ impl<P> Filesystem for InodePathBridge<P>
             }
 
             Ok(entry) => {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
                 let inode = inode_path_map.insert_path(path);
 
                 Ok(ReplyEntry {
@@ -377,20 +400,20 @@ impl<P> Filesystem for InodePathBridge<P>
 
         if let Err(err) = self
             .path_filesystem
-            .unlink(req, parent_path.absolute_path().as_os_str(), name)
+            .unlink(req, parent_path.absolute_path_buf().as_os_str(), name)
             .await
         {
             if err.is_not_exist() {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
                 inode_path_map.remove_path(&path);
             } else if err.is_dir() {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
                 inode_path_map.insert_path(path);
             }
 
             Err(err)
         } else {
-            let path = Path::new(parent_path, name);
+            let path = AbsolutePath::new(parent_path, name);
             inode_path_map.remove_path(&path);
 
             Ok(())
@@ -406,20 +429,20 @@ impl<P> Filesystem for InodePathBridge<P>
 
         if let Err(err) = self
             .path_filesystem
-            .rmdir(req, parent_path.absolute_path().as_os_str(), name)
+            .rmdir(req, parent_path.absolute_path_buf().as_os_str(), name)
             .await
         {
             if err.is_not_exist() {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
                 inode_path_map.remove_path(&path);
             } else if err.is_not_dir() {
-                let path = Path::new(parent_path, name);
+                let path = AbsolutePath::new(parent_path, name);
                 inode_path_map.insert_path(path);
             }
 
             Err(err)
         } else {
-            let path = Path::new(parent_path, name);
+            let path = AbsolutePath::new(parent_path, name);
             inode_path_map.remove_path(&path);
 
             Ok(())
@@ -450,15 +473,15 @@ impl<P> Filesystem for InodePathBridge<P>
         self.path_filesystem
             .rename(
                 req,
-                origin_parent_path.absolute_path().as_os_str(),
+                origin_parent_path.absolute_path_buf().as_os_str(),
                 name,
-                new_parent_path.absolute_path().as_os_str(),
+                new_parent_path.absolute_path_buf().as_os_str(),
                 new_name,
             )
             .await?;
 
-        let origin_path = Path::new(origin_parent_path, name);
-        let new_path = Path::new(new_parent_path, new_name);
+        let origin_path = AbsolutePath::new(origin_parent_path, name);
+        let new_path = AbsolutePath::new(new_parent_path, new_name);
 
         match inode_path_map.path_inode.remove(&origin_path) {
             // origin path is not insert into inode_path_map
@@ -504,13 +527,13 @@ impl<P> Filesystem for InodePathBridge<P>
             .path_filesystem
             .link(
                 req,
-                path.absolute_path().as_ref(),
-                new_parent_path.absolute_path().as_ref(),
+                path.absolute_path_buf().as_ref(),
+                new_parent_path.absolute_path_buf().as_ref(),
                 new_name,
             )
             .await?;
 
-        let new_path = Path::new(new_parent_path, new_name);
+        let new_path = AbsolutePath::new(new_parent_path, new_name);
         // Safety: checked when get path
         inode_path_map
             .inode_paths
@@ -534,7 +557,7 @@ impl<P> Filesystem for InodePathBridge<P>
 
         match self
             .path_filesystem
-            .open(req, path.absolute_path().as_ref(), flags)
+            .open(req, path.absolute_path_buf().as_ref(), flags)
             .await
         {
             Err(err) => {
@@ -564,7 +587,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         match self
@@ -602,7 +625,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         match self
@@ -629,11 +652,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         match self
             .path_filesystem
-            .statsfs(req, path.absolute_path().as_ref())
+            .statsfs(req, path.absolute_path_buf().as_ref())
             .await
         {
             Err(err) => {
@@ -665,7 +688,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         if let Err(err) = self
@@ -693,7 +716,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         if let Err(err) = self
@@ -726,29 +749,19 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         // here don't remove path when error is not exist because it may be the xattr not exist
         self.path_filesystem
             .setxattr(
                 req,
-                path.absolute_path().as_ref(),
+                path.absolute_path_buf().as_ref(),
                 name,
                 value,
                 flags,
                 position,
             )
             .await
-        /*if let Err(err) = self.path_filesystem.setxattr(req, path.absolute_path().as_ref(), name, value, flags, position).await {
-            if err.is_not_exist() {
-                let path = path.clone();
-                inode_path_map.remove_path(&path);
-            }
-
-            Err(err)
-        } else {
-            Ok(())
-        }*/
     }
 
     async fn getxattr(
@@ -762,11 +775,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         // here don't remove path when error is not exist because it may be the xattr not exist
         self.path_filesystem
-            .getxattr(req, path.absolute_path().as_ref(), name, size)
+            .getxattr(req, path.absolute_path_buf().as_ref(), name, size)
             .await
     }
 
@@ -775,11 +788,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         // here don't remove path when error is not exist because it may be the xattr not exist
         self.path_filesystem
-            .listxattr(req, path.absolute_path().as_ref(), size)
+            .listxattr(req, path.absolute_path_buf().as_ref(), size)
             .await
     }
 
@@ -788,11 +801,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         // here don't remove path when error is not exist because it may be the xattr not exist
         self.path_filesystem
-            .removexattr(req, path.absolute_path().as_ref(), name)
+            .removexattr(req, path.absolute_path_buf().as_ref(), name)
             .await
     }
 
@@ -804,7 +817,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         if let Err(err) = self
@@ -829,11 +842,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         match self
             .path_filesystem
-            .opendir(req, path.absolute_path().as_ref(), flags)
+            .opendir(req, path.absolute_path_buf().as_ref(), flags)
             .await
         {
             Err(err) => {
@@ -860,12 +873,12 @@ impl<P> Filesystem for InodePathBridge<P>
         let parent = &inode_path_map
             .inode_paths
             .get(&parent)
-            .ok_or_else(|| Errno::new_not_exist())?[0]
+            .ok_or_else(Errno::new_not_exist)?[0]
             .clone();
 
         match self
             .path_filesystem
-            .readdir(req, parent.absolute_path().as_ref(), fh, offset)
+            .readdir(req, parent.absolute_path_buf().as_ref(), fh, offset)
             .await
         {
             Err(err) => {
@@ -884,7 +897,7 @@ impl<P> Filesystem for InodePathBridge<P>
                 while let Some(result) = dirs.entries.next().await {
                     let entry = result?;
 
-                    let path = Path::new(&parent, &entry.name);
+                    let path = AbsolutePath::new(&parent, &entry.name);
                     let inode = inode_path_map.insert_path(path);
 
                     dir_list.push(DirectoryEntry {
@@ -907,11 +920,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         if let Err(err) = self
             .path_filesystem
-            .releasedir(req, path.absolute_path().as_ref(), fh, flags)
+            .releasedir(req, path.absolute_path_buf().as_ref(), fh, flags)
             .await
         {
             if err.is_not_exist() {
@@ -930,11 +943,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         if let Err(err) = self
             .path_filesystem
-            .fsyncdir(req, path.absolute_path().as_ref(), fh, datasync)
+            .fsyncdir(req, path.absolute_path_buf().as_ref(), fh, datasync)
             .await
         {
             if err.is_not_exist() {
@@ -948,6 +961,7 @@ impl<P> Filesystem for InodePathBridge<P>
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[cfg(feature = "file-lock")]
     async fn getlk(
         &self,
@@ -967,7 +981,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         match self
@@ -989,6 +1003,7 @@ impl<P> Filesystem for InodePathBridge<P>
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[cfg(feature = "file-lock")]
     async fn setlk(
         &self,
@@ -1009,7 +1024,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         if let Err(err) = self
@@ -1036,11 +1051,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         if let Err(err) = self
             .path_filesystem
-            .access(req, path.absolute_path().as_ref(), mask)
+            .access(req, path.absolute_path_buf().as_ref(), mask)
             .await
         {
             if err.is_not_exist() {
@@ -1066,11 +1081,11 @@ impl<P> Filesystem for InodePathBridge<P>
         let parent = &inode_path_map
             .inode_paths
             .get(&parent)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         match self
             .path_filesystem
-            .create(req, parent.absolute_path().as_ref(), name, mode, flags)
+            .create(req, parent.absolute_path_buf().as_ref(), name, mode, flags)
             .await
         {
             Err(err) => {
@@ -1096,19 +1111,17 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         match self
             .path_filesystem
-            .bmap(req, path.absolute_path().as_ref(), block_size, idx)
+            .bmap(req, path.absolute_path_buf().as_ref(), block_size, idx)
             .await
         {
             Err(err) => {
                 if err.is_not_exist() {
-                    if err.is_not_exist() {
-                        let path = path.clone();
-                        inode_path_map.remove_path(&path);
-                    }
+                    let path = path.clone();
+                    inode_path_map.remove_path(&path);
                 }
 
                 Err(err)
@@ -1118,6 +1131,7 @@ impl<P> Filesystem for InodePathBridge<P>
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn poll(
         &self,
         req: Request,
@@ -1135,7 +1149,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         match self
@@ -1162,18 +1176,16 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = &inode_path_map
             .inode_paths
             .get(&inode)
-            .ok_or_else(|| Errno::new_not_exist())?[0];
+            .ok_or_else(Errno::new_not_exist)?[0];
 
         if let Err(err) = self
             .path_filesystem
-            .notify_reply(req, path.absolute_path().as_ref(), offset, data)
+            .notify_reply(req, path.absolute_path_buf().as_ref(), offset, data)
             .await
         {
             if err.is_not_exist() {
-                if err.is_not_exist() {
-                    let path = path.clone();
-                    inode_path_map.remove_path(&path);
-                }
+                let path = path.clone();
+                inode_path_map.remove_path(&path);
             }
 
             Err(err)
@@ -1185,12 +1197,12 @@ impl<P> Filesystem for InodePathBridge<P>
     async fn batch_forget(&self, req: Request, inodes: &[u64]) {
         let inode_path_map = self.inode_path_map.lock().await;
         let paths = inodes
-            .into_iter()
+            .iter()
             .filter_map(|inode| {
                 inode_path_map
                     .inode_paths
                     .get(inode)
-                    .map(|paths| paths[0].absolute_path())
+                    .map(|paths| paths[0].absolute_path_buf())
             })
             .collect::<Vec<_>>();
         let paths = paths.iter().map(|path| path.as_ref()).collect::<Vec<_>>();
@@ -1214,7 +1226,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         if let Err(err) = self
@@ -1246,12 +1258,18 @@ impl<P> Filesystem for InodePathBridge<P>
         let parent = &inode_path_map
             .inode_paths
             .get(&parent)
-            .ok_or_else(|| Errno::new_not_exist())?[0]
+            .ok_or_else(Errno::new_not_exist)?[0]
             .clone();
 
         let mut dirs = match self
             .path_filesystem
-            .readdirplus(req, parent.absolute_path().as_ref(), fh, offset, lock_owner)
+            .readdirplus(
+                req,
+                parent.absolute_path_buf().as_ref(),
+                fh,
+                offset,
+                lock_owner,
+            )
             .await
         {
             Err(err) => {
@@ -1271,7 +1289,7 @@ impl<P> Filesystem for InodePathBridge<P>
 
         while let Some(result) = dirs.entries.next().await {
             let entry = result?;
-            let path = Path::new(&parent, &entry.name);
+            let path = AbsolutePath::new(&parent, &entry.name);
 
             let inode = inode_path_map.insert_path(path);
 
@@ -1317,16 +1335,16 @@ impl<P> Filesystem for InodePathBridge<P>
         self.path_filesystem
             .rename2(
                 req,
-                origin_parent_path.absolute_path().as_os_str(),
+                origin_parent_path.absolute_path_buf().as_os_str(),
                 name,
-                new_parent_path.absolute_path().as_os_str(),
+                new_parent_path.absolute_path_buf().as_os_str(),
                 new_name,
                 flags,
             )
             .await?;
 
-        let origin_path = Path::new(origin_parent_path, name);
-        let new_path = Path::new(new_parent_path, new_name);
+        let origin_path = AbsolutePath::new(origin_parent_path, name);
+        let new_path = AbsolutePath::new(new_parent_path, new_name);
 
         match inode_path_map.path_inode.remove(&origin_path) {
             // origin path is not insert into inode_path_map
@@ -1363,7 +1381,7 @@ impl<P> Filesystem for InodePathBridge<P>
             .inode_paths
             .get(&inode)
             .map(|path| path[0].clone());
-        let path_str = path.as_ref().map(|path| path.absolute_path());
+        let path_str = path.as_ref().map(|path| path.absolute_path_buf());
         let path_str = path_str.as_ref().map(|path| path.as_ref());
 
         match self
@@ -1385,6 +1403,7 @@ impl<P> Filesystem for InodePathBridge<P>
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn copy_file_range(
         &self,
         req: Request,
@@ -1402,13 +1421,13 @@ impl<P> Filesystem for InodePathBridge<P>
         let path = inode_path_map
             .inode_paths
             .get(&inode)
-            .map(|path| path[0].absolute_path());
+            .map(|path| path[0].absolute_path_buf());
         let path_str = path.as_ref().map(|path| path.as_ref());
 
         let path_out = inode_path_map
             .inode_paths
             .get(&inode_out)
-            .map(|path| path[0].absolute_path());
+            .map(|path| path[0].absolute_path_buf());
         let path_out_str = path_out.as_ref().map(|path| path.as_ref());
 
         drop(inode_path_map);

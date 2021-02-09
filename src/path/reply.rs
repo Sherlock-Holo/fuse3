@@ -7,13 +7,13 @@ use std::time::{Duration, SystemTime};
 use bytes::Bytes;
 use futures_util::stream::Stream;
 
-use crate::{FileType, Inode};
-pub use crate::reply::{
+#[cfg(feature = "file-lock")]
+pub use crate::raw::reply::ReplyLock;
+pub use crate::raw::reply::{
     ReplyBmap, ReplyCopyFileRange, ReplyCreated, ReplyData, ReplyLSeek, ReplyOpen, ReplyPoll,
     ReplyStatFs, ReplyWrite, ReplyXAttr,
 };
-#[cfg(feature = "file-lock")]
-pub use crate::reply::ReplyLock;
+use crate::{FileType, Inode};
 
 /// file attributes
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,11 +49,9 @@ pub struct FileAttr {
     pub blksize: u32,
 }
 
-impl Into<crate::FileAttr> for (Inode, FileAttr) {
-    fn into(self) -> crate::FileAttr {
-        let (inode, attr) = self;
-
-        crate::FileAttr {
+impl From<(Inode, FileAttr)> for crate::raw::reply::FileAttr {
+    fn from((inode, attr): (u64, FileAttr)) -> Self {
+        crate::raw::reply::FileAttr {
             ino: inode,
             generation: 0,
             size: attr.size,
@@ -109,7 +107,7 @@ pub struct DirectoryEntry {
 
 /// readdir reply.
 pub struct ReplyDirectory {
-    pub entries: Pin<Box<dyn Stream<Item=io::Result<DirectoryEntry>> + Send>>,
+    pub entries: Pin<Box<dyn Stream<Item = io::Result<DirectoryEntry>> + Send>>,
 }
 
 /*#[derive(Debug)]
@@ -139,5 +137,5 @@ pub struct DirectoryEntryPlus {
 
 /// the readdirplus reply.
 pub struct ReplyDirectoryPlus {
-    pub entries: Pin<Box<dyn Stream<Item=io::Result<DirectoryEntryPlus>> + Send>>,
+    pub entries: Pin<Box<dyn Stream<Item = io::Result<DirectoryEntryPlus>> + Send>>,
 }

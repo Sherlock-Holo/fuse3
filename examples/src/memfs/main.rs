@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::io::{self};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
@@ -13,8 +13,8 @@ use futures_util::StreamExt;
 use log::LevelFilter;
 use tokio::sync::RwLock;
 
-use fuse3::prelude::*;
-use fuse3::Session;
+use fuse3::raw::prelude::*;
+use fuse3::{Errno, MountOptions, Result};
 
 const TTL: Duration = Duration::from_secs(1);
 
@@ -192,7 +192,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::Dir(dir) = entry {
             let dir = dir.read().await;
@@ -200,7 +200,7 @@ impl Filesystem for FS {
             let attr = dir
                 .children
                 .get(name)
-                .ok_or(Errno::from(libc::ENOENT))?
+                .ok_or_else(|| Errno::from(libc::ENOENT))?
                 .attr()
                 .await;
 
@@ -231,7 +231,7 @@ impl Filesystem for FS {
                 .await
                 .inode_map
                 .get(&inode)
-                .ok_or(Errno::from(libc::ENOENT))?
+                .ok_or_else(|| Errno::from(libc::ENOENT))?
                 .attr()
                 .await,
         })
@@ -252,7 +252,7 @@ impl Filesystem for FS {
                 .await
                 .inode_map
                 .get(&inode)
-                .ok_or(Errno::from(libc::ENOENT))?
+                .ok_or_else(|| Errno::from(libc::ENOENT))?
                 .set_attr(set_attr)
                 .await,
         })
@@ -271,7 +271,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::Dir(dir) = entry {
             let mut dir = dir.write().await;
@@ -314,7 +314,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::Dir(dir) = entry {
             let mut dir = dir.write().await;
@@ -322,7 +322,7 @@ impl Filesystem for FS {
             if dir
                 .children
                 .get(name)
-                .ok_or(Errno::from(libc::ENOENT))?
+                .ok_or_else(|| Errno::from(libc::ENOENT))?
                 .is_dir()
             {
                 return Err(libc::EISDIR.into());
@@ -346,7 +346,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::Dir(dir) = entry {
             let mut dir = dir.write().await;
@@ -354,7 +354,7 @@ impl Filesystem for FS {
             if dir
                 .children
                 .get(name)
-                .ok_or(Errno::from(libc::ENOENT))?
+                .ok_or_else(|| Errno::from(libc::ENOENT))?
                 .is_file()
             {
                 return Err(libc::ENOTDIR.into());
@@ -385,7 +385,7 @@ impl Filesystem for FS {
         let parent_entry = inner
             .inode_map
             .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::Dir(parent_dir) = parent_entry {
             let mut parent_dir = parent_dir.write().await;
@@ -394,7 +394,7 @@ impl Filesystem for FS {
                 let entry = parent_dir
                     .children
                     .remove(name)
-                    .ok_or(Errno::from(libc::ENOENT))?;
+                    .ok_or_else(|| Errno::from(libc::ENOENT))?;
                 parent_dir.children.insert(new_name.to_os_string(), entry);
 
                 return Ok(());
@@ -403,7 +403,7 @@ impl Filesystem for FS {
             let new_parent_entry = inner
                 .inode_map
                 .get(&new_parent)
-                .ok_or(Errno::from(libc::ENOENT))?;
+                .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
             if let Entry::Dir(new_parent_dir) = new_parent_entry {
                 let mut new_parent_dir = new_parent_dir.write().await;
@@ -411,7 +411,7 @@ impl Filesystem for FS {
                 let entry = parent_dir
                     .children
                     .remove(name)
-                    .ok_or(Errno::from(libc::ENOENT))?;
+                    .ok_or_else(|| Errno::from(libc::ENOENT))?;
                 new_parent_dir
                     .children
                     .insert(new_name.to_os_string(), entry);
@@ -429,7 +429,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&inode)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if matches!(entry, Entry::File(_)) {
             Ok(ReplyOpen { fh: 0, flags: 0 })
@@ -451,7 +451,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&inode)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::File(file) = entry {
             let file = file.read().await;
@@ -488,7 +488,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&inode)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::File(file) = entry {
             let mut file = file.write().await;
@@ -612,7 +612,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::Dir(dir) = entry {
             let mut dir = dir.write().await;
@@ -669,7 +669,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&inode)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::File(file) = entry {
             let mut file = file.write().await;
@@ -703,7 +703,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         if let Entry::Dir(dir) = entry {
             let attr = entry.attr().await;
@@ -737,12 +737,10 @@ impl Filesystem for FS {
             let children = pre_children
                 .chain(
                     stream::iter(dir.children.iter()).filter_map(|(name, entry)| async move {
-                        Some((
-                            entry.inode().await,
-                            entry.kind(),
-                            name.to_os_string(),
-                            entry.attr().await,
-                        ))
+                        let inode = entry.inode().await;
+                        let attr = entry.attr().await;
+
+                        Some((inode, entry.kind(), name.to_os_string(), attr))
                     }),
                 )
                 .enumerate()
@@ -793,7 +791,7 @@ impl Filesystem for FS {
         let entry = inner
             .inode_map
             .get(&inode)
-            .ok_or(Errno::from(libc::ENOENT))?;
+            .ok_or_else(|| Errno::from(libc::ENOENT))?;
 
         let whence = whence as i32;
 

@@ -1,22 +1,22 @@
 use std::ffi::{OsStr, OsString};
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
-use log::{debug, info};
 use log::LevelFilter;
-use mio::{Events, Interest, Token};
+use log::{debug, info};
 use mio::unix::SourceFd;
+use mio::{Events, Interest, Token};
 use tokio::time;
 
-use fuse3::notify::*;
-use fuse3::prelude::*;
-use fuse3::Session;
+use fuse3::notify::NotifyKind;
+use fuse3::raw::prelude::*;
+use fuse3::{MountOptions, Result};
 
 const CONTENT: &str = "hello world\n";
 

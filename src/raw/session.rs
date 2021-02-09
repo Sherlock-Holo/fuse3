@@ -15,10 +15,10 @@ use async_std::fs::read_dir;
 use async_std::task::spawn;
 use bincode::Options;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures_util::{pin_mut, select};
 use futures_util::future::FutureExt;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
+use futures_util::{pin_mut, select};
 use log::{debug, error, warn};
 use nix::mount;
 use nix::mount::MsFlags;
@@ -29,16 +29,16 @@ use tokio::spawn;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio_stream::wrappers::ReadDirStream;
 
-use crate::{Errno, SetAttr};
-use crate::abi::*;
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-use crate::connection::FuseConnection;
-use crate::filesystem::Filesystem;
 use crate::helper::*;
-use crate::MountOptions;
 use crate::notify::Notify;
-use crate::reply::ReplyXAttr;
-use crate::request::Request;
+use crate::raw::abi::*;
+#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+use crate::raw::connection::FuseConnection;
+use crate::raw::filesystem::Filesystem;
+use crate::raw::reply::ReplyXAttr;
+use crate::raw::request::Request;
+use crate::MountOptions;
+use crate::{Errno, SetAttr};
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 /// fuse filesystem session.
@@ -2266,9 +2266,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             entry_data.extend_from_slice(name.as_bytes());
 
                             // padding
-                            for _ in 0..padding_size {
-                                entry_data.push(0);
-                            }
+                            entry_data.resize(entry_data.len() + padding_size, 0);
                         }
 
                         // TODO find a way to avoid multi allocate
@@ -3122,9 +3120,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             entry_data.extend_from_slice(name.as_bytes());
 
                             // padding
-                            for _ in 0..padding_size {
-                                entry_data.push(0);
-                            }
+                            entry_data.resize(entry_data.len() + padding_size, 0);
                         }
 
                         // TODO find a way to avoid multi allocate

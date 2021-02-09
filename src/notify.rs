@@ -8,7 +8,8 @@ use bytes::{Buf, Bytes};
 use futures_channel::mpsc::UnboundedSender;
 use futures_util::sink::SinkExt;
 
-use crate::abi::{
+use crate::helper::get_bincode_config;
+use crate::raw::abi::{
     fuse_notify_code, fuse_notify_delete_out, fuse_notify_inval_entry_out,
     fuse_notify_inval_inode_out, fuse_notify_poll_wakeup_out, fuse_notify_retrieve_out,
     fuse_notify_store_out, fuse_out_header, FUSE_NOTIFY_DELETE_OUT_SIZE,
@@ -16,7 +17,6 @@ use crate::abi::{
     FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE, FUSE_NOTIFY_RETRIEVE_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE,
     FUSE_OUT_HEADER_SIZE,
 };
-use crate::helper::get_bincode_config;
 
 #[derive(Debug, Clone)]
 /// notify kernel there are something need to handle.

@@ -120,7 +120,7 @@ mod tokio_connection {
                 };
 
                 let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
-                    if fds.len() < 1 {
+                    if fds.is_empty() {
                         return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
                     }
 

@@ -99,9 +99,10 @@ impl MountOptions {
 
     /// set fuse filesystem `default_permissions` mount option, default is disable.
     ///
-    /// When `default_permissions` is set, the [`access`] is useless.
+    /// When `default_permissions` is set, the [`raw::access`] and [`path::access`] is useless.
     ///
-    /// [`access`]: crate::Filesystem::access
+    /// [`raw::access`]: crate::raw::Filesystem::access
+    /// [`path::access`]: crate::path::PathFilesystem::access
     pub fn default_permissions(mut self, default_permissions: bool) -> Self {
         self.default_permissions = default_permissions;
 
@@ -168,8 +169,14 @@ impl MountOptions {
     pub(crate) fn build(&mut self, fd: RawFd) -> OsString {
         let mut opts = vec![
             format!("fd={}", fd),
-            format!("user_id={}", self.uid.unwrap_or(unistd::getuid().as_raw())),
-            format!("group_id={}", self.gid.unwrap_or(unistd::getgid().as_raw())),
+            format!(
+                "user_id={}",
+                self.uid.unwrap_or_else(|| unistd::getuid().as_raw())
+            ),
+            format!(
+                "group_id={}",
+                self.gid.unwrap_or_else(|| unistd::getgid().as_raw())
+            ),
             format!("rootmode={}", self.rootmode.unwrap_or(40000)),
         ];
 
@@ -202,8 +209,14 @@ impl MountOptions {
     #[cfg(feature = "unprivileged")]
     pub(crate) fn build_with_unprivileged(&self) -> OsString {
         let mut opts = vec![
-            format!("user_id={}", self.uid.unwrap_or(unistd::getuid().as_raw())),
-            format!("group_id={}", self.gid.unwrap_or(unistd::getgid().as_raw())),
+            format!(
+                "user_id={}",
+                self.uid.unwrap_or_else(|| unistd::getuid().as_raw())
+            ),
+            format!(
+                "group_id={}",
+                self.gid.unwrap_or_else(|| unistd::getgid().as_raw())
+            ),
             format!("rootmode={}", self.rootmode.unwrap_or(40000)),
             format!(
                 "fsname={}",
