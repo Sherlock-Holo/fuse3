@@ -755,6 +755,7 @@ impl Filesystem for FS {
                     attr_ttl: TTL,
                 })
                 .skip(offset as _)
+                .map(Ok)
                 .collect::<Vec<_>>()
                 .await;
 

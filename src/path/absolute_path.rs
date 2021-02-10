@@ -10,7 +10,7 @@ use crate::helper::Apply;
 enum InnerPath {
     Root,
     Child {
-        parent: Arc<InnerPath>,
+        parent: Box<InnerPath>,
         name: Arc<PathBuf>,
     },
 }
@@ -79,11 +79,11 @@ impl AbsolutePath {
     pub fn new(parent: &AbsolutePath, name: &OsStr) -> Self {
         match &parent.0 {
             InnerPath::Root => Self(InnerPath::Child {
-                parent: Arc::new(InnerPath::Root),
+                parent: Box::new(InnerPath::Root),
                 name: Arc::new(PathBuf::from(name.to_owned())),
             }),
-            InnerPath::Child { parent, .. } => Self(InnerPath::Child {
-                parent: parent.clone(),
+            parent @ InnerPath::Child { .. } => Self(InnerPath::Child {
+                parent: Box::new(parent.clone()),
                 name: Arc::new(PathBuf::from(name.to_owned())),
             }),
         }
@@ -98,6 +98,13 @@ impl AbsolutePath {
 
     pub fn absolute_path_buf(&self) -> PathBuf {
         self.0.absolute_path()
+    }
+
+    pub fn parent(&self) -> Option<AbsolutePath> {
+        match &self.0 {
+            InnerPath::Root => None,
+            parent @ InnerPath::Child { .. } => Some(AbsolutePath(parent.clone())),
+        }
     }
 }
 

@@ -13,7 +13,7 @@ use crate::raw::abi::{
 };
 #[cfg(feature = "file-lock")]
 use crate::raw::abi::{fuse_file_lock, fuse_lk_out};
-use crate::FileType;
+use crate::{FileType, Result};
 
 /// file attributes
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -153,6 +153,12 @@ pub struct ReplyData {
     pub data: Bytes,
 }
 
+impl From<Bytes> for ReplyData {
+    fn from(data: Bytes) -> Self {
+        Self { data }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 /// open reply.
 pub struct ReplyOpen {
@@ -254,7 +260,7 @@ pub struct DirectoryEntry {
 
 /// readdir reply.
 pub struct ReplyDirectory {
-    pub entries: Pin<Box<dyn Stream<Item = DirectoryEntry> + Send>>,
+    pub entries: Pin<Box<dyn Stream<Item = Result<DirectoryEntry>> + Send>>,
 }
 
 #[cfg(feature = "file-lock")]
@@ -388,7 +394,7 @@ pub struct DirectoryEntryPlus {
 
 /// the readdirplus reply.
 pub struct ReplyDirectoryPlus {
-    pub entries: Pin<Box<dyn Stream<Item = DirectoryEntryPlus> + Send>>,
+    pub entries: Pin<Box<dyn Stream<Item = Result<DirectoryEntryPlus>> + Send>>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

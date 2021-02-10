@@ -2241,6 +2241,16 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut entry_data = Vec::with_capacity(max_size);
 
                         while let Some(entry) = reply_readdir.entries.next().await {
+                            let entry = match entry {
+                                Err(err) => {
+                                    reply_error_in_place(err, request, resp_sender).await;
+
+                                    return;
+                                }
+
+                                Ok(entry) => entry,
+                            };
+
                             let name = &entry.name;
 
                             let dir_entry_size = FUSE_DIRENT_SIZE + name.len();
@@ -3082,6 +3092,16 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let mut entry_data = Vec::with_capacity(max_size);
 
                         while let Some(entry) = directory_plus.entries.next().await {
+                            let entry = match entry {
+                                Err(err) => {
+                                    reply_error_in_place(err, request, resp_sender).await;
+
+                                    return;
+                                }
+
+                                Ok(entry) => entry,
+                            };
+
                             let name = &entry.name;
 
                             let dir_entry_size = FUSE_DIRENTPLUS_SIZE + name.len();

@@ -19,6 +19,8 @@ use crate::{Inode, Result};
 use super::absolute_path::AbsolutePath;
 use super::path_filesystem::PathFilesystem;
 
+const ROOT_INODE: Inode = 1;
+
 #[derive(Debug, Default)]
 struct InodePathMap {
     inode_paths: BTreeMap<Inode, Vec<AbsolutePath>>,
@@ -870,7 +872,7 @@ where
         offset: i64,
     ) -> Result<ReplyDirectory> {
         let mut inode_path_map = self.inode_path_map.lock().await;
-        let parent = &inode_path_map
+        let parent_path = &inode_path_map
             .inode_paths
             .get(&parent)
             .ok_or_else(Errno::new_not_exist)?[0]
@@ -878,12 +880,12 @@ where
 
         match self
             .path_filesystem
-            .readdir(req, parent.absolute_path_buf().as_ref(), fh, offset)
+            .readdir(req, parent_path.absolute_path_buf().as_ref(), fh, offset)
             .await
         {
             Err(err) => {
                 if err.is_not_exist() {
-                    let parent = parent.clone();
+                    let parent = parent_path.clone();
                     inode_path_map.remove_path(&parent);
                 }
 
@@ -897,15 +899,28 @@ where
                 while let Some(result) = dirs.entries.next().await {
                     let entry = result?;
 
-                    let path = AbsolutePath::new(&parent, &entry.name);
-                    let inode = inode_path_map.insert_path(path);
+                    let inode = if entry.name == OsStr::new(".") {
+                        parent
+                    } else if entry.name == OsStr::new("..") {
+                        match parent_path.parent() {
+                            None => ROOT_INODE,
+                            Some(parent_parent_path) => *inode_path_map
+                                .path_inode
+                                .get(&parent_parent_path)
+                                .expect("parent's parent is not exist"),
+                        }
+                    } else {
+                        let path = AbsolutePath::new(&parent_path, &entry.name);
 
-                    dir_list.push(DirectoryEntry {
+                        inode_path_map.insert_path(path)
+                    };
+
+                    dir_list.push(Ok(DirectoryEntry {
                         inode,
                         index: entry.index,
                         kind: entry.kind,
                         name: entry.name,
-                    });
+                    }));
                 }
 
                 Ok(ReplyDirectory {
@@ -1097,7 +1112,19 @@ where
                 Err(err)
             }
 
-            Ok(created) => Ok(created),
+            Ok(created) => {
+                let path = AbsolutePath::new(parent, name);
+
+                let inode = inode_path_map.insert_path(path);
+
+                Ok(ReplyCreated {
+                    ttl: created.ttl,
+                    attr: (inode, created.attr).into(),
+                    generation: 0,
+                    fh: created.fh,
+                    flags: created.flags,
+                })
+            }
         }
     }
 
@@ -1255,7 +1282,7 @@ where
         lock_owner: u64,
     ) -> Result<ReplyDirectoryPlus> {
         let mut inode_path_map = self.inode_path_map.lock().await;
-        let parent = &inode_path_map
+        let parent_path = &inode_path_map
             .inode_paths
             .get(&parent)
             .ok_or_else(Errno::new_not_exist)?[0]
@@ -1265,7 +1292,7 @@ where
             .path_filesystem
             .readdirplus(
                 req,
-                parent.absolute_path_buf().as_ref(),
+                parent_path.absolute_path_buf().as_ref(),
                 fh,
                 offset,
                 lock_owner,
@@ -1274,7 +1301,7 @@ where
         {
             Err(err) => {
                 if err.is_not_exist() {
-                    let parent = parent.clone();
+                    let parent = parent_path.clone();
                     inode_path_map.remove_path(&parent);
                 }
 
@@ -1289,11 +1316,24 @@ where
 
         while let Some(result) = dirs.entries.next().await {
             let entry = result?;
-            let path = AbsolutePath::new(&parent, &entry.name);
 
-            let inode = inode_path_map.insert_path(path);
+            let inode = if entry.name == OsStr::new(".") {
+                parent
+            } else if entry.name == OsStr::new("..") {
+                match parent_path.parent() {
+                    None => ROOT_INODE,
+                    Some(parent_parent_path) => *inode_path_map
+                        .path_inode
+                        .get(&parent_parent_path)
+                        .expect("parent's parent is not exist"),
+                }
+            } else {
+                let path = AbsolutePath::new(&parent_path, &entry.name);
 
-            dir_list.push(DirectoryEntryPlus {
+                inode_path_map.insert_path(path)
+            };
+
+            dir_list.push(Ok(DirectoryEntryPlus {
                 inode,
                 generation: 0,
                 index: entry.index,
@@ -1302,7 +1342,7 @@ where
                 attr: (inode, entry.attr).into(),
                 entry_ttl: entry.entry_ttl,
                 attr_ttl: entry.attr_ttl,
-            });
+            }));
         }
 
         Ok(ReplyDirectoryPlus {

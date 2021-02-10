@@ -173,24 +173,24 @@ impl Filesystem for HelloWorld {
         }
 
         let entries = vec![
-            DirectoryEntry {
+            Ok(DirectoryEntry {
                 inode: PARENT_INODE,
                 index: 1,
                 kind: FileType::Directory,
                 name: OsString::from("."),
-            },
-            DirectoryEntry {
+            }),
+            Ok(DirectoryEntry {
                 inode: PARENT_INODE,
                 index: 2,
                 kind: FileType::Directory,
                 name: OsString::from(".."),
-            },
-            DirectoryEntry {
+            }),
+            Ok(DirectoryEntry {
                 inode: FILE_INODE,
                 index: 3,
                 kind: FileType::RegularFile,
                 name: OsString::from(FILE_NAME),
-            },
+            }),
         ];
 
         Ok(ReplyDirectory {
@@ -223,7 +223,7 @@ impl Filesystem for HelloWorld {
         }
 
         let entries = vec![
-            DirectoryEntryPlus {
+            Ok(DirectoryEntryPlus {
                 inode: PARENT_INODE,
                 generation: 0,
                 index: 1,
@@ -247,8 +247,8 @@ impl Filesystem for HelloWorld {
                 },
                 entry_ttl: TTL,
                 attr_ttl: TTL,
-            },
-            DirectoryEntryPlus {
+            }),
+            Ok(DirectoryEntryPlus {
                 inode: PARENT_INODE,
                 generation: 0,
                 index: 2,
@@ -272,8 +272,8 @@ impl Filesystem for HelloWorld {
                 },
                 entry_ttl: TTL,
                 attr_ttl: TTL,
-            },
-            DirectoryEntryPlus {
+            }),
+            Ok(DirectoryEntryPlus {
                 inode: FILE_INODE,
                 generation: 0,
                 index: 3,
@@ -297,7 +297,7 @@ impl Filesystem for HelloWorld {
                 },
                 entry_ttl: TTL,
                 attr_ttl: TTL,
-            },
+            }),
         ];
 
         Ok(ReplyDirectoryPlus {

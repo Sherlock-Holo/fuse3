@@ -19,11 +19,15 @@ path = "src/memfs/main.rs"
 name = "poll"
 path = "src/poll/main.rs"
 
+[[bin]]
+name = "path_memfs"
+path = "src/path_memfs/main.rs"
+
 [dependencies]
 fuse3 = { path = "../", features = ["tokio-runtime", "unprivileged"] }
 async-trait = "0.1"
 libc = "0.2"
-tokio = { version = "1.1", features = ["macros", "rt", "time"] }
+tokio = { version = "1.2", features = ["macros", "rt", "time"] }
 pretty_env_logger = "0.4"
 log = "0.4"
 futures-util = "0.3"

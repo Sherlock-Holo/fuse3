@@ -69,6 +69,14 @@ impl Errno {
         Self(libc::EEXIST)
     }
 
+    pub fn new_is_dir() -> Self {
+        Self(libc::EISDIR)
+    }
+
+    pub fn new_is_not_dir() -> Self {
+        Self(libc::ENOTDIR)
+    }
+
     pub fn is_not_exist(&self) -> bool {
         self.0 == libc::ENOENT
     }
