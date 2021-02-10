@@ -37,8 +37,10 @@ use crate::raw::connection::FuseConnection;
 use crate::raw::filesystem::Filesystem;
 use crate::raw::reply::ReplyXAttr;
 use crate::raw::request::Request;
-use crate::MountOptions;
 use crate::{Errno, SetAttr};
+use crate::{Inode, MountOptions};
+
+const ROOT_INODE: Inode = 1;
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 /// fuse filesystem session.
@@ -650,6 +652,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         Ok(forget_in) => forget_in,
                     };
+
+                    if in_header.nodeid == ROOT_INODE {
+                        debug!("forget root inode");
+
+                        fs.forget(request, in_header.nodeid, forget_in.nlookup)
+                            .await;
+
+                        return Ok(());
+                    }
 
                     let fs = fs.clone();
 

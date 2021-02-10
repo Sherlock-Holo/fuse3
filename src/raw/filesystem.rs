@@ -20,7 +20,10 @@ pub trait Filesystem {
     /// initialize filesystem. Called before any other filesystem method.
     async fn init(&self, req: Request) -> Result<()>;
 
-    /// clean up filesystem. Called on filesystem exit.
+    /// clean up filesystem. Called on filesystem exit which is fuseblk, in normal fuse filesystem,
+    /// kernel may call forget for root. There is some discuss for this
+    /// `<https://github.com/bazil/fuse/issues/82#issuecomment-88126886>`,
+    /// `<https://sourceforge.net/p/fuse/mailman/message/31995737/>`
     async fn destroy(&self, req: Request);
 
     /// look up a directory entry by name and get its attributes.
@@ -33,7 +36,10 @@ pub trait Filesystem {
     /// that inodes acquire a single reference on each lookup, and lose nlookup references on each
     /// forget. The filesystem may ignore forget calls, if the inodes don't need to have a limited
     /// lifetime. On unmount it is not guaranteed, that all referenced inodes will receive a forget
-    /// message.
+    /// message. When filesystem is normal(not fuseblk) and unmounting, kernel may send forget
+    /// request for root and this library will stop session after call forget. There is some
+    /// discussion for this `<https://github.com/bazil/fuse/issues/82#issuecomment-88126886>`,
+    /// `<https://sourceforge.net/p/fuse/mailman/message/31995737/>`
     async fn forget(&self, req: Request, inode: Inode, nlookup: u64) {}
 
     /// get file attributes. If `fh` is None, means `fh` is not set.

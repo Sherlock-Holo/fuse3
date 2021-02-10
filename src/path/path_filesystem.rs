@@ -27,7 +27,10 @@ pub trait PathFilesystem {
     /// initialize filesystem. Called before any other filesystem method.
     async fn init(&self, req: Request) -> Result<()>;
 
-    /// clean up filesystem. Called on filesystem exit.
+    /// clean up filesystem. Called on filesystem exit which is fuseblk, in normal fuse filesystem,
+    /// kernel may call forget for root. There is some discuss for this
+    /// `<https://github.com/bazil/fuse/issues/82#issuecomment-88126886>`,
+    /// `<https://sourceforge.net/p/fuse/mailman/message/31995737/>`
     async fn destroy(&self, req: Request);
 
     /// look up a directory entry by name and get its attributes.
@@ -35,12 +38,15 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// forget a path. The nlookup parameter indicates the number of lookups previously
-    /// performed on this path. If the filesystem implements path lifetimes, it is recommended
-    /// that paths acquire a single reference on each lookup, and lose nlookup references on each
-    /// forget. The filesystem may ignore forget calls, if the paths don't need to have a limited
-    /// lifetime. On unmount it is not guaranteed, that all referenced paths will receive a forget
-    /// message.
+    /// forget an inode. The nlookup parameter indicates the number of lookups previously
+    /// performed on this inode. If the filesystem implements inode lifetimes, it is recommended
+    /// that inodes acquire a single reference on each lookup, and lose nlookup references on each
+    /// forget. The filesystem may ignore forget calls, if the inodes don't need to have a limited
+    /// lifetime. On unmount it is not guaranteed, that all referenced inodes will receive a forget
+    /// message. When filesystem is normal(not fuseblk) and unmounting, kernel may send forget
+    /// request for root and this library will stop session after call forget. There is some
+    /// discussion for this `<https://github.com/bazil/fuse/issues/82#issuecomment-88126886>`,
+    /// `<https://sourceforge.net/p/fuse/mailman/message/31995737/>`
     async fn forget(&self, req: Request, parent: &OsStr, nlookup: u64) {}
 
     /// get file attributes. If `fh` is None, means `fh` is not set. If `path` is None, means the path

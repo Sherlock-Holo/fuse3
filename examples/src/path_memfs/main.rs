@@ -505,7 +505,7 @@ impl PathFilesystem for FS {
             Bytes::new()
         };
 
-        debug!("read path {} {} done", path, String::from_utf8_lossy(&data));
+        // debug!("read path {} {} done", path, String::from_utf8_lossy(&data));
 
         Ok(ReplyData { data })
     }
@@ -561,7 +561,7 @@ impl PathFilesystem for FS {
             file.content.put(data);
         }
 
-        debug!("write path {} {} done", path, String::from_utf8_lossy(data));
+        // debug!("write path {} {} done", path, String::from_utf8_lossy(data));
 
         Ok(ReplyWrite {
             written: data.len() as _,
