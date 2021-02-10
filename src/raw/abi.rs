@@ -5,11 +5,11 @@
 //! interface is versioned and capabilities are exchanged during the initialization (mounting)
 //! of a filesystem.
 //!
-//! OSXFUSE (macOS): `<https://github.com/osxfuse/fuse/blob/master/include/fuse_kernel.h>`
+//! [OSXFUSE (macOS)](https://github.com/osxfuse/fuse/blob/master/include/fuse_kernel.h)
 //! - supports ABI 7.8 in OSXFUSE 2.x
 //! - supports ABI 7.19 since OSXFUSE 3.0.0
 //!
-//! libfuse (Linux/BSD): `<https://github.com/libfuse/libfuse/blob/master/include/fuse_kernel.h>`
+//! [libfuse (Linux/BSD)](https://github.com/libfuse/libfuse/blob/master/include/fuse_kernel.h)
 //! - supports ABI 7.8 since FUSE 2.6.0
 //! - supports ABI 7.12 since FUSE 2.8.0
 //! - supports ABI 7.18 since FUSE 2.9.0
@@ -44,7 +44,7 @@ pub const DEFAULT_CONGESTION_THRESHOLD: u16 = DEFAULT_MAX_BACKGROUND * 3 / 4;
 
 pub const DEFAULT_TIME_GRAN: u32 = 1;
 
-pub const DEFAULT_MAX_PAGES: u16 = u16::max_value();
+pub const DEFAULT_MAX_PAGES: u16 = u16::MAX;
 
 // TODO find valid value
 pub const DEFAULT_MAP_ALIGNMENT: u16 = 0;

@@ -11,8 +11,7 @@ use slab::Slab;
 
 use crate::notify::Notify;
 use crate::raw::reply::*;
-use crate::raw::request::Request;
-use crate::raw::Filesystem;
+use crate::raw::{Filesystem, Request};
 use crate::{Errno, SetAttr};
 use crate::{Inode, Result};
 

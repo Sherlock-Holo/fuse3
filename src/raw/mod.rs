@@ -9,7 +9,7 @@ pub(crate) mod abi;
 mod connection;
 mod filesystem;
 pub mod reply;
-pub mod request;
+mod request;
 pub(crate) mod session;
 
 pub mod prelude {

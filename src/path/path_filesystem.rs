@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 
 use crate::notify::Notify;
-use crate::raw::request::Request;
 use crate::{Result, SetAttr};
 
 #[cfg(feature = "file-lock")]
@@ -14,6 +13,7 @@ use super::reply::{
     ReplyDirectoryPlus, ReplyEntry, ReplyLSeek, ReplyOpen, ReplyPoll, ReplyStatFs, ReplyWrite,
     ReplyXAttr,
 };
+use super::Request;
 
 #[allow(unused_variables)]
 #[async_trait]
@@ -29,8 +29,8 @@ pub trait PathFilesystem {
 
     /// clean up filesystem. Called on filesystem exit which is fuseblk, in normal fuse filesystem,
     /// kernel may call forget for root. There is some discuss for this
-    /// `<https://github.com/bazil/fuse/issues/82#issuecomment-88126886>`,
-    /// `<https://sourceforge.net/p/fuse/mailman/message/31995737/>`
+    /// <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
+    /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
     async fn destroy(&self, req: Request);
 
     /// look up a directory entry by name and get its attributes.
@@ -45,8 +45,9 @@ pub trait PathFilesystem {
     /// lifetime. On unmount it is not guaranteed, that all referenced inodes will receive a forget
     /// message. When filesystem is normal(not fuseblk) and unmounting, kernel may send forget
     /// request for root and this library will stop session after call forget. There is some
-    /// discussion for this `<https://github.com/bazil/fuse/issues/82#issuecomment-88126886>`,
-    /// `<https://sourceforge.net/p/fuse/mailman/message/31995737/>`
+    /// discussion for this <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
+    /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
+    /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
     async fn forget(&self, req: Request, parent: &OsStr, nlookup: u64) {}
 
     /// get file attributes. If `fh` is None, means `fh` is not set. If `path` is None, means the path

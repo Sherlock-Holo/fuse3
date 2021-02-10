@@ -43,7 +43,7 @@ use crate::{Inode, MountOptions};
 const ROOT_INODE: Inode = 1;
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-/// fuse filesystem session.
+/// fuse filesystem session, inode based.
 pub struct Session<FS> {
     fuse_connection: Option<Arc<FuseConnection>>,
     filesystem: Option<Arc<FS>>,
@@ -393,18 +393,21 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         reply_flags |= FUSE_DONT_MASK;
                     }
 
+                    #[cfg(not(target_os = "macos"))]
                     if init_in.flags & FUSE_SPLICE_WRITE > 0 {
                         debug!("enable FUSE_SPLICE_WRITE");
 
                         reply_flags |= FUSE_SPLICE_WRITE;
                     }
 
+                    #[cfg(not(target_os = "macos"))]
                     if init_in.flags & FUSE_SPLICE_MOVE > 0 {
                         debug!("enable FUSE_SPLICE_MOVE");
 
                         reply_flags |= FUSE_SPLICE_MOVE;
                     }
 
+                    #[cfg(not(target_os = "macos"))]
                     if init_in.flags & FUSE_SPLICE_READ > 0 {
                         debug!("enable FUSE_SPLICE_READ");
 

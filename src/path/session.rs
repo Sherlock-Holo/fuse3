@@ -8,6 +8,7 @@ use crate::MountOptions;
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 #[derive(Debug)]
+/// fuse filesystem session, path based.
 pub struct Session {
     mount_options: MountOptions,
 }
