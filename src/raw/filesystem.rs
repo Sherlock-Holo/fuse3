@@ -53,7 +53,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// set file attributes.  If `fh` is None, means `fh` is not set.
+    /// set file attributes. If `fh` is None, means `fh` is not set.
     async fn setattr(
         &self,
         req: Request,
@@ -81,9 +81,8 @@ pub trait Filesystem {
     }
 
     /// create file node. Create a regular file, character device, block device, fifo or socket
-    /// node. When creating file, most cases user only need to implement [`create`].
-    ///
-    /// [`create`]: Filesystem::create
+    /// node. When creating file, most cases user only need to implement
+    /// [`create`][Filesystem::create].
     async fn mknod(
         &self,
         req: Request,
@@ -232,11 +231,8 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
+    /// get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
     /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
-    ///
-    /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
-    /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
     async fn getxattr(
         &self,
         req: Request,
@@ -247,11 +243,8 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
-    /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
-    ///
-    /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
-    /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
+    /// list extended attribute names. If size is too small, use [`ReplyXAttr::Size`] to return
+    /// correct size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
     async fn listxattr(&self, req: Request, inode: Inode, size: u32) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS.into())
     }
@@ -271,35 +264,26 @@ pub trait Filesystem {
     ///
     /// the name of the method is misleading, since (unlike fsync) the filesystem is not forced to
     /// flush pending writes. One reason to flush data, is if the filesystem wants to return write
-    /// errors. If the filesystem supports file locking operations ([`setlk`], [`getlk`]) it should
-    /// remove all locks belonging to `lock_owner`.
-    ///
-    /// [`setlk`]: Filesystem::setlk
-    /// [`getlk`]: Filesystem::getlk
+    /// errors. If the filesystem supports file locking operations ([`setlk`][Filesystem::setlk],
+    /// [`getlk`][Filesystem::getlk]) it should remove all locks belonging to `lock_owner`.
     async fn flush(&self, req: Request, inode: Inode, fh: u64, lock_owner: u64) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
 
     /// open a directory. Filesystem may store an arbitrary file handle (pointer, index, etc) in
     /// `fh`, and use this in other all other directory stream operations
-    /// ([`readdir`], [`releasedir`], [`fsyncdir`]). Filesystem may also implement stateless
-    /// directory I/O and not store anything in `fh`, though that makes it impossible to implement
-    /// standard conforming directory stream operations in case the contents of the directory can
-    /// change between `opendir` and [`releasedir`].
-    ///
-    /// [`readdir`]: Filesystem::readdir
-    /// [`releasedir`]: Filesystem::releasedir
-    /// [`fsyncdir`]: Filesystem::fsyncdir
-    /// [`releasedir`]: Filesystem::releasedir
+    /// ([`readdir`][Filesystem::readdir], [`releasedir`][Filesystem::releasedir],
+    /// [`fsyncdir`][Filesystem::fsyncdir]). Filesystem may also implement stateless directory
+    /// I/O and not store anything in `fh`, though that makes it impossible to implement standard
+    /// conforming directory stream operations in case the contents of the directory can change
+    /// between `opendir` and [`releasedir`][Filesystem::releasedir].
     async fn opendir(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
         Ok(ReplyOpen { fh: 0, flags: 0 })
     }
 
     /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
-    /// contain the value set by the [`opendir`] method, or will be undefined if the [`opendir`]
-    /// method didn't set any value.
-    ///
-    /// [`opendir`]: Filesystem::opendir
+    /// contain the value set by the [`opendir`][Filesystem::opendir] method, or will be
+    /// undefined if the [`opendir`][Filesystem::opendir] method didn't set any value.
     async fn readdir(
         &self,
         req: Request,
@@ -310,20 +294,18 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// release an open directory. For every [`opendir`] call there will be exactly one
-    /// `releasedir` call. `fh` will contain the value set by the [`opendir`] method, or will be
-    /// undefined if the [`opendir`] method didn't set any value.
-    ///
-    /// [`opendir`]: Filesystem::opendir
+    /// release an open directory. For every [`opendir`][Filesystem::opendir] call there will
+    /// be exactly one `releasedir` call. `fh` will contain the value set by the
+    /// [`opendir`][Filesystem::opendir] method, or will be undefined if the
+    /// [`opendir`][Filesystem::opendir] method didn't set any value.
     async fn releasedir(&self, req: Request, inode: Inode, fh: u64, flags: u32) -> Result<()> {
         Ok(())
     }
 
     /// synchronize directory contents. If the `datasync` is true, then only the directory contents
-    /// should be flushed, not the metadata. `fh` will contain the value set by the [`opendir`]
-    /// method, or will be undefined if the [`opendir`] method didn't set any value.
-    ///
-    /// [`opendir`]: Filesystem::opendir
+    /// should be flushed, not the metadata. `fh` will contain the value set by the
+    /// [`opendir`][Filesystem::opendir] method, or will be undefined if the
+    /// [`opendir`][Filesystem::opendir] method didn't set any value.
     async fn fsyncdir(&self, req: Request, inode: Inode, fh: u64, datasync: bool) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -377,25 +359,19 @@ pub trait Filesystem {
     /// create and open a file. If the file does not exist, first create it with the specified
     /// mode, and then open it. Open flags (with the exception of `O_NOCTTY`) are available in
     /// flags. Filesystem may store an arbitrary file handle (pointer, index, etc) in `fh`, and use
-    /// this in other all other file operations
-    /// ([`read`], [`write`], [`flush`], [`release`], [`fsync`]). There are also some flags
+    /// this in other all other file operations ([`read`][Filesystem::read],
+    /// [`write`][Filesystem::write], [`flush`][Filesystem::flush],
+    /// [`release`][Filesystem::release], [`fsync`][Filesystem::fsync]). There are also some flags
     /// (`direct_io`, `keep_cache`) which the filesystem may set, to change the way the file is
     /// opened. If this method is not implemented or under Linux kernel versions earlier than
-    /// 2.6.15, the [`mknod`] and [`open`] methods will be called instead.
+    /// 2.6.15, the [`mknod`][Filesystem::mknod] and [`open`][Filesystem::open] methods will be
+    /// called instead.
     ///
     /// # Notes:
     ///
     /// See `fuse_file_info` structure in
     /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
     /// more details.
-    ///
-    /// [`read`]: Filesystem::read
-    /// [`write`]: Filesystem::write
-    /// [`flush`]: Filesystem::flush
-    /// [`release`]: Filesystem::release
-    /// [`fsync`]: Filesystem::fsync
-    /// [`mknod`]: Filesystem::mknod
-    /// [`open`]: Filesystem::open
     async fn create(
         &self,
         req: Request,
@@ -468,9 +444,7 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// forget more than one inode. This is a batch version [`forget`]
-    ///
-    /// [`forget`]: Filesystem::forget
+    /// forget more than one inode. This is a batch version [`forget`][Filesystem::forget]
     async fn batch_forget(&self, req: Request, inodes: &[Inode]) {}
 
     /// allocate space for an open file. This function ensures that required space is allocated for
@@ -478,7 +452,7 @@ pub trait Filesystem {
     ///
     /// # Notes:
     ///
-    /// more infomation about `fallocate`, please see **`man 2 fallocate`**
+    /// more information about `fallocate`, please see **`man 2 fallocate`**
     async fn fallocate(
         &self,
         req: Request,
@@ -491,11 +465,8 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// read directory entries, but with their attribute, like [`readdir`] + [`lookup`] at the same
-    /// time.
-    ///
-    /// [`readdir`]: Filesystem::readdir
-    /// [`lookup`]: Filesystem::lookup
+    /// read directory entries, but with their attribute, like [`readdir`][Filesystem::readdir]
+    /// + [`lookup`][Filesystem::lookup] at the same time.
     async fn readdirplus(
         &self,
         req: Request,

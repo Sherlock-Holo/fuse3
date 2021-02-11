@@ -1,4 +1,10 @@
 //! inode based
+//!
+//! it is not recommend to use this inode based [`Filesystem`] first, you need to handle inode
+//! allocate, recycle and sometimes map to the path, [`PathFilesystem`][crate::path::PathFilesystem]
+//! helps you do those jobs so you can pay more attention to your filesystem design. However if you
+//! want to control the inode or do the path<->inode map on yourself, [`Filesystem`] is the only one
+//! choose.
 
 pub use filesystem::Filesystem;
 pub use request::Request;

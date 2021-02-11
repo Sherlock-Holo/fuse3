@@ -38,11 +38,11 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// forget an inode. The nlookup parameter indicates the number of lookups previously
-    /// performed on this inode. If the filesystem implements inode lifetimes, it is recommended
-    /// that inodes acquire a single reference on each lookup, and lose nlookup references on each
-    /// forget. The filesystem may ignore forget calls, if the inodes don't need to have a limited
-    /// lifetime. On unmount it is not guaranteed, that all referenced inodes will receive a forget
+    /// forget an path. The nlookup parameter indicates the number of lookups previously
+    /// performed on this path. If the filesystem implements path lifetimes, it is recommended
+    /// that paths acquire a single reference on each lookup, and lose nlookup references on each
+    /// forget. The filesystem may ignore forget calls, if the paths don't need to have a limited
+    /// lifetime. On unmount it is not guaranteed, that all referenced paths will receive a forget
     /// message. When filesystem is normal(not fuseblk) and unmounting, kernel may send forget
     /// request for root and this library will stop session after call forget. There is some
     /// discussion for this <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
@@ -50,8 +50,8 @@ pub trait PathFilesystem {
     /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
     async fn forget(&self, req: Request, parent: &OsStr, nlookup: u64) {}
 
-    /// get file attributes. If `fh` is None, means `fh` is not set. If `path` is None, means the path
-    /// may be deleted.
+    /// get file attributes. If `fh` is None, means `fh` is not set. If `path` is None, means the
+    /// path may be deleted.
     async fn getattr(
         &self,
         req: Request,
@@ -62,8 +62,8 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// set file attributes.  If `fh` is None, means `fh` is not set. If `path` is None, means the path
-    /// may be deleted.
+    /// set file attributes. If `fh` is None, means `fh` is not set. If `path` is None, means the
+    /// path may be deleted.
     async fn setattr(
         &self,
         req: Request,
@@ -91,9 +91,8 @@ pub trait PathFilesystem {
     }
 
     /// create file node. Create a regular file, character device, block device, fifo or socket
-    /// node. When creating file, most cases user only need to implement [`create`].
-    ///
-    /// [`create`]: PathFilesystem::create
+    /// node. When creating file, most cases user only need to implement
+    /// [`create`][PathFilesystem::create].
     async fn mknod(
         &self,
         req: Request,
@@ -249,11 +248,8 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
+    /// get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
     /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
-    ///
-    /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
-    /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
     async fn getxattr(
         &self,
         req: Request,
@@ -264,11 +260,8 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// Get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
-    /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
-    ///
-    /// [`ReplyXAttr::Size`]: ReplyXAttr::Size
-    /// [`ReplyXAttr::Data`]: ReplyXAttr::Data
+    /// list extended attribute names. If size is too small, use [`ReplyXAttr::Size`] to return
+    /// correct size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
     async fn listxattr(&self, req: Request, path: &OsStr, size: u32) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS.into())
     }
@@ -282,18 +275,16 @@ pub trait PathFilesystem {
     /// can be duplicated (`dup`, `dup2`, `fork`), for one open call there may be many flush calls.
     /// Filesystems shouldn't assume that flush will always be called after some writes, or that if
     /// will be called at all. `fh` will contain the value set by the open method, or will be
-    /// undefined if the open method didn't set any value. when `path` is None, it means the path may
-    /// be deleted.
+    /// undefined if the open method didn't set any value. when `path` is None, it means the path
+    /// may be deleted.
     ///
     /// # Notes:
     ///
     /// the name of the method is misleading, since (unlike fsync) the filesystem is not forced to
     /// flush pending writes. One reason to flush data, is if the filesystem wants to return write
-    /// errors. If the filesystem supports file locking operations ([`setlk`], [`getlk`]) it should
-    /// remove all locks belonging to `lock_owner`.
-    ///
-    /// [`setlk`]: PathFilesystem::setlk
-    /// [`getlk`]: PathFilesystem::getlk
+    /// errors. If the filesystem supports file locking operations (
+    /// [`setlk`][PathFilesystem::setlk], [`getlk`][PathFilesystem::getlk]) it should remove all
+    /// locks belonging to `lock_owner`.
     async fn flush(
         &self,
         req: Request,
@@ -306,24 +297,18 @@ pub trait PathFilesystem {
 
     /// open a directory. Filesystem may store an arbitrary file handle (pointer, index, etc) in
     /// `fh`, and use this in other all other directory stream operations
-    /// ([`readdir`], [`releasedir`], [`fsyncdir`]). Filesystem may also implement stateless
-    /// directory I/O and not store anything in `fh`, though that makes it impossible to implement
-    /// standard conforming directory stream operations in case the contents of the directory can
-    /// change between `opendir` and [`releasedir`].
-    ///
-    /// [`readdir`]: PathFilesystem::readdir
-    /// [`releasedir`]: PathFilesystem::releasedir
-    /// [`fsyncdir`]: PathFilesystem::fsyncdir
-    /// [`releasedir`]: PathFilesystem::releasedir
+    /// ([`readdir`][PathFilesystem::readdir], [`releasedir`][PathFilesystem::releasedir],
+    /// [`fsyncdir`][PathFilesystem::fsyncdir]). Filesystem may also implement stateless directory
+    /// I/O and not store anything in `fh`, though that makes it impossible to implement standard
+    /// conforming directory stream operations in case the contents of the directory can change
+    /// between `opendir` and [`releasedir`][PathFilesystem::releasedir].
     async fn opendir(&self, req: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
         Ok(ReplyOpen { fh: 0, flags: 0 })
     }
 
     /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
-    /// contain the value set by the [`opendir`] method, or will be undefined if the [`opendir`]
-    /// method didn't set any value.
-    ///
-    /// [`opendir`]: PathFilesystem::opendir
+    /// contain the value set by the [`opendir`][PathFilesystem::opendir] method, or will be
+    /// undefined if the [`opendir`][PathFilesystem::opendir] method didn't set any value.
     async fn readdir(
         &self,
         req: Request,
@@ -334,20 +319,18 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// release an open directory. For every [`opendir`] call there will be exactly one
-    /// `releasedir` call. `fh` will contain the value set by the [`opendir`] method, or will be
-    /// undefined if the [`opendir`] method didn't set any value.
-    ///
-    /// [`opendir`]: PathFilesystem::opendir
+    /// release an open directory. For every [`opendir`][PathFilesystem::opendir] call there will
+    /// be exactly one `releasedir` call. `fh` will contain the value set by the
+    /// [`opendir`][PathFilesystem::opendir] method, or will be undefined if the
+    /// [`opendir`][PathFilesystem::opendir] method didn't set any value.
     async fn releasedir(&self, req: Request, path: &OsStr, fh: u64, flags: u32) -> Result<()> {
         Ok(())
     }
 
     /// synchronize directory contents. If the `datasync` is true, then only the directory contents
-    /// should be flushed, not the metadata. `fh` will contain the value set by the [`opendir`]
-    /// method, or will be undefined if the [`opendir`] method didn't set any value.
-    ///
-    /// [`opendir`]: PathFilesystem::opendir
+    /// should be flushed, not the metadata. `fh` will contain the value set by the
+    /// [`opendir`][PathFilesystem::opendir] method, or will be undefined if the
+    /// [`opendir`][PathFilesystem::opendir] method didn't set any value.
     async fn fsyncdir(&self, req: Request, path: &OsStr, fh: u64, datasync: bool) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -401,25 +384,19 @@ pub trait PathFilesystem {
     /// create and open a file. If the file does not exist, first create it with the specified
     /// mode, and then open it. Open flags (with the exception of `O_NOCTTY`) are available in
     /// flags. Filesystem may store an arbitrary file handle (pointer, index, etc) in `fh`, and use
-    /// this in other all other file operations
-    /// ([`read`], [`write`], [`flush`], [`release`], [`fsync`]). There are also some flags
-    /// (`direct_io`, `keep_cache`) which the filesystem may set, to change the way the file is
-    /// opened. If this method is not implemented or under Linux kernel versions earlier than
-    /// 2.6.15, the [`mknod`] and [`open`] methods will be called instead.
+    /// this in other all other file operations ([`read`][PathFilesystem::read],
+    /// [`write`][PathFilesystem::write], [`flush`][PathFilesystem::flush],
+    /// [`release`][PathFilesystem::release], [`fsync`][PathFilesystem::fsync]). There are also
+    /// some flags (`direct_io`, `keep_cache`) which the filesystem may set, to change the way the
+    /// file is opened. If this method is not implemented or under Linux kernel versions earlier
+    /// than 2.6.15, the [`mknod`][PathFilesystem::mknod] and [`open`][PathFilesystem::open]
+    /// methods will be called instead.
     ///
     /// # Notes:
     ///
     /// See `fuse_file_info` structure in
     /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
     /// more details.
-    ///
-    /// [`read`]: PathFilesystem::read
-    /// [`write`]: PathFilesystem::write
-    /// [`flush`]: PathFilesystem::flush
-    /// [`release`]: PathFilesystem::release
-    /// [`fsync`]: PathFilesystem::fsync
-    /// [`mknod`]: PathFilesystem::mknod
-    /// [`open`]: PathFilesystem::open
     async fn create(
         &self,
         req: Request,
@@ -492,9 +469,7 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// forget more than one path. This is a batch version [`forget`]
-    ///
-    /// [`forget`]: PathFilesystem::forget
+    /// forget more than one path. This is a batch version [`forget`][PathFilesystem::forget]
     async fn batch_forget(&self, req: Request, paths: &[&OsStr]) {}
 
     /// allocate space for an open file. This function ensures that required space is allocated for
@@ -502,7 +477,7 @@ pub trait PathFilesystem {
     ///
     /// # Notes:
     ///
-    /// more infomation about `fallocate`, please see **`man 2 fallocate`**
+    /// more information about `fallocate`, please see **`man 2 fallocate`**
     async fn fallocate(
         &self,
         req: Request,
@@ -515,11 +490,8 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// read directory entries, but with their attribute, like [`readdir`] + [`lookup`] at the same
-    /// time.
-    ///
-    /// [`readdir`]: PathFilesystem::readdir
-    /// [`lookup`]: PathFilesystem::lookup
+    /// read directory entries, but with their attribute, like [`readdir`][PathFilesystem::readdir]
+    /// + [`lookup`][PathFilesystem::lookup] at the same time.
     async fn readdirplus(
         &self,
         req: Request,
@@ -559,8 +531,8 @@ pub trait PathFilesystem {
     /// copy a range of data from one file to another. This can improve performance because it
     /// reduce data copy: in normal, data will copy from FUSE server to kernel, then to user-space,
     /// then to kernel, finally send back to FUSE server. By implement this method, data will only
-    /// copy in FUSE server internal.  when `from_path` or `to_path` is None, it means the path may be
-    /// deleted.
+    /// copy in FUSE server internal.  when `from_path` or `to_path` is None, it means the path may
+    /// be deleted.
     #[allow(clippy::too_many_arguments)]
     async fn copy_file_range(
         &self,
