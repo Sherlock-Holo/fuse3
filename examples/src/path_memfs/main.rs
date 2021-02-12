@@ -330,12 +330,12 @@ impl PathFilesystem for FS {
         }
 
         if let Entry::Dir(dir) = entry {
-            if dir
-                .children
-                .get(name)
-                .ok_or_else(Errno::new_not_exist)?
-                .is_file()
-            {
+            let child_dir = dir.children.get(name).ok_or_else(Errno::new_not_exist)?;
+            if let Entry::Dir(child_dir) = child_dir {
+                if !child_dir.children.is_empty() {
+                    return Err(Errno::from(libc::ENOTEMPTY));
+                }
+            } else {
                 return Err(Errno::new_is_not_dir());
             }
 
