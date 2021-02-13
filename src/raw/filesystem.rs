@@ -18,7 +18,10 @@ use crate::{Inode, Result, SetAttr};
 /// this trait is defined with async_trait, you can use
 /// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
 pub trait Filesystem {
+    /// dir entry stream given by [`readdir`][Filesystem::readdir].
     type DirEntryStream: Stream<Item = Result<DirectoryEntry>> + Send;
+
+    /// dir entry plus stream given by [`readdirplus`][Filesystem::readdirplus].
     type DirEntryPlusStream: Stream<Item = Result<DirectoryEntryPlus>> + Send;
 
     /// initialize filesystem. Called before any other filesystem method.
