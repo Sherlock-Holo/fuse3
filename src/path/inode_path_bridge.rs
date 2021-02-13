@@ -2,12 +2,15 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fmt::{self, Debug, Formatter};
 
+#[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures_util::lock::Mutex;
 use futures_util::stream;
 use futures_util::StreamExt;
 use slab::Slab;
+#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+use tokio::sync::Mutex;
 
 use crate::notify::Notify;
 use crate::raw::reply::*;
