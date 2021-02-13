@@ -1,13 +1,16 @@
 use std::ffi::{OsStr, OsString};
+use std::iter::Skip;
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use std::vec::IntoIter;
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
+use futures_util::stream::Iter;
 use log::LevelFilter;
 use log::{debug, info};
 use mio::unix::SourceFd;
@@ -33,6 +36,9 @@ struct Poll {
 
 #[async_trait]
 impl Filesystem for Poll {
+    type DirEntryStream = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>;
+    type DirEntryPlusStream = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>;
+
     async fn init(&self, _req: Request) -> Result<()> {
         Ok(())
     }
@@ -163,7 +169,7 @@ impl Filesystem for Poll {
         inode: u64,
         _fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
         if inode == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }
@@ -194,7 +200,7 @@ impl Filesystem for Poll {
         ];
 
         Ok(ReplyDirectory {
-            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
+            entries: stream::iter(entries.into_iter().skip(offset as usize)),
         })
     }
 
@@ -213,7 +219,7 @@ impl Filesystem for Poll {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
         if parent == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }
@@ -301,7 +307,7 @@ impl Filesystem for Poll {
         ];
 
         Ok(ReplyDirectoryPlus {
-            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
+            entries: stream::iter(entries.into_iter().skip(offset as usize)),
         })
     }
 
@@ -325,13 +331,10 @@ impl Filesystem for Poll {
             let ready = self.ready.clone();
 
             if ready.load(Ordering::SeqCst) {
-                return Ok(ReplyPoll {
-                    revents: events,
-                    /*& libc::POLLIN as u32*/
-                });
+                return Ok(ReplyPoll { revents: events });
             }
 
-            let mut notify = notify.clone();
+            let notify = notify.clone();
 
             tokio::spawn(async move {
                 debug!("start notify");

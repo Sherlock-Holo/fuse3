@@ -5,10 +5,12 @@ use std::io::{self};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use std::vec::IntoIter;
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
+use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
 use log::LevelFilter;
 use tokio::sync::RwLock;
@@ -155,9 +157,9 @@ struct InnerFs {
 }
 
 #[derive(Debug)]
-struct FS(RwLock<InnerFs>);
+struct Fs(RwLock<InnerFs>);
 
-impl Default for FS {
+impl Default for Fs {
     fn default() -> Self {
         let root = Entry::Dir(Arc::new(RwLock::new(Dir {
             inode: 1,
@@ -179,7 +181,10 @@ impl Default for FS {
 }
 
 #[async_trait]
-impl Filesystem for FS {
+impl Filesystem for Fs {
+    type DirEntryStream = Empty<Result<DirectoryEntry>>;
+    type DirEntryPlusStream = Iter<IntoIter<Result<DirectoryEntryPlus>>>;
+
     async fn init(&self, _req: Request) -> Result<()> {
         Ok(())
     }
@@ -546,56 +551,6 @@ impl Filesystem for FS {
         Ok(())
     }
 
-    /*async fn readdir(
-        &self,
-        _req: Request,
-        parent: u64,
-        _fh: u64,
-        offset: i64,
-    ) -> Result<ReplyDirectory> {
-        let inner = self.0.read().await;
-
-        let entry = inner
-            .inode_map
-            .get(&parent)
-            .ok_or(Errno::from(libc::ENOENT))?;
-
-        if let Entry::Dir(dir) = entry {
-            let dir = dir.read().await;
-
-            let pre_children = stream::iter(
-                vec![
-                    (dir.inode, FileType::Directory, OsString::from(".")),
-                    (dir.parent, FileType::Directory, OsString::from("..")),
-                ]
-                .into_iter(),
-            );
-
-            let children = pre_children
-                .chain(
-                    stream::iter(dir.children.iter()).filter_map(|(name, entry)| async move {
-                        Some((entry.inode().await, entry.kind(), name.to_os_string()))
-                    }),
-                )
-                .enumerate()
-                .map(|(index, (inode, kind, name))| DirectoryEntry {
-                    inode,
-                    index: index as u64 + 1,
-                    kind,
-                    name,
-                })
-                .skip(offset as _)
-                .collect::<Vec<_>>()
-                .await;
-
-            Ok(ReplyDirectory {
-                entries: Box::pin(stream::iter(children)),
-            })
-        } else {
-            Err(libc::ENOTDIR.into())
-        }
-    }*/
-
     async fn access(&self, _req: Request, _inode: u64, _mask: u32) -> Result<()> {
         Ok(())
     }
@@ -698,7 +653,7 @@ impl Filesystem for FS {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
         let inner = self.0.read().await;
 
         let entry = inner
@@ -761,7 +716,7 @@ impl Filesystem for FS {
                 .await;
 
             Ok(ReplyDirectoryPlus {
-                entries: Box::pin(stream::iter(children)),
+                entries: stream::iter(children),
             })
         } else {
             Err(libc::ENOTDIR.into())
@@ -867,7 +822,7 @@ async fn main() {
 
     let mount_path = mount_path.expect("no mount point specified");
     Session::new(mount_options)
-        .mount_with_unprivileged(FS::default(), mount_path)
+        .mount_with_unprivileged(Fs::default(), mount_path)
         .await
         .unwrap();
 }

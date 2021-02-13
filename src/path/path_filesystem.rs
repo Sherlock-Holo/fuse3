@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures_util::stream::Stream;
 
 use crate::notify::Notify;
 use crate::{Result, SetAttr};
@@ -9,9 +10,9 @@ use crate::{Result, SetAttr};
 #[cfg(feature = "file-lock")]
 use super::reply::ReplyLock;
 use super::reply::{
-    ReplyAttr, ReplyBmap, ReplyCopyFileRange, ReplyCreated, ReplyData, ReplyDirectory,
-    ReplyDirectoryPlus, ReplyEntry, ReplyLSeek, ReplyOpen, ReplyPoll, ReplyStatFs, ReplyWrite,
-    ReplyXAttr,
+    DirectoryEntry, DirectoryEntryPlus, ReplyAttr, ReplyBmap, ReplyCopyFileRange, ReplyCreated,
+    ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEntry, ReplyLSeek, ReplyOpen, ReplyPoll,
+    ReplyStatFs, ReplyWrite, ReplyXAttr,
 };
 use super::Request;
 
@@ -24,6 +25,9 @@ use super::Request;
 /// this trait is defined with async_trait, you can use
 /// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
 pub trait PathFilesystem {
+    type DirEntryStream: Stream<Item = Result<DirectoryEntry>> + Send;
+    type DirEntryPlusStream: Stream<Item = Result<DirectoryEntryPlus>> + Send;
+
     /// initialize filesystem. Called before any other filesystem method.
     async fn init(&self, req: Request) -> Result<()>;
 
@@ -315,7 +319,7 @@ pub trait PathFilesystem {
         path: &OsStr,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
         Err(libc::ENOSYS.into())
     }
 
@@ -499,7 +503,7 @@ pub trait PathFilesystem {
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
         Err(libc::ENOSYS.into())
     }
 

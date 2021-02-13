@@ -1,10 +1,13 @@
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::iter::Skip;
 use std::time::{Duration, SystemTime};
+use std::vec::IntoIter;
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
+use futures_util::stream::Iter;
 use log::LevelFilter;
 
 use fuse3::raw::prelude::*;
@@ -33,6 +36,9 @@ struct HelloWorld;
 
 #[async_trait]
 impl Filesystem for HelloWorld {
+    type DirEntryStream = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>;
+    type DirEntryPlusStream = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>;
+
     async fn init(&self, _req: Request) -> Result<()> {
         Ok(())
     }
@@ -163,7 +169,7 @@ impl Filesystem for HelloWorld {
         inode: u64,
         _fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
         if inode == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }
@@ -194,7 +200,7 @@ impl Filesystem for HelloWorld {
         ];
 
         Ok(ReplyDirectory {
-            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
+            entries: stream::iter(entries.into_iter().skip(offset as usize)),
         })
     }
 
@@ -213,7 +219,7 @@ impl Filesystem for HelloWorld {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
         if parent == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }
@@ -301,7 +307,7 @@ impl Filesystem for HelloWorld {
         ];
 
         Ok(ReplyDirectoryPlus {
-            entries: Box::pin(stream::iter(entries.into_iter().skip(offset as usize))),
+            entries: stream::iter(entries.into_iter().skip(offset as usize)),
         })
     }
 

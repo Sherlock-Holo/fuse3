@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fmt::{self, Debug, Formatter};
+use std::vec::IntoIter;
 
 #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
 use async_std::sync::Mutex;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures_util::stream;
-use futures_util::StreamExt;
+use futures_util::stream::{self, Iter, Stream, StreamExt};
 use slab::Slab;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::sync::Mutex;
@@ -128,6 +128,9 @@ impl<FS> Filesystem for InodePathBridge<FS>
 where
     FS: PathFilesystem + Send + Sync,
 {
+    type DirEntryStream = Iter<IntoIter<Result<DirectoryEntry>>>;
+    type DirEntryPlusStream = Iter<IntoIter<Result<DirectoryEntryPlus>>>;
+
     async fn init(&self, req: Request) -> Result<()> {
         self.path_filesystem.init(req).await
     }
@@ -872,7 +875,7 @@ where
         parent: u64,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
         let mut inode_path_map = self.inode_path_map.lock().await;
         let parent_path = &inode_path_map
             .inode_paths
@@ -894,11 +897,14 @@ where
                 Err(err)
             }
 
-            Ok(mut dirs) => {
-                let dirs_size = dirs.entries.size_hint().1.unwrap_or(0);
+            Ok(dirs) => {
+                let entries = dirs.entries;
+                futures_util::pin_mut!(entries);
+
+                let dirs_size = entries.size_hint().1.unwrap_or(0);
                 let mut dir_list = Vec::with_capacity(dirs_size);
 
-                while let Some(result) = dirs.entries.next().await {
+                while let Some(result) = entries.next().await {
                     let entry = result?;
 
                     let inode = if entry.name == OsStr::new(".") {
@@ -926,7 +932,7 @@ where
                 }
 
                 Ok(ReplyDirectory {
-                    entries: Box::pin(stream::iter(dir_list)),
+                    entries: stream::iter(dir_list),
                 })
             }
         }
@@ -1282,7 +1288,7 @@ where
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
         let mut inode_path_map = self.inode_path_map.lock().await;
         let parent_path = &inode_path_map
             .inode_paths
@@ -1290,7 +1296,7 @@ where
             .ok_or_else(Errno::new_not_exist)?[0]
             .clone();
 
-        let mut dirs = match self
+        let dirs = match self
             .path_filesystem
             .readdirplus(
                 req,
@@ -1313,10 +1319,13 @@ where
             Ok(dirs) => dirs,
         };
 
-        let dirs_size = dirs.entries.size_hint().1.unwrap_or(0);
+        let entries = dirs.entries;
+        futures_util::pin_mut!(entries);
+
+        let dirs_size = entries.size_hint().1.unwrap_or(0);
         let mut dir_list = Vec::with_capacity(dirs_size);
 
-        while let Some(result) = dirs.entries.next().await {
+        while let Some(result) = entries.next().await {
             let entry = result?;
 
             let inode = if entry.name == OsStr::new(".") {
@@ -1348,7 +1357,7 @@ where
         }
 
         Ok(ReplyDirectoryPlus {
-            entries: Box::pin(stream::iter(dir_list)),
+            entries: stream::iter(dir_list),
         })
     }
 

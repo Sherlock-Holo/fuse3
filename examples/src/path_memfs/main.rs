@@ -4,9 +4,11 @@ use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::os::raw::c_int;
 use std::time::{Duration, SystemTime};
+use std::vec::IntoIter;
 
 use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
+use futures_util::stream::{Empty, Iter};
 use futures_util::{stream, StreamExt};
 use log::{debug, LevelFilter};
 use tokio::sync::RwLock;
@@ -117,9 +119,9 @@ struct InnerFs {
 }
 
 #[derive(Debug)]
-struct FS(RwLock<InnerFs>);
+struct Fs(RwLock<InnerFs>);
 
-impl FS {
+impl Fs {
     pub fn new() -> Self {
         Self(RwLock::new(InnerFs {
             root: Entry::Dir(Dir {
@@ -131,14 +133,17 @@ impl FS {
     }
 }
 
-impl Default for FS {
+impl Default for Fs {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl PathFilesystem for FS {
+impl PathFilesystem for Fs {
+    type DirEntryStream = Empty<Result<DirectoryEntry>>;
+    type DirEntryPlusStream = Iter<IntoIter<Result<DirectoryEntryPlus>>>;
+
     async fn init(&self, _req: Request) -> Result<()> {
         Ok(())
     }
@@ -720,7 +725,7 @@ impl PathFilesystem for FS {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
         let path = parent.to_string_lossy();
         let paths = split_path(&path);
 
@@ -771,7 +776,7 @@ impl PathFilesystem for FS {
                 .await;
 
             Ok(ReplyDirectoryPlus {
-                entries: Box::pin(stream::iter(children)),
+                entries: stream::iter(children),
             })
         } else {
             Err(Errno::new_is_not_dir())
@@ -897,7 +902,7 @@ async fn main() {
 
     let mount_path = mount_path.expect("no mount point specified");
     Session::new(mount_options)
-        .mount_with_unprivileged(FS::default(), mount_path)
+        .mount_with_unprivileged(Fs::default(), mount_path)
         .await
         .unwrap();
 }

@@ -2373,7 +2373,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid, read_in.fh, read_in.offset
                         );
 
-                        let mut reply_readdir = match fs
+                        let reply_readdir = match fs
                             .readdir(request, in_header.nodeid, read_in.fh, read_in.offset as i64)
                             .await
                         {
@@ -2390,7 +2390,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut entry_data = Vec::with_capacity(max_size);
 
-                        while let Some(entry) = reply_readdir.entries.next().await {
+                        let entries = reply_readdir.entries;
+                        pin_mut!(entries);
+
+                        while let Some(entry) = entries.next().await {
                             let entry = match entry {
                                 Err(err) => {
                                     reply_error_in_place(err, request, resp_sender).await;
@@ -3267,7 +3270,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                             request.unique, in_header.nodeid, readdirplus_in
                         );
 
-                        let mut directory_plus = match fs
+                        let directory_plus = match fs
                             .readdirplus(
                                 request,
                                 in_header.nodeid,
@@ -3290,7 +3293,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                         let mut entry_data = Vec::with_capacity(max_size);
 
-                        while let Some(entry) = directory_plus.entries.next().await {
+                        let entries = directory_plus.entries;
+                        pin_mut!(entries);
+
+                        while let Some(entry) = entries.next().await {
                             let entry = match entry {
                                 Err(err) => {
                                     reply_error_in_place(err, request, resp_sender).await;

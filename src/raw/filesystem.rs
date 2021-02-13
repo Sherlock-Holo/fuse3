@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures_util::stream::Stream;
 
 use crate::notify::Notify;
 use crate::raw::reply::*;
@@ -17,6 +18,9 @@ use crate::{Inode, Result, SetAttr};
 /// this trait is defined with async_trait, you can use
 /// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
 pub trait Filesystem {
+    type DirEntryStream: Stream<Item = Result<DirectoryEntry>> + Send;
+    type DirEntryPlusStream: Stream<Item = Result<DirectoryEntryPlus>> + Send;
+
     /// initialize filesystem. Called before any other filesystem method.
     async fn init(&self, req: Request) -> Result<()>;
 
@@ -290,7 +294,7 @@ pub trait Filesystem {
         parent: Inode,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
         Err(libc::ENOSYS.into())
     }
 
@@ -474,7 +478,7 @@ pub trait Filesystem {
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
         Err(libc::ENOSYS.into())
     }
 

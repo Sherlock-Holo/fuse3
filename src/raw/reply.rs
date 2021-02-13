@@ -1,6 +1,5 @@
 //! reply structures.
 use std::ffi::OsString;
-use std::pin::Pin;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
@@ -259,8 +258,8 @@ pub struct DirectoryEntry {
 }
 
 /// readdir reply.
-pub struct ReplyDirectory {
-    pub entries: Pin<Box<dyn Stream<Item = Result<DirectoryEntry>> + Send>>,
+pub struct ReplyDirectory<S: Stream<Item = Result<DirectoryEntry>>> {
+    pub entries: S,
 }
 
 #[cfg(feature = "file-lock")]
@@ -393,8 +392,8 @@ pub struct DirectoryEntryPlus {
 }
 
 /// the readdirplus reply.
-pub struct ReplyDirectoryPlus {
-    pub entries: Pin<Box<dyn Stream<Item = Result<DirectoryEntryPlus>> + Send>>,
+pub struct ReplyDirectoryPlus<S: Stream<Item = Result<DirectoryEntryPlus>>> {
+    pub entries: S,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
