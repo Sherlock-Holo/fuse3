@@ -14,7 +14,6 @@ use mio::unix::SourceFd;
 use mio::{Events, Interest, Token};
 use tokio::time;
 
-use fuse3::notify::NotifyKind;
 use fuse3::raw::prelude::*;
 use fuse3::{MountOptions, Result};
 
@@ -341,7 +340,7 @@ impl Filesystem for Poll {
 
                 ready.store(true, Ordering::SeqCst);
 
-                notify.notify(NotifyKind::Wakeup { kh }).await.unwrap();
+                notify.wakeup(kh).await;
 
                 debug!("notify done");
             });

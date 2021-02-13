@@ -351,13 +351,14 @@ impl Filesystem for FS {
         if let Entry::Dir(dir) = entry {
             let mut dir = dir.write().await;
 
-            if dir
-                .children
-                .get(name)
-                .ok_or_else(|| Errno::from(libc::ENOENT))?
-                .is_file()
+            if let Entry::Dir(child_dir) =
+                dir.children.get(name).ok_or_else(Errno::new_not_exist)?
             {
-                return Err(libc::ENOTDIR.into());
+                if !child_dir.read().await.children.is_empty() {
+                    return Err(Errno::from(libc::ENOTEMPTY));
+                }
+            } else {
+                return Err(Errno::new_is_not_dir());
             }
 
             let inode = dir.children.remove(name).unwrap().inode().await;
@@ -480,7 +481,7 @@ impl Filesystem for FS {
         inode: u64,
         _fh: u64,
         offset: u64,
-        data: &[u8],
+        mut data: &[u8],
         _flags: u32,
     ) -> Result<ReplyWrite> {
         let inner = self.0.read().await;
@@ -497,7 +498,7 @@ impl Filesystem for FS {
                 let mut content = &mut file.content[offset as _..];
 
                 if content.len() > data.len() {
-                    io::copy(&mut (&data[..]), &mut content).unwrap();
+                    io::copy(&mut data, &mut content).unwrap();
 
                     return Ok(ReplyWrite {
                         written: data.len() as _,

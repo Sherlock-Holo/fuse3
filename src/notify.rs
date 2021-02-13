@@ -31,7 +31,7 @@ impl Notify {
 
     /// notify kernel there are something need to handle. If notify failed, the `kind` will be
     /// return in `Err`.
-    pub async fn notify(&mut self, kind: NotifyKind) -> std::result::Result<(), NotifyKind> {
+    async fn notify(&mut self, kind: NotifyKind) -> std::result::Result<(), NotifyKind> {
         let data = match &kind {
             NotifyKind::Wakeup { kh } => {
                 let out_header = fuse_out_header {
@@ -219,24 +219,24 @@ impl Notify {
         self.sender.send(data).await.or(Err(kind))
     }
 
-    /// notify kernel the IO is ready, kernel can wakeup the waiting program.
+    /// try to notify kernel the IO is ready, kernel can wakeup the waiting program.
     pub async fn wakeup(mut self, kh: u64) {
         let _ = self.notify(NotifyKind::Wakeup { kh }).await;
     }
 
-    /// notify the cache invalidation about an inode.
+    /// try to notify the cache invalidation about an inode.
     pub async fn invalid_inode(mut self, inode: u64, offset: i64, len: i64) {
         let _ = self
             .notify(NotifyKind::InvalidInode { inode, offset, len })
             .await;
     }
 
-    /// notify the invalidation about a directory entry.
+    /// try to notify the invalidation about a directory entry.
     pub async fn invalid_entry(mut self, parent: u64, name: OsString) {
         let _ = self.notify(NotifyKind::InvalidEntry { parent, name }).await;
     }
 
-    /// notify a directory entry has been deleted.
+    /// try to notify a directory entry has been deleted.
     pub async fn delete(mut self, parent: u64, child: u64, name: OsString) {
         let _ = self
             .notify(NotifyKind::Delete {
@@ -247,7 +247,7 @@ impl Notify {
             .await;
     }
 
-    /// push the data in an inode for updating the kernel cache.
+    /// try to push the data in an inode for updating the kernel cache.
     pub async fn store(mut self, inode: u64, offset: u64, mut data: impl Buf) {
         let _ = self
             .notify(NotifyKind::Store {
@@ -258,7 +258,7 @@ impl Notify {
             .await;
     }
 
-    /// retrieve data in an inode from the kernel cache.
+    /// try to retrieve data in an inode from the kernel cache.
     pub async fn retrieve(mut self, notify_unique: u64, inode: u64, offset: u64, size: u32) {
         let _ = self
             .notify(NotifyKind::Retrieve {
@@ -273,7 +273,7 @@ impl Notify {
 
 #[derive(Debug)]
 /// the kind of notify.
-pub enum NotifyKind {
+enum NotifyKind {
     /// notify the IO is ready.
     Wakeup { kh: u64 },
 
