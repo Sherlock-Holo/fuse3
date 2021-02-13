@@ -298,7 +298,7 @@ pub struct fuse_file_lock {
 pub struct UnknownOpcodeError(pub u32);
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 pub enum fuse_opcode {
     FUSE_LOOKUP = 1,
     // no reply
@@ -448,7 +448,7 @@ impl Display for InvalidNotifyCodeError {
 impl Error for InvalidNotifyCodeError {}
 
 #[derive(Debug)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 pub enum fuse_notify_code {
     /// notify kernel that a poll waiting for IO on a file handle should wake up.
     FUSE_POLL = 1,

@@ -1,7 +1,7 @@
 //! FUSE user-space library async version implementation.
 //!
-//! This is an improved rewrite of the FUSE user-space library (low-level interface) to fully take
-//! advantage of Rust's architecture.
+//! This is an improved rewrite of the FUSE user-space library to fully take advantage of Rust's
+//! architecture.
 //!
 //! This library doesn't depend on `libfuse`, unless enable `unprivileged` feature, this feature
 //! will support mount the filesystem without root permission by using `fusermount3` binary.
@@ -19,9 +19,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// re-export [`async_trait`].
-///
-/// [`async_trait`]: async_trait::async_trait
+/// re-export [`async_trait`][async_trait::async_trait].
 pub use async_trait::async_trait;
 use nix::sys::stat::mode_t;
 
@@ -44,8 +42,6 @@ pub mod raw;
 pub type Inode = u64;
 
 /// pre-defined Result, the Err type is [`Errno`].
-///
-/// [`Errno`]: Errno
 pub type Result<T> = std::result::Result<T, Errno>;
 
 /// File types
