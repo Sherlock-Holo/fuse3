@@ -925,7 +925,6 @@ where
 
                     dir_list.push(Ok(DirectoryEntry {
                         inode,
-                        index: entry.index,
                         kind: entry.kind,
                         name: entry.name,
                     }));
@@ -1347,7 +1346,6 @@ where
             dir_list.push(Ok(DirectoryEntryPlus {
                 inode,
                 generation: 0,
-                index: entry.index,
                 kind: entry.kind,
                 name: entry.name,
                 attr: (inode, entry.attr).into(),

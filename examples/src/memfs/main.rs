@@ -699,11 +699,9 @@ impl Filesystem for Fs {
                         Some((inode, entry.kind(), name.to_os_string(), attr))
                     }),
                 )
-                .enumerate()
-                .map(|(index, (inode, kind, name, attr))| DirectoryEntryPlus {
+                .map(|(inode, kind, name, attr)| DirectoryEntryPlus {
                     inode,
                     generation: 0,
-                    index: index as u64 + 1,
                     kind,
                     name,
                     attr,

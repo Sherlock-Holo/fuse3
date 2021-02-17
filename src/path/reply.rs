@@ -103,8 +103,6 @@ pub struct ReplyCreated {
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// directory entry.
 pub struct DirectoryEntry {
-    /// index is point to next entry, for example, if entry is the first one, the index should be 1
-    pub index: u64,
     /// entry kind.
     pub kind: FileType,
     /// entry name.
@@ -127,8 +125,6 @@ pub struct ReplyIoctl {
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// directory entry with attribute
 pub struct DirectoryEntryPlus {
-    /// index is point to next entry, for example, if entry is the first one, the index should be 1
-    pub index: u64,
     /// the entry kind.
     pub kind: FileType,
     /// the entry name.

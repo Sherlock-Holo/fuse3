@@ -761,9 +761,7 @@ impl PathFilesystem for Fs {
 
                     (kind, name, attr)
                 }))
-                .enumerate()
-                .map(|(index, (kind, name, attr))| DirectoryEntryPlus {
-                    index: index as u64 + 1,
+                .map(|(kind, name, attr)| DirectoryEntryPlus {
                     kind,
                     name,
                     attr,

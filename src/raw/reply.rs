@@ -249,8 +249,6 @@ pub enum ReplyXAttr {
 pub struct DirectoryEntry {
     /// entry inode.
     pub inode: u64,
-    /// index is point to next entry, for example, if entry is the first one, the index should be 1
-    pub index: u64,
     /// entry kind.
     pub kind: FileType,
     /// entry name.
@@ -377,8 +375,6 @@ pub struct DirectoryEntryPlus {
     pub inode: u64,
     /// the entry generation.
     pub generation: u64,
-    /// index is point to next entry, for example, if entry is the first one, the index should be 1
-    pub index: u64,
     /// the entry kind.
     pub kind: FileType,
     /// the entry name.

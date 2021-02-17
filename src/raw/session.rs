@@ -2393,6 +2393,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let entries = reply_readdir.entries;
                         pin_mut!(entries);
 
+                        let mut entry_index = read_in.offset;
                         while let Some(entry) = entries.next().await {
                             let entry = match entry {
                                 Err(err) => {
@@ -2403,6 +2404,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                                 Ok(entry) => entry,
                             };
+
+                            entry_index += 1;
 
                             let name = &entry.name;
 
@@ -2416,7 +2419,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                             let dir_entry = fuse_dirent {
                                 ino: entry.inode,
-                                off: entry.index,
+                                off: entry_index,
                                 namelen: name.len() as u32,
                                 // learn from fuse-rs and golang bazil.org fuse DirentType
                                 r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
@@ -3296,6 +3299,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         let entries = directory_plus.entries;
                         pin_mut!(entries);
 
+                        let mut entry_index = readdirplus_in.offset;
                         while let Some(entry) = entries.next().await {
                             let entry = match entry {
                                 Err(err) => {
@@ -3306,6 +3310,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                                 Ok(entry) => entry,
                             };
+
+                            entry_index += 1;
 
                             let name = &entry.name;
 
@@ -3331,7 +3337,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                                 },
                                 dirent: fuse_dirent {
                                     ino: entry.inode,
-                                    off: entry.index,
+                                    off: entry_index,
                                     namelen: name.len() as u32,
                                     // learn from fuse-rs and golang bazil.org fuse DirentType
                                     r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
