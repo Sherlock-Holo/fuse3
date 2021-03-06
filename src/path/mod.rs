@@ -9,7 +9,7 @@ pub use session::Session;
 
 pub use crate::raw::Request;
 
-mod absolute_path;
+mod inode_generator;
 mod inode_path_bridge;
 mod path_filesystem;
 pub mod reply;
