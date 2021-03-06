@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
 use futures_util::stream::Iter;
-use log::LevelFilter;
+use tracing::Level;
 
 use fuse3::raw::prelude::*;
 use fuse3::{MountOptions, Result};
@@ -331,7 +331,8 @@ async fn main() {
 }
 
 fn log_init() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Debug)
-        .init();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }

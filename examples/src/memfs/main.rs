@@ -12,8 +12,8 @@ use bytes::Bytes;
 use futures_util::stream;
 use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
-use log::LevelFilter;
 use tokio::sync::RwLock;
+use tracing::Level;
 
 use fuse3::raw::prelude::*;
 use fuse3::{Errno, MountOptions, Result};
@@ -796,9 +796,10 @@ impl Filesystem for Fs {
 }
 
 fn log_init() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Debug)
-        .init();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
 #[tokio::main(flavor = "current_thread")]

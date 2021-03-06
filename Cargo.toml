@@ -1,6 +1,6 @@
 [package]
 name = "fuse3"
-version = "0.2.0-beta.3"
+version = "0.2.0-beta.4"
 authors = ["Sherlock Holo <sherlockya@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -22,13 +22,9 @@ file-lock = []
 unprivileged = ["which"]
 doc = ["file-lock", "unprivileged", "tokio-runtime"]
 
-# for debug
-#default = ["tokio-runtime"]
-
 [dependencies]
 futures-util = { version = "0.3", features = ["sink"] }
 futures-channel = { version = "0.3", features = ["sink"] }
-log = "0.4"
 async-trait = "0.1"
 libc = "0.2"
 bincode = "1.3"
@@ -39,6 +35,7 @@ tokio-stream = { version = "0.1", features = ["fs"], optional = true }
 async-io = { version = "1.3", optional = true }
 bytes = "1.0"
 slab = "0.4"
+tracing = "0.1"
 
 [dependencies.async-std]
 version = "1.9"

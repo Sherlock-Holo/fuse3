@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use futures_util::stream::{Empty, Iter};
 use futures_util::{stream, StreamExt};
-use log::{debug, LevelFilter};
 use tokio::sync::RwLock;
+use tracing::{debug, Level};
 
 use fuse3::path::prelude::*;
 use fuse3::{Errno, MountOptions, Result};
@@ -876,9 +876,10 @@ fn split_path(path: &str) -> Vec<&str> {
 }
 
 fn log_init() {
-    pretty_env_logger::formatted_timed_builder()
-        .filter_level(LevelFilter::Debug)
-        .init();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
 #[tokio::main(flavor = "current_thread")]

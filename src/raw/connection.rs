@@ -14,7 +14,6 @@ mod tokio_connection {
     use std::process::Command;
 
     use futures_util::lock::Mutex;
-    use log::debug;
     use nix::fcntl::{FcntlArg, OFlag};
     use nix::sys::socket;
     use nix::sys::socket::{AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
@@ -22,6 +21,7 @@ mod tokio_connection {
     use nix::unistd;
     use tokio::io::unix::AsyncFd;
     use tokio::task;
+    use tracing::debug;
 
     use crate::helper::io_error_from_nix_error;
     use crate::MountOptions;
@@ -219,11 +219,11 @@ mod async_std_connection {
     use async_io::Async;
     use async_std::{fs, task};
     use futures_util::lock::Mutex;
-    use log::debug;
     use nix::sys::socket;
     use nix::sys::socket::{AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
     use nix::sys::uio::IoVec;
     use nix::unistd;
+    use tracing::debug;
 
     use crate::helper::io_error_from_nix_error;
     use crate::MountOptions;
