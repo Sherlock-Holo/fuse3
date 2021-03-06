@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 use std::ffi::OsString;
+use std::future::Future;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
@@ -11,8 +12,6 @@ use std::sync::Arc;
 
 #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
 use async_std::fs::read_dir;
-#[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-use async_std::task::spawn;
 use bincode::Options;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures_util::future::FutureExt;
@@ -24,10 +23,8 @@ use nix::mount::MsFlags;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::fs::read_dir;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-use tokio::spawn;
-#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio_stream::wrappers::ReadDirStream;
-use tracing::{debug, error, warn};
+use tracing::{debug, debug_span, error, instrument, warn, Instrument, Span};
 
 use crate::helper::*;
 use crate::notify::Notify;
@@ -542,6 +539,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         }
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_init(
         &mut self,
         request: Request,
@@ -787,6 +785,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         Ok(())
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_lookup(
         &mut self,
         request: Request,
@@ -809,7 +808,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_lookup"), async move {
             debug!(
                 "lookup unique {} name {:?} in parent {}",
                 request.unique, name, in_header.nodeid
@@ -857,6 +856,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     /// if Ok(true), quit the dispatch
+    #[instrument(skip(self, data, fs))]
     async fn handle_forget(
         &mut self,
         request: Request,
@@ -889,7 +889,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_forget"), async move {
             debug!(
                 "forget unique {} inode {} nlookup {}",
                 request.unique, in_header.nodeid, forget_in.nlookup
@@ -902,6 +902,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         Ok(false)
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_getattr(
         &mut self,
         request: Request,
@@ -927,7 +928,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_getattr"), async move {
             debug!(
                 "getattr unique {} inode {}",
                 request.unique, in_header.nodeid
@@ -986,6 +987,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_setattr(
         &mut self,
         request: Request,
@@ -1011,7 +1013,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_setattr"), async move {
             let set_attr = SetAttr::from(&setattr_in);
 
             let fh = if setattr_in.valid & FATTR_FH > 0 {
@@ -1064,11 +1066,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, fs))]
     async fn handle_readlink(&mut self, request: Request, in_header: fuse_in_header, fs: &Arc<FS>) {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_readlink"), async move {
             debug!(
                 "readlink unique {} inode {}",
                 request.unique, in_header.nodeid
@@ -1112,6 +1115,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_symlink(
         &mut self,
         request: Request,
@@ -1151,7 +1155,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_symlink"), async move {
             debug!(
                 "symlink unique {} parent {} name {:?} link {:?}",
                 request.unique, in_header.nodeid, name, link_name
@@ -1199,6 +1203,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_mknod(
         &mut self,
         request: Request,
@@ -1241,7 +1246,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_mknod"), async move {
             debug!(
                 "mknod unique {} parent {} name {:?} {:?}",
                 request.unique, in_header.nodeid, name, mknod_in
@@ -1285,6 +1290,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_mkdir(
         &mut self,
         request: Request,
@@ -1327,7 +1333,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_mkdir"), async move {
             debug!(
                 "mkdir unique {} parent {} name {:?} {:?}",
                 request.unique, in_header.nodeid, name, mkdir_in
@@ -1371,6 +1377,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_unlink(
         &mut self,
         request: Request,
@@ -1396,7 +1403,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_unlink"), async move {
             debug!(
                 "unlink unique {} parent {} name {:?}",
                 request.unique, in_header.nodeid, name
@@ -1422,6 +1429,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_rmdir(
         &mut self,
         request: Request,
@@ -1447,7 +1455,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_rmdir"), async move {
             debug!(
                 "rmdir unique {} parent {} name {:?}",
                 request.unique, in_header.nodeid, name
@@ -1473,6 +1481,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_rename(
         &mut self,
         request: Request,
@@ -1532,7 +1541,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_rename"), async move {
             debug!(
                 "rename unique {} parent {} name {:?} new parent {} new name {:?}",
                 request.unique, in_header.nodeid, name, rename_in.newdir, new_name
@@ -1567,6 +1576,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_link(
         &mut self,
         request: Request,
@@ -1609,7 +1619,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_link"), async move {
             debug!(
                 "link unique {} inode {} new parent {} new name {:?}",
                 request.unique, link_in.oldnodeid, in_header.nodeid, name
@@ -1647,6 +1657,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_open(
         &mut self,
         request: Request,
@@ -1672,7 +1683,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_open"), async move {
             debug!(
                 "open unique {} inode {} flags {}",
                 request.unique, in_header.nodeid, open_in.flags
@@ -1709,6 +1720,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_read(
         &mut self,
         request: Request,
@@ -1734,7 +1746,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_read"), async move {
             debug!(
                 "read unique {} inode {} {:?}",
                 request.unique, in_header.nodeid, read_in
@@ -1783,6 +1795,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_write(
         &mut self,
         request: Request,
@@ -1820,7 +1833,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_write"), async move {
             debug!(
                 "write unique {} inode {} {:?}",
                 request.unique, in_header.nodeid, write_in
@@ -1867,11 +1880,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, fs))]
     async fn handle_statfs(&mut self, request: Request, in_header: fuse_in_header, fs: &Arc<FS>) {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_statfs"), async move {
             debug!(
                 "statfs unique {} inode {}",
                 request.unique, in_header.nodeid
@@ -1908,6 +1922,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_release(
         &mut self,
         request: Request,
@@ -1933,7 +1948,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_release"), async move {
             let flush = release_in.release_flags & FUSE_RELEASE_FLUSH > 0;
 
             debug!(
@@ -1976,6 +1991,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_fsync(
         &mut self,
         request: Request,
@@ -2001,7 +2017,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_fsync"), async move {
             let data_sync = fsync_in.fsync_flags & 1 > 0;
 
             debug!(
@@ -2032,6 +2048,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_setxattr(
         &mut self,
         request: Request,
@@ -2102,7 +2119,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_setxattr"), async move {
             debug!(
                 "setxattr unique {} inode {}",
                 request.unique, in_header.nodeid
@@ -2139,6 +2156,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_getxattr(
         &mut self,
         request: Request,
@@ -2178,7 +2196,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_getxattr"), async move {
             debug!(
                 "getxattr unique {} inode {}",
                 request.unique, in_header.nodeid
@@ -2244,6 +2262,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_listxattr(
         &mut self,
         request: Request,
@@ -2269,7 +2288,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_listxattr"), async move {
             debug!(
                 "listxattr unique {} inode {} size {}",
                 request.unique, in_header.nodeid, listxattr_in.size
@@ -2335,6 +2354,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_removexattr(
         &mut self,
         request: Request,
@@ -2360,7 +2380,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_removexattr"), async move {
             debug!(
                 "removexattr unique {} inode {}",
                 request.unique, in_header.nodeid
@@ -2387,6 +2407,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_flush(
         &mut self,
         request: Request,
@@ -2412,7 +2433,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_flush"), async move {
             debug!(
                 "flush unique {} inode {} fh {} lock_owner {}",
                 request.unique, in_header.nodeid, flush_in.fh, flush_in.lock_owner
@@ -2441,6 +2462,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_opendir(
         &mut self,
         request: Request,
@@ -2466,7 +2488,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_opendir"), async move {
             debug!(
                 "opendir unique {} inode {} flags {}",
                 request.unique, in_header.nodeid, open_in.flags
@@ -2503,6 +2525,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_readdir(
         &mut self,
         request: Request,
@@ -2534,7 +2557,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_readdir"), async move {
             debug!(
                 "readdir unique {} inode {} fh {} offset {}",
                 request.unique, in_header.nodeid, read_in.fh, read_in.offset
@@ -2622,6 +2645,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_releasedir(
         &mut self,
         request: Request,
@@ -2647,7 +2671,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_releasedir"), async move {
             debug!(
                 "releasedir unique {} inode {} fh {} flags {}",
                 request.unique, in_header.nodeid, release_in.fh, release_in.flags
@@ -2676,6 +2700,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_fsyncdir(
         &mut self,
         request: Request,
@@ -2701,7 +2726,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_fsyncdir"), async move {
             let data_sync = fsync_in.fsync_flags & 1 > 0;
 
             debug!(
@@ -2733,6 +2758,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     #[cfg(feature = "file-lock")]
+    #[instrument(skip(self, data, fs))]
     async fn handle_getlk(
         &mut self,
         request: Request,
@@ -2758,7 +2784,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_getlk"), async move {
             debug!(
                 "getlk unique {} inode {} {:?}",
                 request.unique, in_header.nodeid, getlk_in
@@ -2808,6 +2834,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     #[cfg(feature = "file-lock")]
+    #[instrument(skip(self, data, fs))]
     async fn handle_setlk(
         &mut self,
         request: Request,
@@ -2840,7 +2867,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_setlk"), async move {
             debug!(
                 "setlk unique {} inode {} block {} {:?}",
                 request.unique, in_header.nodeid, block, setlk_in
@@ -2879,6 +2906,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_access(
         &mut self,
         request: Request,
@@ -2904,7 +2932,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_access"), async move {
             debug!(
                 "access unique {} inode {} mask {}",
                 request.unique, in_header.nodeid, access_in.mask
@@ -2933,6 +2961,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_create(
         &mut self,
         request: Request,
@@ -2975,7 +3004,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_create"), async move {
             debug!(
                 "create unique {} parent {} name {:?} mode {} flags {}",
                 request.unique, in_header.nodeid, name, create_in.mode, create_in.flags
@@ -3025,6 +3054,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_interrupt(&mut self, request: Request, data: &[u8], fs: &Arc<FS>) {
         let interrupt_in = match get_bincode_config().deserialize::<fuse_interrupt_in>(data) {
             Err(err) => {
@@ -3044,7 +3074,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_interrupt"), async move {
             debug!(
                 "interrupt_in unique {} interrupt unique {}",
                 request.unique, interrupt_in.unique
@@ -3070,6 +3100,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_bmap(
         &mut self,
         request: Request,
@@ -3095,7 +3126,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_bmap"), async move {
             debug!(
                 "bmap unique {} inode {} block size {} idx {}",
                 request.unique, in_header.nodeid, bmap_in.blocksize, bmap_in.block
@@ -3135,6 +3166,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_poll(
         &mut self,
         request: Request,
@@ -3162,7 +3194,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let notify = self.get_notify();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_poll"), async move {
             debug!(
                 "poll unique {} inode {} {:?}",
                 request.unique, in_header.nodeid, poll_in
@@ -3216,6 +3248,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_notify_reply(
         &mut self,
         request: Request,
@@ -3256,7 +3289,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_notify_reply"), async move {
             if let Err(err) = fs
                 .notify_reply(
                     request,
@@ -3271,6 +3304,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_batch_forget(
         &mut self,
         request: Request,
@@ -3325,7 +3359,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_batch_forget"), async move {
             let inodes = forgets
                 .into_iter()
                 .map(|forget_one| forget_one.nodeid)
@@ -3337,6 +3371,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_fallocate(
         &mut self,
         request: Request,
@@ -3362,7 +3397,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_fallocate"), async move {
             debug!(
                 "fallocate unique {} inode {} {:?}",
                 request.unique, in_header.nodeid, fallocate_in
@@ -3398,6 +3433,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_readdirplus(
         &mut self,
         request: Request,
@@ -3423,7 +3459,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_readdirplus"), async move {
             debug!(
                 "readdirplus unique {} parent {} {:?}",
                 request.unique, in_header.nodeid, readdirplus_in
@@ -3530,6 +3566,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_rename2(
         &mut self,
         request: Request,
@@ -3589,7 +3626,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let mut resp_sender = self.response_sender.clone();
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_rename2"), async move {
             debug!(
                 "rename2 unique {} parent {} name {:?} new parent {} new name {:?} flags {}",
                 request.unique,
@@ -3630,6 +3667,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_lseek(
         &mut self,
         request: Request,
@@ -3656,7 +3694,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_lseek"), async move {
             debug!(
                 "lseek unique {} inode {} {:?}",
                 request.unique, in_header.nodeid, lseek_in
@@ -3702,6 +3740,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
+    #[instrument(skip(self, data, fs))]
     async fn handle_copy_file_range(
         &mut self,
         request: Request,
@@ -3729,7 +3768,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let fs = fs.clone();
 
-        spawn(async move {
+        spawn(debug_span!("fuse_copy_file_range"), async move {
             debug!(
                 "reply_copy_file_range unique {} inode {} {:?}",
                 request.unique, in_header.nodeid, copy_file_range_in
@@ -3797,4 +3836,19 @@ where
     futures_util::pin_mut!(sender);
 
     let _ = sender.send(data).await;
+}
+
+#[inline]
+fn spawn<F>(span: Span, fut: F)
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+    use async_std::task::spawn;
+
+    #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+    use tokio::spawn;
+
+    spawn(fut.instrument(span));
 }

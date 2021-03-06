@@ -26,6 +26,7 @@ mod tokio_connection {
     use crate::helper::io_error_from_nix_error;
     use crate::MountOptions;
 
+    #[derive(Debug)]
     pub struct FuseConnection {
         fd: AsyncFd<RawFd>,
         read: Mutex<()>,
@@ -228,6 +229,7 @@ mod async_std_connection {
     use crate::helper::io_error_from_nix_error;
     use crate::MountOptions;
 
+    #[derive(Debug)]
     pub struct FuseConnection {
         fd: Async<RawFd>,
         read: Mutex<()>,
