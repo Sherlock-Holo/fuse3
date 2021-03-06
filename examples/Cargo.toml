@@ -32,5 +32,5 @@ pretty_env_logger = "0.4"
 log = "0.4"
 futures-util = "0.3"
 mio = { version = "0.7", features = ["os-poll", "os-util"] }
-tempfile = "3.1"
+tempfile = "3.2"
 bytes = "1.0"
