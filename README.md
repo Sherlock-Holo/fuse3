@@ -18,13 +18,19 @@ https://github.com/Sherlock-Holo/fuse3)
 - support enable `no_open` and `no_open_dir` option
 
 ## still not support
+
 - `ioctl` implement
 - fuseblk mode
 - macos support
 
 ## unstable
+
 - `poll`
 - `notify_reply`
+
+## Supported Rust Versions
+
+The minimum supported version is 1.48.
 
 ## License
 
