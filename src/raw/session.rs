@@ -1771,7 +1771,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 Ok(reply_data) => reply_data.data,
             };
 
-            let mut reply_data = reply_data.as_ref().as_ref();
+            let mut reply_data = reply_data.as_ref();
 
             if reply_data.len() > read_in.size as _ {
                 reply_data = &reply_data[..read_in.size as _];

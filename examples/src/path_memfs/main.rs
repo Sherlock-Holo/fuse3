@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::io::Write;
+use std::io::{Cursor, Read, Write};
 use std::os::raw::c_int;
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
 use async_trait::async_trait;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_util::stream::{Empty, Iter};
 use futures_util::{stream, StreamExt};
 use tokio::sync::RwLock;
@@ -496,23 +496,20 @@ impl PathFilesystem for Fs {
             return Err(Errno::new_is_dir());
         };
 
-        let content = file.content.as_ref();
-        let offset = offset as usize;
-        let mut size = size as usize;
+        let mut cursor = Cursor::new(&file.content);
+        cursor.set_position(offset);
 
-        let data = if offset < content.len() {
-            if offset + size > content.len() {
-                size = content.len() - offset
-            }
+        let size = cursor.remaining().min(size as _);
 
-            Bytes::copy_from_slice(&content[offset..size])
-        } else {
-            Bytes::new()
-        };
+        let mut data = BytesMut::with_capacity(size);
+        // safety
+        unsafe {
+            data.set_len(size);
+        }
 
-        // debug!("read path {} {} done", path, String::from_utf8_lossy(&data));
+        cursor.read_exact(&mut data).unwrap();
 
-        Ok(ReplyData { data })
+        Ok(ReplyData { data: data.into() })
     }
 
     async fn write(
@@ -565,8 +562,6 @@ impl PathFilesystem for Fs {
             file.content.resize(offset, 0);
             file.content.put(data);
         }
-
-        // debug!("write path {} {} done", path, String::from_utf8_lossy(data));
 
         Ok(ReplyWrite {
             written: data.len() as _,

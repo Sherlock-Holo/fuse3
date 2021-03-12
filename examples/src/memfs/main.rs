@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::io::{self};
+use std::io::{self, Cursor, Read};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Buf, Bytes, BytesMut};
 use futures_util::stream;
 use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
@@ -462,19 +462,20 @@ impl Filesystem for Fs {
         if let Entry::File(file) = entry {
             let file = file.read().await;
 
-            if file.content.len() <= offset as _ {
-                return Ok(ReplyData { data: Bytes::new() });
+            let mut cursor = Cursor::new(&file.content);
+            cursor.set_position(offset);
+
+            let size = cursor.remaining().min(size as _);
+
+            let mut data = BytesMut::with_capacity(size);
+            // safety
+            unsafe {
+                data.set_len(size);
             }
 
-            let mut data = &file.content[offset as _..];
+            cursor.read_exact(&mut data).unwrap();
 
-            if data.len() > size as _ {
-                data = &data[..size as _];
-            }
-
-            Ok(ReplyData {
-                data: Bytes::copy_from_slice(data),
-            })
+            Ok(ReplyData { data: data.into() })
         } else {
             Err(libc::EISDIR.into())
         }
