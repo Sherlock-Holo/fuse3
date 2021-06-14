@@ -9,7 +9,7 @@ mod tokio_connection {
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{
         ffi::OsString,
         path::Path,
@@ -17,20 +17,20 @@ mod tokio_connection {
     };
 
     use futures_util::lock::Mutex;
-    use nix::fcntl::{FcntlArg, OFlag};
     use nix::unistd;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use nix::{
+        fcntl::{FcntlArg, OFlag},
         sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
         sys::uio::IoVec
     };
     use tokio::io::unix::AsyncFd;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tokio::task;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
 
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
 
     #[derive(Debug)]
@@ -47,13 +47,12 @@ mod tokio_connection {
             let fd = tokio::fs::OpenOptions::new()
                 .write(true)
                 .read(true)
+                .custom_flags(libc::O_NONBLOCK)
                 .open(DEV_FUSE)
                 .await?
                 .into_std()
                 .await
                 .into_raw_fd();
-
-            Self::set_fd_non_blocking(fd)?;
 
             Ok(Self {
                 fd: AsyncFd::new(fd)?,
@@ -62,7 +61,7 @@ mod tokio_connection {
             })
         }
 
-        #[cfg(feature = "unprivileged")]
+        #[cfg(all(target_os = "linux", feature = "unprivileged"))]
         pub async fn new_with_unprivileged(
             mount_options: MountOptions,
             mount_path: impl AsRef<Path>,
@@ -159,7 +158,10 @@ mod tokio_connection {
             })
         }
 
+        #[cfg(all(target_os = "linux", feature = "unprivileged"))]
         pub fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
+            use nix::fcntl::{FcntlArg, OFlag};
+
             let flags =
                 nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
 

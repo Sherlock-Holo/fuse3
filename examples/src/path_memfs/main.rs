@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::io::{Cursor, Read, Write};
-use std::os::raw::c_int;
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
@@ -10,6 +9,7 @@ use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_util::stream::{Empty, Iter};
 use futures_util::{stream, StreamExt};
+use libc::mode_t;
 use tokio::sync::RwLock;
 use tracing::{debug, Level};
 
@@ -103,14 +103,14 @@ impl Entry {
 struct Dir {
     name: OsString,
     children: BTreeMap<OsString, Entry>,
-    mode: u32,
+    mode: mode_t,
 }
 
 #[derive(Debug)]
 struct File {
     name: OsString,
     content: BytesMut,
-    mode: u32,
+    mode: mode_t,
 }
 
 #[derive(Debug)]
@@ -270,7 +270,7 @@ impl PathFilesystem for Fs {
             let entry = Entry::Dir(Dir {
                 name: name.to_owned(),
                 children: Default::default(),
-                mode,
+                mode: mode as mode_t,
             });
             let attr = entry.attr();
 
@@ -638,7 +638,7 @@ impl PathFilesystem for Fs {
             let entry = Entry::File(File {
                 name: name.to_owned(),
                 content: Default::default(),
-                mode,
+                mode: mode as mode_t,
             });
             let attr = entry.attr();
 
@@ -658,6 +658,8 @@ impl PathFilesystem for Fs {
 
     async fn batch_forget(&self, _req: Request, _paths: &[&OsStr]) {}
 
+    // Not supported by fusefs(5) as of FreeBSD 13.0
+    #[cfg(target_os = "linux")]
     async fn fallocate(
         &self,
         _req: Request,
@@ -667,6 +669,8 @@ impl PathFilesystem for Fs {
         length: u64,
         mode: u32,
     ) -> Result<()> {
+        use std::os::raw::c_int;
+
         let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
         let paths = split_path(&path);
 
