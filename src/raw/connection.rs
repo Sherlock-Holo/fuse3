@@ -5,25 +5,33 @@ pub use tokio_connection::FuseConnection;
 
 #[cfg(feature = "tokio-runtime")]
 mod tokio_connection {
-    use std::ffi::OsString;
     use std::io;
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
-    use std::path::Path;
-    use std::process::Command;
+    #[cfg(feature = "unprivileged")]
+    use std::{
+        ffi::OsString,
+        path::Path,
+        process::Command
+    };
 
     use futures_util::lock::Mutex;
     use nix::fcntl::{FcntlArg, OFlag};
-    use nix::sys::socket;
-    use nix::sys::socket::{AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
-    use nix::sys::uio::IoVec;
     use nix::unistd;
+    #[cfg(feature = "unprivileged")]
+    use nix::{
+        sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
+        sys::uio::IoVec
+    };
     use tokio::io::unix::AsyncFd;
+    #[cfg(feature = "unprivileged")]
     use tokio::task;
+    #[cfg(feature = "unprivileged")]
     use tracing::debug;
 
     use crate::helper::io_error_from_nix_error;
+    #[cfg(feature = "unprivileged")]
     use crate::MountOptions;
 
     #[derive(Debug)]
@@ -209,24 +217,33 @@ mod tokio_connection {
 
 #[cfg(feature = "async-std-runtime")]
 mod async_std_connection {
-    use std::ffi::OsString;
     use std::io;
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
-    use std::path::Path;
-    use std::process::Command;
+    #[cfg(feature = "unprivileged")]
+    use std::{
+        ffi::OsString,
+        path::Path,
+        process::Command,
+    };
 
     use async_io::Async;
-    use async_std::{fs, task};
+    use async_std::fs;
+    #[cfg(feature = "unprivileged")]
+    use async_std::task;
     use futures_util::lock::Mutex;
-    use nix::sys::socket;
-    use nix::sys::socket::{AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
-    use nix::sys::uio::IoVec;
+    #[cfg(feature = "unprivileged")]
+    use nix::{
+        sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
+        sys::uio::IoVec
+    };
     use nix::unistd;
+    #[cfg(feature = "unprivileged")]
     use tracing::debug;
 
     use crate::helper::io_error_from_nix_error;
+    #[cfg(feature = "unprivileged")]
     use crate::MountOptions;
 
     #[derive(Debug)]
