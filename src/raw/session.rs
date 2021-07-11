@@ -154,7 +154,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         ) {
             error!("mount {:?} failed", mount_path);
 
-            return Err(io_error_from_nix_error(err));
+            return Err(err.into());
         }
 
         self.fuse_connection.replace(Arc::new(fuse_connection));

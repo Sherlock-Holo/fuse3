@@ -1,5 +1,3 @@
-use std::io;
-use std::io::ErrorKind;
 use std::mem;
 
 use bincode::{DefaultOptions, Options};
@@ -42,17 +40,6 @@ pub fn get_padding_size(dir_entry_size: usize) -> usize {
     let entry_size = (dir_entry_size + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1); // 64bit align
 
     entry_size - dir_entry_size
-}
-
-#[inline]
-pub fn io_error_from_nix_error(err: nix::Error) -> io::Error {
-    match err {
-        nix::Error::Sys(errno) => io::Error::from_raw_os_error(errno as i32),
-        nix::Error::UnsupportedOperation => io::Error::new(ErrorKind::Other, err),
-        nix::Error::InvalidPath | nix::Error::InvalidUtf8 => {
-            io::Error::from(ErrorKind::InvalidInput)
-        }
-    }
 }
 
 pub fn get_bincode_config() -> impl Options {

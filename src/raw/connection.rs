@@ -30,7 +30,6 @@ mod tokio_connection {
     #[cfg(feature = "unprivileged")]
     use tracing::debug;
 
-    use crate::helper::io_error_from_nix_error;
     #[cfg(feature = "unprivileged")]
     use crate::MountOptions;
 
@@ -74,7 +73,7 @@ mod tokio_connection {
                 None,
                 SockFlag::empty(),
             ) {
-                Err(err) => return Err(io_error_from_nix_error(err)),
+                Err(err) => return Err(err.into()),
 
                 Ok((fd0, fd1)) => (fd0, fd1),
             };
@@ -123,7 +122,7 @@ mod tokio_connection {
 
                 let msg = match socket::recvmsg(fd1, &bufs, Some(&mut cmsg_buf), MsgFlags::empty())
                 {
-                    Err(err) => return Err(io_error_from_nix_error(err)),
+                    Err(err) => return Err(err.into()),
 
                     Ok(msg) => msg,
                 };
@@ -144,11 +143,11 @@ mod tokio_connection {
             .unwrap()?;
 
             if let Err(err) = unistd::close(fd0) {
-                return Err(io_error_from_nix_error(err));
+                return Err(err.into());
             }
 
             if let Err(err) = unistd::close(fd1) {
-                return Err(io_error_from_nix_error(err));
+                return Err(err.into());
             }
 
             Self::set_fd_non_blocking(fd)?;
@@ -162,11 +161,11 @@ mod tokio_connection {
 
         pub fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
             let flags =
-                nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io_error_from_nix_error)?;
+                nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
 
             let flags = OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK;
 
-            nix::fcntl::fcntl(fd, FcntlArg::F_SETFL(flags)).map_err(io_error_from_nix_error)?;
+            nix::fcntl::fcntl(fd, FcntlArg::F_SETFL(flags)).map_err(io::Error::from)?;
 
             Ok(())
         }
@@ -177,7 +176,7 @@ mod tokio_connection {
             loop {
                 let mut read_guard = self.fd.readable().await?;
                 if let Ok(result) = read_guard
-                    .try_io(|fd| unistd::read(fd.as_raw_fd(), buf).map_err(io_error_from_nix_error))
+                    .try_io(|fd| unistd::read(fd.as_raw_fd(), buf).map_err(io::Error::from))
                 {
                     return result;
                 } else {
@@ -192,7 +191,7 @@ mod tokio_connection {
             loop {
                 let mut write_guard = self.fd.writable().await?;
                 if let Ok(result) = write_guard.try_io(|fd| {
-                    unistd::write(fd.as_raw_fd(), buf).map_err(io_error_from_nix_error)
+                    unistd::write(fd.as_raw_fd(), buf).map_err(io::Error::from)
                 }) {
                     return result;
                 } else {
@@ -242,7 +241,6 @@ mod async_std_connection {
     #[cfg(feature = "unprivileged")]
     use tracing::debug;
 
-    use crate::helper::io_error_from_nix_error;
     #[cfg(feature = "unprivileged")]
     use crate::MountOptions;
 
@@ -282,7 +280,7 @@ mod async_std_connection {
                 None,
                 SockFlag::empty(),
             ) {
-                Err(err) => return Err(io_error_from_nix_error(err)),
+                Err(err) => return Err(err.into()),
 
                 Ok((fd0, fd1)) => (fd0, fd1),
             };
@@ -330,7 +328,7 @@ mod async_std_connection {
 
                 let msg = match socket::recvmsg(fd1, &bufs, Some(&mut cmsg_buf), MsgFlags::empty())
                 {
-                    Err(err) => return Err(io_error_from_nix_error(err)),
+                    Err(err) => return Err(err.into()),
 
                     Ok(msg) => msg,
                 };
@@ -350,11 +348,11 @@ mod async_std_connection {
             .await?;
 
             if let Err(err) = unistd::close(fd0) {
-                return Err(io_error_from_nix_error(err));
+                return Err(err.into());
             }
 
             if let Err(err) = unistd::close(fd1) {
-                return Err(io_error_from_nix_error(err));
+                return Err(err.into());
             }
 
             Ok(Self {
@@ -368,7 +366,7 @@ mod async_std_connection {
             let _guard = self.read.lock().await;
 
             self.fd
-                .read_with(|fd| unistd::read(*fd, buf).map_err(io_error_from_nix_error))
+                .read_with(|fd| unistd::read(*fd, buf).into())
                 .await
         }
 
@@ -376,7 +374,7 @@ mod async_std_connection {
             let _guard = self.write.lock().await;
 
             self.fd
-                .write_with(|fd| unistd::write(*fd, buf).map_err(io_error_from_nix_error))
+                .write_with(|fd| unistd::write(*fd, buf).into())
                 .await
         }
     }

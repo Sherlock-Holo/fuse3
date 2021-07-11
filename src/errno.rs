@@ -40,17 +40,13 @@ impl From<Errno> for IoError {
 
 impl From<NixError> for Errno {
     fn from(err: NixError) -> Self {
-        match err {
-            NixError::Sys(errno) => Errno(errno as libc::c_int),
-            NixError::InvalidPath | NixError::InvalidUtf8 => Errno(libc::EINVAL),
-            NixError::UnsupportedOperation => Errno(libc::ENOTSUP),
-        }
+        Errno(err as libc::c_int)
     }
 }
 
 impl From<Errno> for NixError {
     fn from(errno: Errno) -> Self {
-        NixError::from_errno(nix::errno::from_i32(errno.0))
+        nix::errno::from_i32(errno.0)
     }
 }
 
