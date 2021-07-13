@@ -12,6 +12,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use futures_util::stream;
 use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
+use libc::mode_t;
 use tokio::sync::RwLock;
 use tracing::Level;
 
@@ -138,7 +139,7 @@ struct Dir {
     parent: u64,
     name: OsString,
     children: BTreeMap<OsString, Entry>,
-    mode: u32,
+    mode: mode_t,
 }
 
 #[derive(Debug)]
@@ -147,7 +148,7 @@ struct File {
     parent: u64,
     name: OsString,
     content: Vec<u8>,
-    mode: u32,
+    mode: mode_t,
 }
 
 #[derive(Debug)]
@@ -292,7 +293,7 @@ impl Filesystem for Fs {
                 parent,
                 name: name.to_owned(),
                 children: BTreeMap::new(),
-                mode,
+                mode: mode as mode_t,
             })));
 
             let attr = entry.attr().await;
@@ -585,7 +586,7 @@ impl Filesystem for Fs {
                 parent,
                 name: name.to_os_string(),
                 content: vec![],
-                mode,
+                mode: mode as mode_t,
             })));
 
             let attr = entry.attr().await;
@@ -816,6 +817,7 @@ async fn main() {
 
     let mount_options = MountOptions::default()
         // .allow_other(true)
+        .fs_name("memfs")
         .force_readdir_plus(true)
         .uid(uid)
         .gid(gid);

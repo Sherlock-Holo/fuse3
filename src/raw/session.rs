@@ -18,8 +18,8 @@ use futures_util::future::FutureExt;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
 use futures_util::{pin_mut, select};
+#[cfg(target_os = "linux")]
 use nix::mount;
-use nix::mount::MsFlags;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::fs::read_dir;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
@@ -99,9 +99,23 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         Ok(())
     }
 
-    #[cfg(feature = "unprivileged")]
-    /// mount the filesystem without root permission. This function will block until the filesystem
-    /// is unmounted.
+    /// mount the filesystem without root permission. This function will block
+    /// until the filesystem is unmounted.
+    // On FreeBSD, no special interface is required to mount unprivileged.
+    // If vfs.usermount=1 and the user has access to the mountpoint, it will
+    // just work.
+    #[cfg(all(target_os = "freebsd", feature = "unprivileged"))]
+    pub async fn mount_with_unprivileged<P: AsRef<Path>>(
+        self,
+        fs: FS,
+        mount_path: P,
+    ) -> IoResult<()> {
+        self.mount(fs, mount_path).await
+    }
+
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+    /// mount the filesystem without root permission. This function will block
+    /// until the filesystem is unmounted.
     pub async fn mount_with_unprivileged<P: AsRef<Path>>(
         mut self,
         fs: FS,
@@ -124,7 +138,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     /// mount the filesystem. This function will block until the filesystem is unmounted.
+    #[cfg(target_os = "linux")]
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
+        use nix::mount::MsFlags;
+
         let mut mount_options = self.mount_options.clone();
 
         let mount_path = mount_path.as_ref();
@@ -155,6 +172,43 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             error!("mount {:?} failed", mount_path);
 
             return Err(err.into());
+        }
+
+        self.fuse_connection.replace(Arc::new(fuse_connection));
+
+        self.filesystem.replace(Arc::new(fs));
+
+        debug!("mount {:?} success", mount_path);
+
+        self.inner_mount().await
+    }
+
+    /// mount the filesystem. This function will block until the filesystem is
+    /// unmounted.
+    #[cfg(target_os = "freebsd")]
+    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
+        use cstr::cstr;
+        use nix::mount::MntFlags;
+
+        let mount_options = self.mount_options.clone();
+
+        let mount_path = mount_path.as_ref();
+
+        self.mount_empty_check(mount_path).await?;
+
+        let fuse_connection = FuseConnection::new().await?;
+
+        let fd = fuse_connection.as_raw_fd();
+
+        let mut nmount = mount_options.build();
+        nmount.str_opt_owned(cstr!("fspath"), mount_path)
+            .str_opt_owned(cstr!("fd"), format!("{}", fd).as_str());
+        debug!("mount options {:?}", &nmount);
+
+        if let Err(err) = nmount.nmount(MntFlags::MNT_NOSUID) {
+            error!("mount {} failed: {}", mount_path.display(), err);
+
+            return Err(std::io::Error::from(err));
         }
 
         self.fuse_connection.replace(Arc::new(fuse_connection));
