@@ -1,7 +1,11 @@
 use std::ffi::OsString;
+#[cfg(target_os = "linux")]
 use std::os::unix::io::RawFd;
 
+#[cfg(target_os = "linux")]
 use nix::unistd;
+#[cfg(target_os = "freebsd")]
+use nix::mount::Nmount;
 
 /// mount options.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
@@ -166,6 +170,28 @@ impl MountOptions {
         self
     }
 
+    #[cfg(target_os = "freebsd")]
+    pub(crate) fn build(&self) -> Nmount {
+        use cstr::cstr;
+
+        let mut nmount = Nmount::new();
+        nmount.str_opt(cstr!("fstype"), cstr!("fusefs"))
+            .str_opt(cstr!("from"), cstr!("/dev/fuse"));
+        if self.allow_other {
+            nmount.null_opt(cstr!("allow_other"));
+        }
+        if self.default_permissions {
+            nmount.null_opt(cstr!("default_permissions"));
+        }
+        if let Some(fs_name) = &self.fs_name {
+            nmount.str_opt_owned(cstr!("subtype="), fs_name.as_str());
+        }
+        // TODO: additional options: push_symlinks_in, intr, max_read=, timeout=
+        // TODO: mount flags like async, nosuid, noexec
+        nmount
+    }
+
+    #[cfg(target_os = "linux")]
     pub(crate) fn build(&mut self, fd: RawFd) -> OsString {
         let mut opts = vec![
             format!("fd={}", fd),
@@ -206,7 +232,7 @@ impl MountOptions {
         options
     }
 
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     pub(crate) fn build_with_unprivileged(&self) -> OsString {
         let mut opts = vec![
             format!(

@@ -81,7 +81,7 @@ impl From<FileType> for mode_t {
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct SetAttr {
     /// set file or directory mode.
-    pub mode: Option<u32>,
+    pub mode: Option<mode_t>,
     /// set file or directory uid.
     pub uid: Option<u32>,
     /// set file or directory gid.
@@ -111,7 +111,7 @@ impl From<&fuse_setattr_in> for SetAttr {
         let mut set_attr = Self::default();
 
         if setattr_in.valid & FATTR_MODE > 0 {
-            set_attr.mode = Some(setattr_in.mode);
+            set_attr.mode = Some(setattr_in.mode as mode_t);
         }
 
         if setattr_in.valid & FATTR_UID > 0 {
