@@ -358,7 +358,8 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    let mount_options = MountOptions::default().uid(uid).gid(gid).read_only(true);
+    let mut mount_options = MountOptions::default();
+    mount_options.uid(uid).gid(gid).read_only(true);
 
     let temp_dir = tempfile::tempdir().unwrap();
 

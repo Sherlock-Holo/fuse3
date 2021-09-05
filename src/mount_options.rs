@@ -46,56 +46,56 @@ pub struct MountOptions {
 
 impl MountOptions {
     /// set fuse filesystem mount `user_id`, default is current uid.
-    pub fn uid(mut self, uid: u32) -> Self {
+    pub fn uid(&mut self, uid: u32) -> &mut Self {
         self.uid.replace(uid);
 
         self
     }
 
     /// set fuse filesystem mount `group_id`, default is current gid.
-    pub fn gid(mut self, gid: u32) -> Self {
+    pub fn gid(&mut self, gid: u32) -> &mut Self {
         self.gid.replace(gid);
 
         self
     }
 
     /// set fuse filesystem name, default is **fuse**.
-    pub fn fs_name(mut self, name: impl Into<String>) -> Self {
+    pub fn fs_name(&mut self, name: impl Into<String>) -> &mut Self {
         self.fs_name.replace(name.into());
 
         self
     }
 
     /// set fuse filesystem `rootmode`, default is 40000.
-    pub fn rootmode(mut self, rootmode: u32) -> Self {
+    pub fn rootmode(&mut self, rootmode: u32) -> &mut Self {
         self.rootmode.replace(rootmode);
 
         self
     }
 
     /// set fuse filesystem `allow_root` mount option, default is disable.
-    pub fn allow_root(mut self, allow_root: bool) -> Self {
+    pub fn allow_root(&mut self, allow_root: bool) -> &mut Self {
         self.allow_root = allow_root;
 
         self
     }
 
     /// set fuse filesystem `allow_other` mount option, default is disable.
-    pub fn allow_other(mut self, allow_other: bool) -> Self {
+    pub fn allow_other(&mut self, allow_other: bool) -> &mut Self {
         self.allow_other = allow_other;
 
         self
     }
 
     /// set fuse filesystem `ro` mount option, default is disable.
-    pub fn read_only(mut self, read_only: bool) -> Self {
+    pub fn read_only(&mut self, read_only: bool) -> &mut Self {
         self.read_only.replace(read_only);
 
         self
     }
 
     /// allow fuse filesystem mount on a non-empty directory, default is not allowed.
-    pub fn nonempty(mut self, nonempty: bool) -> Self {
+    pub fn nonempty(&mut self, nonempty: bool) -> &mut Self {
         self.nonempty = nonempty;
 
         self
@@ -107,35 +107,35 @@ impl MountOptions {
     ///
     /// [`raw::access`]: crate::raw::Filesystem::access
     /// [`path::access`]: crate::path::PathFilesystem::access
-    pub fn default_permissions(mut self, default_permissions: bool) -> Self {
+    pub fn default_permissions(&mut self, default_permissions: bool) -> &mut Self {
         self.default_permissions = default_permissions;
 
         self
     }
 
     /// don't apply umask to file mode on create operations, default is disable.
-    pub fn dont_mask(mut self, dont_mask: bool) -> Self {
+    pub fn dont_mask(&mut self, dont_mask: bool) -> &mut Self {
         self.dont_mask = dont_mask;
 
         self
     }
 
     /// make kernel support zero-message opens, default is disable
-    pub fn no_open_support(mut self, no_open_support: bool) -> Self {
+    pub fn no_open_support(&mut self, no_open_support: bool) -> &mut Self {
         self.no_open_support = no_open_support;
 
         self
     }
 
     /// make kernel support zero-message opendir, default is disable
-    pub fn no_open_dir_support(mut self, no_open_dir_support: bool) -> Self {
+    pub fn no_open_dir_support(&mut self, no_open_dir_support: bool) -> &mut Self {
         self.no_open_dir_support = no_open_dir_support;
 
         self
     }
 
     /// fs handle killing `suid`/`sgid`/`cap` on `write`/`chown`/`trunc`, default is disable.
-    pub fn handle_killpriv(mut self, handle_killpriv: bool) -> Self {
+    pub fn handle_killpriv(&mut self, handle_killpriv: bool) -> &mut Self {
         self.handle_killpriv = handle_killpriv;
 
         self
@@ -146,7 +146,7 @@ impl MountOptions {
     /// # Notes:
     ///
     /// if enable this feature, when write flags has `FUSE_WRITE_CACHE`, file handle is guessed.
-    pub fn write_back(mut self, write_back: bool) -> Self {
+    pub fn write_back(&mut self, write_back: bool) -> &mut Self {
         self.write_back = write_back;
 
         self
@@ -157,14 +157,14 @@ impl MountOptions {
     ///
     /// # Notes:
     /// this may don't work with some old Linux Kernel.
-    pub fn force_readdir_plus(mut self, force_readdir_plus: bool) -> Self {
+    pub fn force_readdir_plus(&mut self, force_readdir_plus: bool) -> &mut Self {
         self.force_readdir_plus = force_readdir_plus;
 
         self
     }
 
     /// set custom options for fuse filesystem, the custom options will be used in mount
-    pub fn custom_options(mut self, custom_options: impl Into<OsString>) -> Self {
+    pub fn custom_options(&mut self, custom_options: impl Into<OsString>) -> &mut Self {
         self.custom_options = Some(custom_options.into());
 
         self
@@ -193,7 +193,7 @@ impl MountOptions {
     }
 
     #[cfg(target_os = "linux")]
-    pub(crate) fn build(&mut self, fd: RawFd) -> OsString {
+    pub(crate) fn build(&self, fd: RawFd) -> OsString {
         let mut opts = vec![
             format!("fd={}", fd),
             format!(
