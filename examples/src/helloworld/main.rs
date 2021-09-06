@@ -305,7 +305,7 @@ impl Filesystem for HelloWorld {
         })
     }
 
-    async fn statsfs(&self, _req: Request, _inode: u64) -> Result<ReplyStatFs> {
+    async fn statfs(&self, _req: Request, _inode: u64) -> Result<ReplyStatFs> {
         Ok(STATFS)
     }
 }

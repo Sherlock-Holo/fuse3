@@ -595,13 +595,13 @@ where
             .await
     }
 
-    async fn statsfs(&self, req: Request, inode: u64) -> Result<ReplyStatFs> {
+    async fn statfs(&self, req: Request, inode: u64) -> Result<ReplyStatFs> {
         let inode_name_manager = self.inode_name_manager.read().await;
         let path = inode_name_manager
             .get_absolute_path(inode)
             .ok_or_else(Errno::new_not_exist)?;
 
-        self.path_filesystem.statsfs(req, path.as_ref()).await
+        self.path_filesystem.statfs(req, path.as_ref()).await
     }
 
     async fn release(
