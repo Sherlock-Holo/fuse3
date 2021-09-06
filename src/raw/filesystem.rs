@@ -231,7 +231,7 @@ pub trait Filesystem {
         req: Request,
         inode: Inode,
         name: &OsStr,
-        value: &OsStr,
+        value: &[u8],
         flags: u32,
         position: u32,
     ) -> Result<()> {
