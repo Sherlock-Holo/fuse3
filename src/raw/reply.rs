@@ -1,7 +1,6 @@
 //! reply structures.
-use std::convert::TryInto;
 use std::ffi::OsString;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::stream::Stream;
@@ -13,36 +12,7 @@ use crate::raw::abi::{
 };
 #[cfg(feature = "file-lock")]
 use crate::raw::abi::{fuse_file_lock, fuse_lk_out};
-use crate::{FileType, Result};
-
-/// A file's timestamp, according to FUSE.
-///
-/// Nearly the same as a `libc::timespec`, except for the width of the nsec
-/// field.
-// Could implement From for Duration, and/or libc::timespec, if desired
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct Timestamp {
-    pub sec: i64,
-    pub nsec: u32,
-}
-
-impl Timestamp {
-    pub const fn new(sec: i64, nsec: u32) -> Self {
-        Timestamp { sec, nsec }
-    }
-}
-
-impl From<SystemTime> for Timestamp {
-    fn from(t: SystemTime) -> Self {
-        let d = t
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|_| Duration::from_secs(0));
-        Timestamp {
-            sec: d.as_secs().try_into().unwrap_or(i64::MAX),
-            nsec: d.subsec_nanos(),
-        }
-    }
-}
+use crate::{FileType, Result, Timestamp};
 
 /// file attributes
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
