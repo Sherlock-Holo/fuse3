@@ -193,13 +193,13 @@ impl From<ReplyOpen> for fuse_open_out {
 /// write reply.
 pub struct ReplyWrite {
     /// the data written.
-    pub written: u64,
+    pub written: u32,
 }
 
 impl From<ReplyWrite> for fuse_write_out {
     fn from(written: ReplyWrite) -> Self {
         fuse_write_out {
-            size: written.written as u32,
+            size: written.written,
             padding: 0,
         }
     }
