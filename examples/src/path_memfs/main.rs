@@ -746,23 +746,26 @@ impl PathFilesystem for Fs {
 
         if let Entry::Dir(dir) = entry {
             let pre_children = vec![
-                (FileType::Directory, OsString::from("."), entry.attr()),
-                (FileType::Directory, OsString::from(".."), parent.attr()),
+                (FileType::Directory, OsString::from("."), entry.attr(), 1),
+                (FileType::Directory, OsString::from(".."), parent.attr(), 2),
             ];
 
             let pre_children = stream::iter(pre_children);
 
             let children = pre_children
-                .chain(stream::iter(dir.children.iter()).map(|(name, entry)| {
-                    let kind = entry.kind();
-                    let name = name.to_owned();
-                    let attr = entry.attr();
+                .chain(stream::iter(dir.children.iter())
+                   .enumerate()
+                   .map(|(i, (name, entry))| {
+                        let kind = entry.kind();
+                        let name = name.to_owned();
+                        let attr = entry.attr();
 
-                    (kind, name, attr)
-                }))
-                .map(|(kind, name, attr)| DirectoryEntryPlus {
+                        (kind, name, attr, i as i64 + 3)
+                    })
+                ).map(|(kind, name, attr, offset)| DirectoryEntryPlus {
                     kind,
                     name,
+                    offset,
                     attr,
                     entry_ttl: TTL,
                     attr_ttl: TTL,

@@ -253,6 +253,8 @@ pub struct DirectoryEntry {
     pub kind: FileType,
     /// entry name.
     pub name: OsString,
+    /// Directory offset of the _next_ entry
+    pub offset: i64
 }
 
 /// readdir reply.
@@ -379,6 +381,8 @@ pub struct DirectoryEntryPlus {
     pub kind: FileType,
     /// the entry name.
     pub name: OsString,
+    /// Directory offset of the _next_ entry
+    pub offset: i64,
     /// the entry attribute.
     pub attr: FileAttr,
     /// the entry TTL.
