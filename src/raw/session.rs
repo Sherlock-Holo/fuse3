@@ -1146,7 +1146,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 Ok(data) => {
-                    let content = data.data.as_ref().as_ref();
+                    let content = data.data.as_ref();
 
                     let out_header = fuse_out_header {
                         len: (FUSE_OUT_HEADER_SIZE + content.len()) as u32,
