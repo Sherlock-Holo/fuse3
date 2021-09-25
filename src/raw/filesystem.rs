@@ -196,7 +196,7 @@ pub trait Filesystem {
     }
 
     /// get filesystem statistics.
-    async fn statsfs(&self, req: Request, inode: Inode) -> Result<ReplyStatFs> {
+    async fn statfs(&self, req: Request, inode: Inode) -> Result<ReplyStatFs> {
         Err(libc::ENOSYS.into())
     }
 

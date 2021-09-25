@@ -207,7 +207,7 @@ pub trait PathFilesystem {
     }
 
     /// get filesystem statistics.
-    async fn statsfs(&self, req: Request, path: &OsStr) -> Result<ReplyStatFs> {
+    async fn statfs(&self, req: Request, path: &OsStr) -> Result<ReplyStatFs> {
         Err(libc::ENOSYS.into())
     }
 
