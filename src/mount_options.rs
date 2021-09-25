@@ -10,38 +10,46 @@ use nix::unistd;
 /// mount options.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct MountOptions {
-    // mount syscall data field option
-    pub(crate) uid: Option<u32>,
-    pub(crate) gid: Option<u32>,
 
-    pub(crate) fs_name: Option<String>,
-
-    // default 40000
-    pub(crate) rootmode: Option<u32>,
-
-    pub(crate) allow_root: bool,
-    pub(crate) allow_other: bool,
-
-    pub(crate) read_only: Option<bool>,
-
-    // when run in privileged mode, it is lib self option
+    // Options implemented within fuse3
     pub(crate) nonempty: bool,
 
-    // lib self option
+    // mount options
+    pub(crate) allow_other: bool,
+    pub(crate) allow_root: bool,
+    pub(crate) custom_options: Option<OsString>,
+    #[cfg(target_os = "linux")]
+    pub(crate) dirsync: bool,
     pub(crate) default_permissions: bool,
+    pub(crate) fs_name: Option<String>,
+    pub(crate) gid: Option<u32>,
+    #[cfg(target_os = "freebsd")]
+    pub(crate) intr: bool,
+    #[cfg(target_os = "linux")]
+    pub(crate) nodiratime: bool,
+    pub(crate) noatime: bool,
+    #[cfg(target_os = "linux")]
+    pub(crate) nodev: bool,
+    pub(crate) noexec: bool,
+    pub(crate) nosuid: bool,
+    pub(crate) read_only: bool,
+    #[cfg(target_os = "freebsd")]
+    pub(crate) suiddir: bool,
+    pub(crate) sync: bool,
+    pub(crate) uid: Option<u32>,
 
+    // Optional FUSE features
     pub(crate) dont_mask: bool,
-
     pub(crate) no_open_support: bool,
     pub(crate) no_open_dir_support: bool,
-
     pub(crate) handle_killpriv: bool,
-
     pub(crate) write_back: bool,
-
     pub(crate) force_readdir_plus: bool,
 
-    pub(crate) custom_options: Option<OsString>,
+    // Other FUSE mount options
+    // default 40000
+    #[cfg(target_os = "linux")]
+    pub(crate) rootmode: Option<u32>,
 }
 
 impl MountOptions {
@@ -67,6 +75,7 @@ impl MountOptions {
     }
 
     /// set fuse filesystem `rootmode`, default is 40000.
+    #[cfg(target_os = "linux")]
     pub fn rootmode(&mut self, rootmode: u32) -> &mut Self {
         self.rootmode.replace(rootmode);
 
@@ -89,7 +98,7 @@ impl MountOptions {
 
     /// set fuse filesystem `ro` mount option, default is disable.
     pub fn read_only(&mut self, read_only: bool) -> &mut Self {
-        self.read_only.replace(read_only);
+        self.read_only = read_only;
 
         self
     }
@@ -181,14 +190,22 @@ impl MountOptions {
         if self.allow_other {
             nmount.null_opt(cstr!("allow_other"));
         }
+        if self.allow_root {
+            nmount.null_opt(cstr!("allow_root"));
+        }
         if self.default_permissions {
             nmount.null_opt(cstr!("default_permissions"));
         }
         if let Some(fs_name) = &self.fs_name {
             nmount.str_opt_owned(cstr!("subtype="), fs_name.as_str());
         }
-        // TODO: additional options: push_symlinks_in, intr, max_read=, timeout=
-        // TODO: mount flags like async, nosuid, noexec
+        if self.intr {
+            nmount.null_opt(cstr!("intr"));
+        }
+        if let Some(custom_options) = self.custom_options.as_ref() {
+            nmount.null_opt_owned(custom_options.as_os_str());
+        }
+        // TODO: additional options: push_symlinks_in, max_read=, timeout=
         nmount
     }
 
@@ -213,10 +230,6 @@ impl MountOptions {
 
         if self.allow_other {
             opts.push("allow_other".to_string());
-        }
-
-        if matches!(self.read_only, Some(true)) {
-            opts.push("ro".to_string());
         }
 
         if self.default_permissions {
@@ -276,4 +289,35 @@ impl MountOptions {
 
         options
     }
+
+    #[cfg(target_os = "freebsd")]
+    pub(crate) fn flags(&self) -> nix::mount::MntFlags {
+        use nix::mount::MntFlags;
+
+        let mut flags = MntFlags::empty();
+        if self.noatime { flags.insert(MntFlags::MNT_NOATIME); }
+        if self.noexec { flags.insert(MntFlags::MNT_NOEXEC); }
+        if self.nosuid { flags.insert(MntFlags::MNT_NOSUID); }
+        if self.read_only { flags.insert(MntFlags::MNT_RDONLY); }
+        if self.suiddir { flags.insert(MntFlags::MNT_SUIDDIR); }
+        if self.sync { flags.insert(MntFlags::MNT_SYNCHRONOUS); }
+        flags
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn flags(&self) -> nix::mount::MsFlags {
+        use nix::mount::MsFlags;
+
+        let mut flags = MsFlags::empty();
+        if self.dirsync { flags.insert(MsFlags::MS_DIRSYNC); }
+        if self.noatime { flags.insert(MsFlags::MS_NOATIME); }
+        if self.nodev { flags.insert(MsFlags::MS_NODEV); }
+        if self.nodiratime { flags.insert(MsFlags::MS_NODIRATIME); }
+        if self.noexec { flags.insert(MsFlags::MS_NOEXEC); }
+        if self.nosuid { flags.insert(MsFlags::MS_NOSUID); }
+        if self.read_only { flags.insert(MsFlags::MS_RDONLY); }
+        if self.sync { flags.insert(MsFlags::MS_SYNC); }
+        flags
+    }
+
 }
