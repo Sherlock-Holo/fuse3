@@ -4,9 +4,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream::Stream;
 
-use crate::notify::Notify;
-use crate::{Result, SetAttr};
-
 #[cfg(feature = "file-lock")]
 use super::reply::ReplyLock;
 use super::reply::{
@@ -15,6 +12,8 @@ use super::reply::{
     ReplyStatFs, ReplyWrite, ReplyXAttr,
 };
 use super::Request;
+use crate::notify::Notify;
+use crate::{Result, SetAttr};
 
 #[allow(unused_variables)]
 #[async_trait]

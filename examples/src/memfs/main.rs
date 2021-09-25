@@ -9,15 +9,14 @@ use std::vec::IntoIter;
 
 use async_trait::async_trait;
 use bytes::{Buf, Bytes, BytesMut};
+use fuse3::raw::prelude::*;
+use fuse3::{Errno, MountOptions, Result};
 use futures_util::stream;
 use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
 use libc::mode_t;
 use tokio::sync::RwLock;
 use tracing::Level;
-
-use fuse3::raw::prelude::*;
-use fuse3::{Errno, MountOptions, Result};
 
 const TTL: Duration = Duration::from_secs(1);
 

@@ -9,15 +9,14 @@ use std::vec::IntoIter;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use fuse3::raw::prelude::*;
+use fuse3::{MountOptions, Result};
 use futures_util::stream;
 use futures_util::stream::Iter;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Token};
 use tokio::time;
 use tracing::{debug, info, Level};
-
-use fuse3::raw::prelude::*;
-use fuse3::{MountOptions, Result};
 
 const CONTENT: &str = "hello world\n";
 

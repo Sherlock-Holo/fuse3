@@ -10,11 +10,7 @@ mod tokio_connection {
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use std::{
-        ffi::OsString,
-        path::Path,
-        process::Command
-    };
+    use std::{ffi::OsString, path::Path, process::Command};
 
     use futures_util::lock::Mutex;
     use nix::unistd;
@@ -22,7 +18,7 @@ mod tokio_connection {
     use nix::{
         fcntl::{FcntlArg, OFlag},
         sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
-        sys::uio::IoVec
+        sys::uio::IoVec,
     };
     use tokio::io::unix::AsyncFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -162,8 +158,7 @@ mod tokio_connection {
         pub fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
             use nix::fcntl::{FcntlArg, OFlag};
 
-            let flags =
-                nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
+            let flags = nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
 
             let flags = OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK;
 
@@ -192,9 +187,9 @@ mod tokio_connection {
 
             loop {
                 let mut write_guard = self.fd.writable().await?;
-                if let Ok(result) = write_guard.try_io(|fd| {
-                    unistd::write(fd.as_raw_fd(), buf).map_err(io::Error::from)
-                }) {
+                if let Ok(result) = write_guard
+                    .try_io(|fd| unistd::write(fd.as_raw_fd(), buf).map_err(io::Error::from))
+                {
                     return result;
                 } else {
                     continue;
@@ -223,23 +218,19 @@ mod async_std_connection {
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(feature = "unprivileged")]
-    use std::{
-        ffi::OsString,
-        path::Path,
-        process::Command,
-    };
+    use std::{ffi::OsString, path::Path, process::Command};
 
     use async_io::Async;
     use async_std::fs;
     #[cfg(feature = "unprivileged")]
     use async_std::task;
     use futures_util::lock::Mutex;
+    use nix::unistd;
     #[cfg(feature = "unprivileged")]
     use nix::{
         sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
-        sys::uio::IoVec
+        sys::uio::IoVec,
     };
-    use nix::unistd;
     #[cfg(feature = "unprivileged")]
     use tracing::debug;
 
@@ -367,9 +358,7 @@ mod async_std_connection {
         pub async fn read(&self, buf: &mut [u8]) -> Result<usize, io::Error> {
             let _guard = self.read.lock().await;
 
-            self.fd
-                .read_with(|fd| unistd::read(*fd, buf).into())
-                .await
+            self.fd.read_with(|fd| unistd::read(*fd, buf).into()).await
         }
 
         pub async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {

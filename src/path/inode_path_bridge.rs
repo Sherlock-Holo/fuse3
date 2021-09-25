@@ -14,15 +14,14 @@ use slab::Slab;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::sync::RwLock;
 
+use super::inode_generator::InodeGenerator;
+use super::path_filesystem::PathFilesystem;
 use crate::helper::Apply;
 use crate::notify::Notify;
 use crate::raw::reply::*;
 use crate::raw::{Filesystem, Request};
 use crate::{Errno, SetAttr};
 use crate::{Inode, Result};
-
-use super::inode_generator::InodeGenerator;
-use super::path_filesystem::PathFilesystem;
 
 const ROOT_INODE: Inode = 1;
 
