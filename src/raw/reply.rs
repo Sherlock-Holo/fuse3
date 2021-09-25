@@ -19,26 +19,32 @@ use crate::{FileType, Result};
 ///
 /// Nearly the same as a `libc::timespec`, except for the width of the nsec
 /// field.
+///
+/// ## Note:
+///
+/// Limited by Linux FUSE protocol, any timestamp earlier than UNIX_EPOCH
+/// will convert to UNIX_EPOCH.
 // Could implement From for Duration, and/or libc::timespec, if desired
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Timestamp {
     pub sec: i64,
-    pub nsec: u32
+    pub nsec: u32,
 }
 
 impl Timestamp {
-    pub fn new(sec: i64, nsec: u32) -> Self {
-        Timestamp{sec, nsec}
+    pub const fn new(sec: i64, nsec: u32) -> Self {
+        Timestamp { sec, nsec }
     }
 }
 
 impl From<SystemTime> for Timestamp {
     fn from(t: SystemTime) -> Self {
-        let d = t.duration_since(UNIX_EPOCH)
+        let d = t
+            .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|_| Duration::from_secs(0));
         Timestamp {
             sec: d.as_secs().try_into().unwrap_or(i64::MAX),
-            nsec: d.subsec_nanos()
+            nsec: d.subsec_nanos(),
         }
     }
 }
