@@ -238,8 +238,9 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// get an extended attribute. If size is too small, use [`ReplyXAttr::Size`] to return correct
-    /// size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
+    /// Get an extended attribute. If `size` is too small, return `Err<ERANGE>`.
+    /// Otherwise, use [`ReplyXAttr::Data`] to send the attribute data, or
+    /// return an error.
     async fn getxattr(
         &self,
         req: Request,
@@ -250,8 +251,10 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// list extended attribute names. If size is too small, use [`ReplyXAttr::Size`] to return
-    /// correct size. If size is enough, use [`ReplyXAttr::Data`] to send it, or return error.
+    /// List extended attribute names.
+    ///
+    /// If `size` is too small, return `Err<ERANGE>`.  Otherwise, use
+    /// [`ReplyXAttr::Data`] to send the attribute list, or return an error.
     async fn listxattr(&self, req: Request, inode: Inode, size: u32) -> Result<ReplyXAttr> {
         Err(libc::ENOSYS.into())
     }
