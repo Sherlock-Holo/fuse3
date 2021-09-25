@@ -780,6 +780,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             reply_flags |= FUSE_NO_OPENDIR_SUPPORT;
         }
 
+        // TODO: pass init_in to init, so the file system will know which flags are in use.
         if let Err(err) = fs.init(request).await {
             let init_out_header = fuse_out_header {
                 len: FUSE_OUT_HEADER_SIZE as u32,
