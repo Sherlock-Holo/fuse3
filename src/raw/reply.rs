@@ -1,4 +1,5 @@
 //! reply structures.
+use std::convert::TryInto;
 use std::ffi::OsString;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -14,6 +15,34 @@ use crate::raw::abi::{
 use crate::raw::abi::{fuse_file_lock, fuse_lk_out};
 use crate::{FileType, Result};
 
+/// A file's timestamp, according to FUSE.
+///
+/// Nearly the same as a `libc::timespec`, except for the width of the nsec
+/// field.
+// Could implement From for Duration, and/or libc::timespec, if desired
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct Timestamp {
+    pub sec: i64,
+    pub nsec: u32
+}
+
+impl Timestamp {
+    pub fn new(sec: i64, nsec: u32) -> Self {
+        Timestamp{sec, nsec}
+    }
+}
+
+impl From<SystemTime> for Timestamp {
+    fn from(t: SystemTime) -> Self {
+        let d = t.duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0));
+        Timestamp {
+            sec: d.as_secs().try_into().unwrap_or(i64::MAX),
+            nsec: d.subsec_nanos()
+        }
+    }
+}
+
 /// file attributes
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FileAttr {
@@ -26,14 +55,14 @@ pub struct FileAttr {
     /// Size in blocks
     pub blocks: u64,
     /// Time of last access
-    pub atime: SystemTime,
+    pub atime: Timestamp,
     /// Time of last modification
-    pub mtime: SystemTime,
+    pub mtime: Timestamp,
     /// Time of last change
-    pub ctime: SystemTime,
+    pub ctime: Timestamp,
     #[cfg(target_os = "macos")]
     /// Time of creation (macOS only)
-    pub crtime: SystemTime,
+    pub crtime: Timestamp,
     /// Kind of file (directory, file, pipe, etc)
     pub kind: FileType,
     /// Permissions
@@ -58,36 +87,15 @@ impl From<FileAttr> for fuse_attr {
             ino: attr.ino,
             size: attr.size,
             blocks: attr.blocks,
-            atime: attr
-                .atime
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0))
-                .as_secs(),
-            mtime: attr
-                .mtime
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0))
-                .as_secs(),
-            ctime: attr
-                .ctime
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0))
-                .as_secs(),
-            atimensec: attr
-                .atime
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0))
-                .subsec_nanos(),
-            mtimensec: attr
-                .mtime
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0))
-                .subsec_nanos(),
-            ctimensec: attr
-                .ctime
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0))
-                .subsec_nanos(),
+            // NB: fuse_kernel.h defines the seconds fields as "uint64_t", but
+            // they actually get cast to time_t (e.g. int64_t) inside the
+            // kernel.
+            atime: attr.atime.sec as u64,
+            mtime: attr.mtime.sec as u64,
+            ctime: attr.ctime.sec as u64,
+            atimensec: attr.atime.nsec,
+            mtimensec: attr.mtime.nsec,
+            ctimensec: attr.ctime.nsec,
             mode: mode_from_kind_and_perm(attr.kind, attr.perm),
             nlink: attr.nlink,
             uid: attr.uid,
