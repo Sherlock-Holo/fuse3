@@ -159,7 +159,7 @@ pub trait Filesystem {
     /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
     /// more details.
     async fn open(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
-        Err(libc::ENOSYS.into())
+        Ok(ReplyOpen { fh: 0, flags: 0 })
     }
 
     /// read data. Read should send exactly the number of bytes requested except on EOF or error,
