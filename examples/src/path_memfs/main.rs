@@ -862,7 +862,7 @@ impl PathFilesystem for Fs {
             .write(req, to_path, fh_out, offset_out, &data.data, flags as _)
             .await?;
 
-        Ok(ReplyCopyFileRange { copied: written })
+        Ok(ReplyCopyFileRange { copied: u64::from(written) })
     }
 }
 

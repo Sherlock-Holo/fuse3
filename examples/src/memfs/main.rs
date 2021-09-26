@@ -793,7 +793,7 @@ impl Filesystem for Fs {
             .write(req, inode_out, fh_out, off_out, data, flags as _)
             .await?;
 
-        Ok(ReplyCopyFileRange { copied: written })
+        Ok(ReplyCopyFileRange { copied: u64::from(written) })
     }
 }
 
