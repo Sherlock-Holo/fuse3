@@ -1,6 +1,6 @@
 use crate::raw::abi::fuse_in_header;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 /// Request data
 pub struct Request {
     /// the unique identifier of this request.
