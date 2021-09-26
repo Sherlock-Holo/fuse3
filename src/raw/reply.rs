@@ -19,11 +19,6 @@ use crate::{FileType, Result};
 ///
 /// Nearly the same as a `libc::timespec`, except for the width of the nsec
 /// field.
-///
-/// ## Note:
-///
-/// Limited by Linux FUSE protocol, any timestamp earlier than UNIX_EPOCH
-/// will convert to UNIX_EPOCH.
 // Could implement From for Duration, and/or libc::timespec, if desired
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Timestamp {
