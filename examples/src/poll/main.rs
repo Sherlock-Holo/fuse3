@@ -181,16 +181,19 @@ impl Filesystem for Poll {
                 inode: PARENT_INODE,
                 kind: FileType::Directory,
                 name: OsString::from("."),
+                offset: 1,
             }),
             Ok(DirectoryEntry {
                 inode: PARENT_INODE,
                 kind: FileType::Directory,
                 name: OsString::from(".."),
+                offset: 2,
             }),
             Ok(DirectoryEntry {
                 inode: FILE_INODE,
                 kind: FileType::RegularFile,
                 name: OsString::from(FILE_NAME),
+                offset: 3,
             }),
         ];
 
@@ -229,6 +232,7 @@ impl Filesystem for Poll {
                 generation: 0,
                 kind: FileType::Directory,
                 name: OsString::from("."),
+                offset: 1,
                 attr: FileAttr {
                     ino: PARENT_INODE,
                     generation: 0,
@@ -253,6 +257,7 @@ impl Filesystem for Poll {
                 generation: 0,
                 kind: FileType::Directory,
                 name: OsString::from(".."),
+                offset: 2,
                 attr: FileAttr {
                     ino: PARENT_INODE,
                     generation: 0,
@@ -277,6 +282,7 @@ impl Filesystem for Poll {
                 generation: 0,
                 kind: FileType::Directory,
                 name: OsString::from(FILE_NAME),
+                offset: 3,
                 attr: FileAttr {
                     ino: FILE_INODE,
                     generation: 0,

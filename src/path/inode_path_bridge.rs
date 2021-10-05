@@ -772,6 +772,7 @@ where
                 inode,
                 kind: entry.kind,
                 name: entry.name,
+                offset: entry.offset
             }));
         }
 
@@ -1082,6 +1083,7 @@ where
                 generation: 0,
                 kind: entry.kind,
                 name: entry.name,
+                offset: entry.offset,
                 attr: (inode, entry.attr).into(),
                 entry_ttl: entry.entry_ttl,
                 attr_ttl: entry.attr_ttl,

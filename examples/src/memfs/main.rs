@@ -680,12 +680,13 @@ impl Filesystem for Fs {
 
             let pre_children = stream::iter(
                 vec![
-                    (dir.inode, FileType::Directory, OsString::from("."), attr),
+                    (dir.inode, FileType::Directory, OsString::from("."), attr, 1),
                     (
                         dir.parent,
                         FileType::Directory,
                         OsString::from(".."),
                         parent_attr,
+                        2
                     ),
                 ]
                 .into_iter(),
@@ -693,18 +694,21 @@ impl Filesystem for Fs {
 
             let children = pre_children
                 .chain(
-                    stream::iter(dir.children.iter()).filter_map(|(name, entry)| async move {
+                    stream::iter(dir.children.iter())
+                    .enumerate()
+                    .filter_map(|(i, (name, entry))| async move {
                         let inode = entry.inode().await;
                         let attr = entry.attr().await;
 
-                        Some((inode, entry.kind(), name.to_os_string(), attr))
+                        Some((inode, entry.kind(), name.to_os_string(), attr, i as i64 + 3))
                     }),
                 )
-                .map(|(inode, kind, name, attr)| DirectoryEntryPlus {
+                .map(|(inode, kind, name, attr, offset)| DirectoryEntryPlus {
                     inode,
                     generation: 0,
                     kind,
                     name,
+                    offset,
                     attr,
                     entry_ttl: TTL,
                     attr_ttl: TTL,
