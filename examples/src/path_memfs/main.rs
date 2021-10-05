@@ -7,14 +7,13 @@ use std::vec::IntoIter;
 
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use fuse3::path::prelude::*;
+use fuse3::{Errno, MountOptions, Result};
 use futures_util::stream::{Empty, Iter};
 use futures_util::{stream, StreamExt};
 use libc::mode_t;
 use tokio::sync::RwLock;
 use tracing::{debug, Level};
-
-use fuse3::path::prelude::*;
-use fuse3::{Errno, MountOptions, Result};
 
 const TTL: Duration = Duration::from_secs(1);
 const SEPARATOR: char = '/';

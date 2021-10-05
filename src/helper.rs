@@ -27,7 +27,7 @@ pub fn get_first_null_position(data: impl AsRef<[u8]>) -> Option<usize> {
 #[allow(trivial_numeric_casts)]
 /// returns the mode for a given file kind and permission
 pub fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
-    (mode_t::from(kind) | perm as mode_t).into()
+    mode_t::from(kind) | perm as mode_t
 }
 
 /// returns the permission for a given file kind and mode
@@ -37,7 +37,8 @@ pub fn perm_from_mode_and_kind(kind: FileType, mode: mode_t) -> u16 {
 
 #[inline]
 pub fn get_padding_size(dir_entry_size: usize) -> usize {
-    let entry_size = (dir_entry_size + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1); // 64bit align
+    // 64bit align
+    let entry_size = (dir_entry_size + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);
 
     entry_size - dir_entry_size
 }

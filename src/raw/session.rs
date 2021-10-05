@@ -201,7 +201,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let fd = fuse_connection.as_raw_fd();
 
         let mut nmount = mount_options.build();
-        nmount.str_opt_owned(cstr!("fspath"), mount_path)
+        nmount
+            .str_opt_owned(cstr!("fspath"), mount_path)
             .str_opt_owned(cstr!("fd"), format!("{}", fd).as_str());
         debug!("mount options {:?}", &nmount);
 
@@ -1145,7 +1146,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 Ok(data) => {
-                    let content = data.data.as_ref().as_ref();
+                    let content = data.data.as_ref();
 
                     let out_header = fuse_out_header {
                         len: (FUSE_OUT_HEADER_SIZE + content.len()) as u32,
@@ -3900,7 +3901,6 @@ where
 {
     #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
     use async_std::task::spawn;
-
     #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
     use tokio::spawn;
 

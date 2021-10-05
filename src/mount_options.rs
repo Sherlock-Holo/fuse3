@@ -2,10 +2,10 @@ use std::ffi::OsString;
 #[cfg(target_os = "linux")]
 use std::os::unix::io::RawFd;
 
-#[cfg(target_os = "linux")]
-use nix::unistd;
 #[cfg(target_os = "freebsd")]
 use nix::mount::Nmount;
+#[cfg(target_os = "linux")]
+use nix::unistd;
 
 /// mount options.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
@@ -175,7 +175,8 @@ impl MountOptions {
         use cstr::cstr;
 
         let mut nmount = Nmount::new();
-        nmount.str_opt(cstr!("fstype"), cstr!("fusefs"))
+        nmount
+            .str_opt(cstr!("fstype"), cstr!("fusefs"))
             .str_opt(cstr!("from"), cstr!("/dev/fuse"));
         if self.allow_other {
             nmount.null_opt(cstr!("allow_other"));
