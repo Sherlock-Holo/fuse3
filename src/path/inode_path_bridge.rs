@@ -647,7 +647,7 @@ where
         req: Request,
         inode: u64,
         name: &OsStr,
-        value: &OsStr,
+        value: &[u8],
         flags: u32,
         position: u32,
     ) -> Result<()> {
