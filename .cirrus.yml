@@ -5,9 +5,11 @@ cargo_cache:
 build: &BUILD
   build_script:
     - . $HOME/.cargo/env || true
-    - cargo build --all-targets
-    - cargo doc --no-deps
-    - cargo clippy
+    - cargo build --all-targets --features=tokio-runtime,file-lock,unprivileged
+    - cargo build --all-targets --features=async-std-runtime,file-lock,unprivileged
+    - cargo doc --no-deps --features=doc
+    - cargo clippy --all-targets --features=tokio-runtime,file-lock,unprivileged
+    - cargo clippy --all-targets --features=async-std-runtime,file-lock,unprivileged
 
 task:
   name: FreeBSD
