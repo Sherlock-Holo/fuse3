@@ -1,0 +1,31 @@
+cargo_cache:
+  folder: $CARGO_HOME/registry
+  fingerprint_script: cat Cargo.lock || echo ""
+
+build: &BUILD
+  build_script:
+    - . $HOME/.cargo/env || true
+    - cargo build --all-targets --features=tokio-runtime,file-lock,unprivileged
+    - cargo build --all-targets --features=async-std-runtime,file-lock,unprivileged
+    - cargo doc --no-deps --features=doc
+    - cargo clippy --all-targets --features=tokio-runtime,file-lock,unprivileged
+    - cargo clippy --all-targets --features=async-std-runtime,file-lock,unprivileged
+
+task:
+  name: FreeBSD
+  freebsd_instance:
+    image: freebsd-12-2-release-amd64
+  setup_script:
+    - fetch https://sh.rustup.rs -o rustup.sh
+    - sh rustup.sh -y --profile=minimal
+    - . $HOME/.cargo/env
+    - rustup component add clippy
+  << : *BUILD
+  before_cache_script: rm -rf $CARGO_HOME/registry/index
+
+task:
+  name: Linux
+  container:
+   image: rust:latest
+  << : *BUILD
+  before_cache_script: rm -rf $CARGO_HOME/registry/index
