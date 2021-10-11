@@ -182,19 +182,19 @@ impl Filesystem for HelloWorld {
                 inode: PARENT_INODE,
                 kind: FileType::Directory,
                 name: OsString::from("."),
-                offset: 1
+                offset: 1,
             }),
             Ok(DirectoryEntry {
                 inode: PARENT_INODE,
                 kind: FileType::Directory,
                 name: OsString::from(".."),
-                offset: 2
+                offset: 2,
             }),
             Ok(DirectoryEntry {
                 inode: FILE_INODE,
                 kind: FileType::RegularFile,
                 name: OsString::from(FILE_NAME),
-                offset: 3
+                offset: 3,
             }),
         ];
 
