@@ -215,24 +215,24 @@ mod async_std_connection {
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{ffi::OsString, path::Path, process::Command};
 
     use async_io::Async;
     use async_std::fs;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use async_std::task;
     use futures_util::lock::Mutex;
     use nix::unistd;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use nix::{
         sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
         sys::uio::IoVec,
     };
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
 
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
 
     #[derive(Debug)]
@@ -260,7 +260,7 @@ mod async_std_connection {
             })
         }
 
-        #[cfg(feature = "unprivileged")]
+        #[cfg(all(target_os = "linux", feature = "unprivileged"))]
         pub async fn new_with_unprivileged(
             mount_options: MountOptions,
             mount_path: impl AsRef<Path>,
