@@ -156,8 +156,6 @@ mod tokio_connection {
 
         #[cfg(all(target_os = "linux", feature = "unprivileged"))]
         pub fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
-            use nix::fcntl::{FcntlArg, OFlag};
-
             let flags = nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
 
             let flags = OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK;
@@ -217,24 +215,24 @@ mod async_std_connection {
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{ffi::OsString, path::Path, process::Command};
 
     use async_io::Async;
     use async_std::fs;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use async_std::task;
     use futures_util::lock::Mutex;
     use nix::unistd;
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use nix::{
         sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
         sys::uio::IoVec,
     };
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
 
-    #[cfg(feature = "unprivileged")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
 
     #[derive(Debug)]
@@ -262,7 +260,7 @@ mod async_std_connection {
             })
         }
 
-        #[cfg(feature = "unprivileged")]
+        #[cfg(all(target_os = "linux", feature = "unprivileged"))]
         pub async fn new_with_unprivileged(
             mount_options: MountOptions,
             mount_path: impl AsRef<Path>,
@@ -327,7 +325,7 @@ mod async_std_connection {
                 };
 
                 let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
-                    if fds.len() < 1 {
+                    if fds.is_empty() {
                         return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
                     }
 
@@ -358,14 +356,16 @@ mod async_std_connection {
         pub async fn read(&self, buf: &mut [u8]) -> Result<usize, io::Error> {
             let _guard = self.read.lock().await;
 
-            self.fd.read_with(|fd| unistd::read(*fd, buf).into()).await
+            self.fd
+                .read_with(|fd| unistd::read(*fd, buf).map_err(Into::into))
+                .await
         }
 
         pub async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {
             let _guard = self.write.lock().await;
 
             self.fd
-                .write_with(|fd| unistd::write(*fd, buf).into())
+                .write_with(|fd| unistd::write(*fd, buf).map_err(Into::into))
                 .await
         }
     }

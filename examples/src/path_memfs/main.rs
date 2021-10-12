@@ -751,28 +751,29 @@ impl PathFilesystem for Fs {
 
             let pre_children = stream::iter(pre_children);
 
-            let children = pre_children
-                .chain(stream::iter(dir.children.iter())
-                   .enumerate()
-                   .map(|(i, (name, entry))| {
-                        let kind = entry.kind();
-                        let name = name.to_owned();
-                        let attr = entry.attr();
+            let children =
+                pre_children
+                    .chain(stream::iter(dir.children.iter()).enumerate().map(
+                        |(i, (name, entry))| {
+                            let kind = entry.kind();
+                            let name = name.to_owned();
+                            let attr = entry.attr();
 
-                        (kind, name, attr, i as i64 + 3)
+                            (kind, name, attr, i as i64 + 3)
+                        },
+                    ))
+                    .map(|(kind, name, attr, offset)| DirectoryEntryPlus {
+                        kind,
+                        name,
+                        offset,
+                        attr,
+                        entry_ttl: TTL,
+                        attr_ttl: TTL,
                     })
-                ).map(|(kind, name, attr, offset)| DirectoryEntryPlus {
-                    kind,
-                    name,
-                    offset,
-                    attr,
-                    entry_ttl: TTL,
-                    attr_ttl: TTL,
-                })
-                .skip(offset as _)
-                .map(Ok)
-                .collect::<Vec<_>>()
-                .await;
+                    .skip(offset as _)
+                    .map(Ok)
+                    .collect::<Vec<_>>()
+                    .await;
 
             Ok(ReplyDirectoryPlus {
                 entries: stream::iter(children),
@@ -864,7 +865,9 @@ impl PathFilesystem for Fs {
             .write(req, to_path, fh_out, offset_out, &data.data, flags as _)
             .await?;
 
-        Ok(ReplyCopyFileRange { copied: u64::from(written) })
+        Ok(ReplyCopyFileRange {
+            copied: u64::from(written),
+        })
     }
 }
 

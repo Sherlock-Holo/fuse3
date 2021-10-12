@@ -772,7 +772,7 @@ where
                 inode,
                 kind: entry.kind,
                 name: entry.name,
-                offset: entry.offset
+                offset: entry.offset,
             }));
         }
 

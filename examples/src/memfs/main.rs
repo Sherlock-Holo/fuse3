@@ -686,23 +686,21 @@ impl Filesystem for Fs {
                         FileType::Directory,
                         OsString::from(".."),
                         parent_attr,
-                        2
+                        2,
                     ),
                 ]
                 .into_iter(),
             );
 
             let children = pre_children
-                .chain(
-                    stream::iter(dir.children.iter())
-                    .enumerate()
-                    .filter_map(|(i, (name, entry))| async move {
+                .chain(stream::iter(dir.children.iter()).enumerate().filter_map(
+                    |(i, (name, entry))| async move {
                         let inode = entry.inode().await;
                         let attr = entry.attr().await;
 
                         Some((inode, entry.kind(), name.to_os_string(), attr, i as i64 + 3))
-                    }),
-                )
+                    },
+                ))
                 .map(|(inode, kind, name, attr, offset)| DirectoryEntryPlus {
                     inode,
                     generation: 0,
@@ -796,7 +794,9 @@ impl Filesystem for Fs {
             .write(req, inode_out, fh_out, off_out, data, flags as _)
             .await?;
 
-        Ok(ReplyCopyFileRange { copied: u64::from(written) })
+        Ok(ReplyCopyFileRange {
+            copied: u64::from(written),
+        })
     }
 }
 

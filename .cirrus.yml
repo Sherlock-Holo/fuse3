@@ -5,6 +5,7 @@ cargo_cache:
 build: &BUILD
   build_script:
     - . $HOME/.cargo/env || true
+    - rustup component add clippy
     - cargo build --all-targets --features=tokio-runtime,file-lock,unprivileged
     - cargo build --all-targets --features=async-std-runtime,file-lock,unprivileged
     - cargo doc --no-deps --features=doc
@@ -19,7 +20,6 @@ task:
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y --profile=minimal
     - . $HOME/.cargo/env
-    - rustup component add clippy
   << : *BUILD
   before_cache_script: rm -rf $CARGO_HOME/registry/index
 

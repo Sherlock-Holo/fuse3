@@ -263,7 +263,7 @@ pub struct DirectoryEntry {
     /// entry name.
     pub name: OsString,
     /// Directory offset of the _next_ entry
-    pub offset: i64
+    pub offset: i64,
 }
 
 /// readdir reply.
