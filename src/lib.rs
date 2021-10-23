@@ -17,7 +17,10 @@
 //!
 //! You must enable `async-std-runtime` or `tokio-runtime` feature.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    convert::TryInto,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 /// re-export [`async_trait`][async_trait::async_trait].
 pub use async_trait::async_trait;
@@ -90,19 +93,27 @@ pub struct SetAttr {
     /// the lock_owner argument.
     pub lock_owner: Option<u64>,
     /// set file or directory atime.
-    pub atime: Option<SystemTime>,
+    pub atime: Option<Timestamp>,
     /// set file or directory mtime.
-    pub mtime: Option<SystemTime>,
+    pub mtime: Option<Timestamp>,
     /// set file or directory ctime.
-    pub ctime: Option<SystemTime>,
+    pub ctime: Option<Timestamp>,
     #[cfg(target_os = "macos")]
-    pub crtime: Option<SystemTime>,
+    pub crtime: Option<Timestamp>,
     #[cfg(target_os = "macos")]
-    pub chgtime: Option<SystemTime>,
+    pub chgtime: Option<Timestamp>,
     #[cfg(target_os = "macos")]
-    pub bkuptime: Option<SystemTime>,
+    pub bkuptime: Option<Timestamp>,
     #[cfg(target_os = "macos")]
     pub flags: Option<u32>,
+}
+
+/// Helper for constructing Timestamps from fuse_setattr_in, which sign-casts
+/// the seconds.
+macro_rules! fsai2ts {
+    ( $secs: expr, $nsecs: expr) => {
+        Some(Timestamp::new($secs as i64, $nsecs))
+    };
 }
 
 impl From<&fuse_setattr_in> for SetAttr {
@@ -126,21 +137,19 @@ impl From<&fuse_setattr_in> for SetAttr {
         }
 
         if setattr_in.valid & FATTR_ATIME > 0 {
-            set_attr.atime =
-                Some(UNIX_EPOCH + Duration::new(setattr_in.atime, setattr_in.atimensec));
+            set_attr.atime = fsai2ts!(setattr_in.atime, setattr_in.atimensec);
         }
 
         if setattr_in.valid & FATTR_ATIME_NOW > 0 {
-            set_attr.atime = Some(SystemTime::now());
+            set_attr.atime = Some(SystemTime::now().into());
         }
 
         if setattr_in.valid & FATTR_MTIME > 0 {
-            set_attr.mtime =
-                Some(UNIX_EPOCH + Duration::new(setattr_in.mtime, setattr_in.mtimensec));
+            set_attr.mtime = fsai2ts!(setattr_in.mtime, setattr_in.mtimensec);
         }
 
         if setattr_in.valid & FATTR_MTIME_NOW > 0 {
-            set_attr.mtime = Some(SystemTime::now());
+            set_attr.mtime = Some(SystemTime::now().into());
         }
 
         if setattr_in.valid & FATTR_LOCKOWNER > 0 {
@@ -148,10 +157,41 @@ impl From<&fuse_setattr_in> for SetAttr {
         }
 
         if setattr_in.valid & FATTR_CTIME > 0 {
-            set_attr.ctime =
-                Some(UNIX_EPOCH + Duration::new(setattr_in.ctime, setattr_in.ctimensec));
+            set_attr.ctime = fsai2ts!(setattr_in.ctime, setattr_in.ctimensec);
         }
 
         set_attr
+    }
+}
+
+/// A file's timestamp, according to FUSE.
+///
+/// Nearly the same as a `libc::timespec`, except for the width of the nsec
+/// field.
+// Could implement From for Duration, and/or libc::timespec, if desired
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct Timestamp {
+    pub sec: i64,
+    pub nsec: u32,
+}
+
+impl Timestamp {
+    /// Create a new timestamp from its component parts.
+    ///
+    /// `nsec` should be less than 1_000_000_000.
+    pub fn new(sec: i64, nsec: u32) -> Self {
+        Timestamp { sec, nsec }
+    }
+}
+
+impl From<SystemTime> for Timestamp {
+    fn from(t: SystemTime) -> Self {
+        let d = t
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0));
+        Timestamp {
+            sec: d.as_secs().try_into().unwrap_or(i64::MAX),
+            nsec: d.subsec_nanos(),
+        }
     }
 }
