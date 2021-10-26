@@ -1,7 +1,3 @@
-cargo_cache:
-  folder: $CARGO_HOME/registry
-  fingerprint_script: cat Cargo.lock || echo ""
-
 build: &BUILD
   build_script:
     - . $HOME/.cargo/env || true
@@ -21,11 +17,9 @@ task:
     - sh rustup.sh -y --profile=minimal
     - . $HOME/.cargo/env
   << : *BUILD
-  before_cache_script: rm -rf $CARGO_HOME/registry/index
 
 task:
   name: Linux
   container:
    image: rust:latest
   << : *BUILD
-  before_cache_script: rm -rf $CARGO_HOME/registry/index
