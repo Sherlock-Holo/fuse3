@@ -151,7 +151,9 @@ pub trait Filesystem {
     /// fh, and use this in other all other file operations (read, write, flush, release, fsync).
     /// Filesystem may also implement stateless file I/O and not store anything in fh. There are
     /// also some flags (`direct_io`, `keep_cache`) which the filesystem may set, to change the way
-    /// the file is opened.
+    /// the file is opened.  A file system need not implement this method if it
+    /// sets [`MountOptions::no_open_support`] and if the kernel supports
+    /// `FUSE_NO_OPEN_SUPPORT`.
     ///
     /// # Notes:
     ///
@@ -284,11 +286,11 @@ pub trait Filesystem {
     /// `fh`, and use this in other all other directory stream operations
     /// ([`readdir`][Filesystem::readdir], [`releasedir`][Filesystem::releasedir],
     /// [`fsyncdir`][Filesystem::fsyncdir]). Filesystem may also implement stateless directory
-    /// I/O and not store anything in `fh`, though that makes it impossible to implement standard
-    /// conforming directory stream operations in case the contents of the directory can change
-    /// between `opendir` and [`releasedir`][Filesystem::releasedir].
+    /// I/O and not store anything in `fh`.  A file system need not implement this method if it
+    /// sets [`MountOptions::no_open_dir_support`] and if the kernel supports
+    /// `FUSE_NO_OPENDIR_SUPPORT`.
     async fn opendir(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
-        Ok(ReplyOpen { fh: 0, flags: 0 })
+        Err(libc::ENOSYS.into())
     }
 
     /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
