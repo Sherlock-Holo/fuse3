@@ -161,8 +161,8 @@ pub trait PathFilesystem {
     /// Filesystem may also implement stateless file I/O and not store anything in fh. There are
     /// also some flags (`direct_io`, `keep_cache`) which the filesystem may set, to change the way
     /// the file is opened.  A file system need not implement this method if it
-    /// sets [`MountOptions::no_open_support`] and if the kernel supports
-    /// `FUSE_NO_OPEN_SUPPORT`.
+    /// sets [`MountOptions::no_open_support`][crate::MountOptions::no_open_support] and if the
+    /// kernel supports `FUSE_NO_OPEN_SUPPORT`.
     ///
     /// # Notes:
     ///
@@ -308,8 +308,8 @@ pub trait PathFilesystem {
     /// ([`readdir`][PathFilesystem::readdir], [`releasedir`][PathFilesystem::releasedir],
     /// [`fsyncdir`][PathFilesystem::fsyncdir]). Filesystem may also implement stateless directory
     /// I/O and not store anything in `fh`.  A file system need not implement this method if it
-    /// sets [`MountOptions::no_open_dir_support`] and if the kernel supports
-    /// `FUSE_NO_OPENDIR_SUPPORT`.
+    /// sets [`MountOptions::no_open_dir_support`][crate::MountOptions::no_open_dir_support] and if
+    /// the kernel supports `FUSE_NO_OPENDIR_SUPPORT`.
     async fn opendir(&self, req: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
         Err(libc::ENOSYS.into())
     }
