@@ -142,8 +142,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
         use nix::mount::MsFlags;
 
-        let mut mount_options = self.mount_options.clone();
-
         let mount_path = mount_path.as_ref();
 
         self.mount_empty_check(mount_path).await?;
@@ -152,9 +150,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let fd = fuse_connection.as_raw_fd();
 
-        let options = mount_options.build(fd);
+        let options = self.mount_options.build(fd);
 
-        let fs_name = if let Some(fs_name) = mount_options.fs_name.as_ref() {
+        let fs_name = if let Some(fs_name) = self.mount_options.fs_name.as_ref() {
             Some(fs_name.as_str())
         } else {
             Some("fuse")
@@ -190,8 +188,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         use cstr::cstr;
         use nix::mount::MntFlags;
 
-        let mount_options = self.mount_options.clone();
-
         let mount_path = mount_path.as_ref();
 
         self.mount_empty_check(mount_path).await?;
@@ -200,16 +196,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let fd = fuse_connection.as_raw_fd();
 
-        let mut nmount = mount_options.build();
-        nmount
-            .str_opt_owned(cstr!("fspath"), mount_path)
-            .str_opt_owned(cstr!("fd"), format!("{}", fd).as_str());
-        debug!("mount options {:?}", &nmount);
+        {
+            let mut nmount = self.mount_options.build();
+            nmount
+                .str_opt_owned(cstr!("fspath"), mount_path)
+                .str_opt_owned(cstr!("fd"), format!("{}", fd).as_str());
+            debug!("mount options {:?}", &nmount);
 
-        if let Err(err) = nmount.nmount(MntFlags::MNT_NOSUID) {
-            error!("mount {} failed: {}", mount_path.display(), err);
+            if let Err(err) = nmount.nmount(MntFlags::MNT_NOSUID) {
+                error!("mount {} failed: {}", mount_path.display(), err);
 
-            return Err(std::io::Error::from(err));
+                return Err(std::io::Error::from(err));
+            }
         }
 
         self.fuse_connection.replace(Arc::new(fuse_connection));

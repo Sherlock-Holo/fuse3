@@ -897,9 +897,9 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    let mount_options = MountOptions::default()
+    let mut mount_options = MountOptions::default();
         // .allow_other(true)
-        .force_readdir_plus(true)
+    mount_options.force_readdir_plus(true)
         .uid(uid)
         .gid(gid);
 

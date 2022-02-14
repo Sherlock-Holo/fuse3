@@ -326,7 +326,8 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    let mount_options = MountOptions::default().uid(uid).gid(gid).read_only(true);
+    let mut mount_options = MountOptions::default();
+    mount_options.uid(uid).gid(gid).read_only(true);
 
     let mount_path = mount_path.expect("no mount point specified");
     Session::new(mount_options)
