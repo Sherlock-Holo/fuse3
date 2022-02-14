@@ -858,7 +858,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -1188,7 +1188,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => (OsString::from_vec((&data[..index]).to_vec()), index),
+            Some(index) => (OsString::from_vec(data[..index].to_vec()), index),
         };
 
         data = &data[first_null_index + 1..];
@@ -1205,7 +1205,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -1296,7 +1296,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -1383,7 +1383,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -1453,7 +1453,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -1505,7 +1505,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -1574,7 +1574,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => (OsString::from_vec((&data[..index]).to_vec()), index),
+            Some(index) => (OsString::from_vec(data[..index].to_vec()), index),
         };
 
         data = &data[first_null_index + 1..];
@@ -1591,7 +1591,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -1669,7 +1669,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -2152,7 +2152,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => (OsString::from_vec((&data[..index]).to_vec()), index),
+            Some(index) => (OsString::from_vec(data[..index].to_vec()), index),
         };
 
         data = &data[first_null_index + 1..];
@@ -2233,7 +2233,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -2417,7 +2417,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -3038,7 +3038,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -3325,7 +3325,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             return;
         }
 
-        let data = (&data[..notify_retrieve_in.size as usize]).to_vec();
+        let data = data[..notify_retrieve_in.size as usize].to_vec();
 
         let fs = fs.clone();
 
@@ -3640,7 +3640,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => (OsString::from_vec((&data[..index]).to_vec()), index),
+            Some(index) => (OsString::from_vec(data[..index].to_vec()), index),
         };
 
         data = &data[index + 1..];
@@ -3657,7 +3657,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Some(index) => OsString::from_vec((&data[..index]).to_vec()),
+            Some(index) => OsString::from_vec(data[..index].to_vec()),
         };
 
         let mut resp_sender = self.response_sender.clone();
