@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
 use async_trait::async_trait;
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, BytesMut};
 use fuse3::raw::prelude::*;
 use fuse3::{Errno, MountOptions, Result};
 use futures_util::stream;
@@ -521,7 +521,7 @@ impl Filesystem for Fs {
             } else {
                 file.content.resize(offset as _, 0);
 
-                file.content.extend_from_slice(&data);
+                file.content.extend_from_slice(data);
 
                 Ok(ReplyWrite {
                     written: data.len() as _,
@@ -788,7 +788,7 @@ impl Filesystem for Fs {
     ) -> Result<ReplyCopyFileRange> {
         let data = self.read(req, inode, fh_in, off_in, length as _).await?;
 
-        let data = data.data.as_ref().as_ref();
+        let data = data.data.as_ref();
 
         let ReplyWrite { written } = self
             .write(req, inode_out, fh_out, off_out, data, flags as _)
@@ -819,8 +819,9 @@ async fn main() {
     let gid = unsafe { libc::getgid() };
 
     let mut mount_options = MountOptions::default();
-        // .allow_other(true)
-    mount_options.fs_name("memfs")
+    // .allow_other(true)
+    mount_options
+        .fs_name("memfs")
         .force_readdir_plus(true)
         .uid(uid)
         .gid(gid);

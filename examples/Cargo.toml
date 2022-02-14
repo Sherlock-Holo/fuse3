@@ -33,4 +33,4 @@ mio = { version = "0.7", features = ["os-poll", "os-util"] }
 tempfile = "3.2"
 bytes = "1.0"
 tracing = "0.1"
-tracing-subscriber = "0.2"
+tracing-subscriber = "0.3"

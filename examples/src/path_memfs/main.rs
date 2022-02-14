@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
 use async_trait::async_trait;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use fuse3::path::prelude::*;
 use fuse3::{Errno, MountOptions, Result};
 use futures_util::stream::{Empty, Iter};
@@ -898,10 +898,8 @@ async fn main() {
     let gid = unsafe { libc::getgid() };
 
     let mut mount_options = MountOptions::default();
-        // .allow_other(true)
-    mount_options.force_readdir_plus(true)
-        .uid(uid)
-        .gid(gid);
+    // .allow_other(true)
+    mount_options.force_readdir_plus(true).uid(uid).gid(gid);
 
     let mount_path = mount_path.expect("no mount point specified");
     Session::new(mount_options)
