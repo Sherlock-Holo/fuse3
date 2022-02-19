@@ -140,8 +140,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     /// mount the filesystem. This function will block until the filesystem is unmounted.
     #[cfg(target_os = "linux")]
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
-        use nix::mount::MsFlags;
-
         let mount_path = mount_path.as_ref();
 
         self.mount_empty_check(mount_path).await?;
@@ -164,7 +162,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             fs_name,
             mount_path,
             Some("fuse"),
-            MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+            self.mount_options.flags(),
             Some(options.as_os_str()),
         ) {
             error!("mount {:?} failed", mount_path);
@@ -186,7 +184,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     #[cfg(target_os = "freebsd")]
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
         use cstr::cstr;
-        use nix::mount::MntFlags;
 
         let mount_path = mount_path.as_ref();
 
@@ -203,7 +200,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .str_opt_owned(cstr!("fd"), format!("{}", fd).as_str());
             debug!("mount options {:?}", &nmount);
 
-            if let Err(err) = nmount.nmount(MntFlags::MNT_NOSUID) {
+            if let Err(err) = nmount.nmount(self.mount_options.flags()) {
                 error!("mount {} failed: {}", mount_path.display(), err);
 
                 return Err(std::io::Error::from(err));
@@ -631,6 +628,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let mut reply_flags = 0;
 
+        // TODO: most of these FUSE_* flags should be controllable by the consuming crate.
         if init_in.flags & FUSE_ASYNC_READ > 0 {
             debug!("enable FUSE_ASYNC_READ");
 
