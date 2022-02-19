@@ -10,7 +10,6 @@ use nix::unistd;
 /// mount options.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct MountOptions {
-
     // Options implemented within fuse3
     pub(crate) nonempty: bool,
 
@@ -295,12 +294,24 @@ impl MountOptions {
         use nix::mount::MntFlags;
 
         let mut flags = MntFlags::empty();
-        if self.noatime { flags.insert(MntFlags::MNT_NOATIME); }
-        if self.noexec { flags.insert(MntFlags::MNT_NOEXEC); }
-        if self.nosuid { flags.insert(MntFlags::MNT_NOSUID); }
-        if self.read_only { flags.insert(MntFlags::MNT_RDONLY); }
-        if self.suiddir { flags.insert(MntFlags::MNT_SUIDDIR); }
-        if self.sync { flags.insert(MntFlags::MNT_SYNCHRONOUS); }
+        if self.noatime {
+            flags.insert(MntFlags::MNT_NOATIME);
+        }
+        if self.noexec {
+            flags.insert(MntFlags::MNT_NOEXEC);
+        }
+        if self.nosuid {
+            flags.insert(MntFlags::MNT_NOSUID);
+        }
+        if self.read_only {
+            flags.insert(MntFlags::MNT_RDONLY);
+        }
+        if self.suiddir {
+            flags.insert(MntFlags::MNT_SUIDDIR);
+        }
+        if self.sync {
+            flags.insert(MntFlags::MNT_SYNCHRONOUS);
+        }
         flags
     }
 
@@ -309,15 +320,30 @@ impl MountOptions {
         use nix::mount::MsFlags;
 
         let mut flags = MsFlags::empty();
-        if self.dirsync { flags.insert(MsFlags::MS_DIRSYNC); }
-        if self.noatime { flags.insert(MsFlags::MS_NOATIME); }
-        if self.nodev { flags.insert(MsFlags::MS_NODEV); }
-        if self.nodiratime { flags.insert(MsFlags::MS_NODIRATIME); }
-        if self.noexec { flags.insert(MsFlags::MS_NOEXEC); }
-        if self.nosuid { flags.insert(MsFlags::MS_NOSUID); }
-        if self.read_only { flags.insert(MsFlags::MS_RDONLY); }
-        if self.sync { flags.insert(MsFlags::MS_SYNCHRONOUS); }
+        if self.dirsync {
+            flags.insert(MsFlags::MS_DIRSYNC);
+        }
+        if self.noatime {
+            flags.insert(MsFlags::MS_NOATIME);
+        }
+        if self.nodev {
+            flags.insert(MsFlags::MS_NODEV);
+        }
+        if self.nodiratime {
+            flags.insert(MsFlags::MS_NODIRATIME);
+        }
+        if self.noexec {
+            flags.insert(MsFlags::MS_NOEXEC);
+        }
+        if self.nosuid {
+            flags.insert(MsFlags::MS_NOSUID);
+        }
+        if self.read_only {
+            flags.insert(MsFlags::MS_RDONLY);
+        }
+        if self.sync {
+            flags.insert(MsFlags::MS_SYNCHRONOUS);
+        }
         flags
     }
-
 }

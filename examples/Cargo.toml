@@ -27,9 +27,9 @@ path = "src/path_memfs/main.rs"
 fuse3 = { path = "../", features = ["tokio-runtime", "unprivileged"] }
 async-trait = "0.1"
 libc = "0.2"
-tokio = { version = "1.2", features = ["macros", "rt", "time"] }
+tokio = { version = "1", features = ["macros", "rt", "time"] }
 futures-util = "0.3"
-mio = { version = "0.7", features = ["os-poll", "os-util"] }
+mio = { version = "0.8", features = ["os-poll"] }
 tempfile = "3.2"
 bytes = "1.0"
 tracing = "0.1"
