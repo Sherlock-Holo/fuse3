@@ -272,7 +272,7 @@ impl MountOptions {
             opts.push("allow_other".to_string());
         }
 
-        if matches!(self.read_only, Some(true)) {
+        if matches!(self.read_only, true) {
             opts.push("ro".to_string());
         }
 
@@ -316,7 +316,7 @@ impl MountOptions {
         if self.noexec { flags.insert(MsFlags::MS_NOEXEC); }
         if self.nosuid { flags.insert(MsFlags::MS_NOSUID); }
         if self.read_only { flags.insert(MsFlags::MS_RDONLY); }
-        if self.sync { flags.insert(MsFlags::MS_SYNC); }
+        if self.sync { flags.insert(MsFlags::MS_SYNCHRONOUS); }
         flags
     }
 
