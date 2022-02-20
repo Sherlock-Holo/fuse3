@@ -334,6 +334,8 @@ async fn main() {
         .mount_with_unprivileged(HelloWorld {}, mount_path)
         .await
         .unwrap()
+        .await
+        .unwrap()
 }
 
 fn log_init() {

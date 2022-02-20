@@ -9,7 +9,7 @@
 pub use filesystem::Filesystem;
 pub use request::Request;
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-pub use session::Session;
+pub use session::{MountHandle, Session};
 
 pub(crate) mod abi;
 mod connection;

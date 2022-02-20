@@ -905,5 +905,7 @@ async fn main() {
     Session::new(mount_options)
         .mount_with_unprivileged(Fs::default(), mount_path)
         .await
+        .unwrap()
+        .await
         .unwrap();
 }

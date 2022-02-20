@@ -382,6 +382,8 @@ async fn main() {
     session
         .mount_with_unprivileged(poll, mount_path)
         .await
+        .unwrap()
+        .await
         .unwrap();
 }
 
