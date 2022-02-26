@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-use async_std::fs::read_dir;
+use async_std::{fs::read_dir, task};
 use bincode::Options;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures_util::future::FutureExt;
@@ -21,7 +21,7 @@ use futures_util::{pin_mut, select};
 #[cfg(target_os = "linux")]
 use nix::mount;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-use tokio::fs::read_dir;
+use tokio::{fs::read_dir, task};
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio_stream::wrappers::ReadDirStream;
 use tracing::{debug, debug_span, error, instrument, warn, Instrument, Span};
@@ -226,50 +226,31 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         pin_mut!(dispatch_task);
 
         #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-        {
-            let reply_task = async_std::task::spawn(async move {
-                Self::reply_fuse(fuse_write_connection, receiver).await
-            })
-            .fuse();
+        let reply_task = task::spawn(async move {
+            Self::reply_fuse(fuse_write_connection, receiver)
+                .await
+        })
+        .fuse();
+        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+        let reply_task = task::spawn(async move {
+            Self::reply_fuse(fuse_write_connection, receiver)
+                .await
+        })
+        .fuse()
+        .map(Result::unwrap);
 
-            pin_mut!(reply_task);
+        pin_mut!(reply_task);
 
-            select! {
-                reply_result = reply_task => {
-                    if let Err(err) = reply_result {
-                        return Err(err)
-                    }
-                }
-
-                dispatch_result = dispatch_task => {
-                    if let Err(err) = dispatch_result {
-                        return Err(err)
-                    }
+        select! {
+            reply_result = reply_task => {
+                if let Err(err) = reply_result {
+                    return Err(err)
                 }
             }
-        }
 
-        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-        {
-            let reply_task =
-                tokio::spawn(
-                    async move { Self::reply_fuse(fuse_write_connection, receiver).await },
-                )
-                .fuse();
-
-            pin_mut!(reply_task);
-
-            select! {
-                reply_result = reply_task => {
-                    if let Err(err) = reply_result.unwrap() {
-                        return Err(err)
-                    }
-                }
-
-                dispatch_result = dispatch_task => {
-                    if let Err(err) = dispatch_result {
-                        return Err(err)
-                    }
+            dispatch_result = dispatch_task => {
+                if let Err(err) = dispatch_result {
+                    return Err(err)
                 }
             }
         }
@@ -3877,10 +3858,5 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-    use async_std::task::spawn;
-    #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-    use tokio::spawn;
-
-    spawn(fut.instrument(span));
+    task::spawn(fut.instrument(span));
 }
