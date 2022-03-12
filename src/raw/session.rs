@@ -8,7 +8,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 
 #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
 use async_std::{fs::read_dir, task};
@@ -38,6 +41,25 @@ use crate::{Errno, SetAttr};
 use crate::{Inode, MountOptions};
 
 const ROOT_INODE: Inode = 1;
+
+/// A Future which returns when a file system is unmounted
+#[derive(Debug)]
+pub struct MountHandle(task::JoinHandle<IoResult<()>>);
+
+impl Future for MountHandle {
+    type Output = IoResult<()>;
+
+    #[cfg(feature = "async-std-runtime")]
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(cx)
+    }
+
+    #[cfg(feature = "tokio-runtime")]
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // The unwrap is necessary in order to provide the same API for both runtimes.
+        Pin::new(&mut self.0).poll(cx).map(Result::unwrap)
+    }
+}
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 /// fuse filesystem session, inode based.
@@ -109,7 +131,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         self,
         fs: FS,
         mount_path: P,
-    ) -> IoResult<()> {
+    ) -> IoResult<MountHandle> {
         self.mount(fs, mount_path).await
     }
 
@@ -120,7 +142,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         mut self,
         fs: FS,
         mount_path: P,
-    ) -> IoResult<()> {
+    ) -> IoResult<MountHandle> {
         let mount_path = mount_path.as_ref();
 
         self.mount_empty_check(mount_path).await?;
@@ -134,12 +156,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("mount {:?} success", mount_path);
 
-        self.inner_mount().await
+        Ok(MountHandle(task::spawn(self.inner_mount())))
     }
 
     /// mount the filesystem. This function will block until the filesystem is unmounted.
     #[cfg(target_os = "linux")]
-    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
+    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
         let mount_path = mount_path.as_ref();
 
         self.mount_empty_check(mount_path).await?;
@@ -176,13 +198,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("mount {:?} success", mount_path);
 
-        self.inner_mount().await
+        Ok(MountHandle(task::spawn(self.inner_mount())))
     }
 
     /// mount the filesystem. This function will block until the filesystem is
     /// unmounted.
     #[cfg(target_os = "freebsd")]
-    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<()> {
+    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
         use cstr::cstr;
 
         let mount_path = mount_path.as_ref();
@@ -213,10 +235,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("mount {:?} success", mount_path);
 
-        self.inner_mount().await
+        Ok(MountHandle(task::spawn(self.inner_mount())))
     }
 
-    async fn inner_mount(&mut self) -> IoResult<()> {
+    async fn inner_mount(mut self) -> IoResult<()> {
         let fuse_write_connection = self.fuse_connection.as_ref().unwrap().clone();
 
         let receiver = self.response_receiver.take().unwrap();
