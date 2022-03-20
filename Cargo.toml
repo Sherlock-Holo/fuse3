@@ -19,7 +19,7 @@ members = [".", "examples"]
 tokio-runtime = ["tokio", "tokio-stream"]
 async-std-runtime = ["async-std", "async-io"]
 file-lock = []
-unprivileged = ["which"]
+unprivileged = ["nix/socket", "nix/user", "which"]
 doc = ["file-lock", "unprivileged", "tokio-runtime"]
 
 [dependencies]
@@ -30,7 +30,7 @@ cstr = "0.2"
 libc = "0.2"
 bincode = "1"
 serde = { version = "1", features = ["derive"] }
-nix = "0.23"
+nix = { version = "0.24.0", default-features = false, features = ["fs", "mount"] }
 which = { version = "4", optional = true }
 tokio-stream = { version = "0.1", features = ["fs"], optional = true }
 async-io = { version = "1", optional = true }
