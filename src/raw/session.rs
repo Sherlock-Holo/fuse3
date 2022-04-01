@@ -38,9 +38,7 @@ use crate::raw::filesystem::Filesystem;
 use crate::raw::reply::ReplyXAttr;
 use crate::raw::request::Request;
 use crate::{Errno, SetAttr};
-use crate::{Inode, MountOptions};
-
-const ROOT_INODE: Inode = 1;
+use crate::MountOptions;
 
 /// A Future which returns when a file system is unmounted
 #[derive(Debug)]
@@ -388,9 +386,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_FORGET => {
-                    if self.handle_forget(request, in_header, data, &fs).await? {
-                        return Ok(());
-                    }
+                    self.handle_forget(request, in_header, data, &fs).await;
                 }
 
                 fuse_opcode::FUSE_GETATTR => {
@@ -918,7 +914,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         in_header: fuse_in_header,
         data: &[u8],
         fs: &Arc<FS>,
-    ) -> IoResult<bool> {
+    ) {
         let forget_in = match get_bincode_config().deserialize::<fuse_forget_in>(data) {
             Err(err) => {
                 error!(
@@ -927,20 +923,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 );
 
                 // no need to reply
-                return Ok(false);
+                return;
             }
 
             Ok(forget_in) => forget_in,
         };
-
-        if in_header.nodeid == ROOT_INODE {
-            debug!("forget root inode");
-
-            fs.forget(request, in_header.nodeid, forget_in.nlookup)
-                .await;
-
-            return Ok(true);
-        }
 
         let fs = fs.clone();
 
@@ -953,8 +940,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             fs.forget(request, in_header.nodeid, forget_in.nlookup)
                 .await
         });
-
-        Ok(false)
     }
 
     #[instrument(skip(self, data, fs))]
