@@ -37,8 +37,8 @@ use crate::raw::connection::FuseConnection;
 use crate::raw::filesystem::Filesystem;
 use crate::raw::reply::ReplyXAttr;
 use crate::raw::request::Request;
-use crate::{Errno, SetAttr};
 use crate::MountOptions;
+use crate::{Errno, SetAttr};
 
 /// A Future which returns when a file system is unmounted
 #[derive(Debug)]
@@ -246,18 +246,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         pin_mut!(dispatch_task);
 
         #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-        let reply_task = task::spawn(async move {
-            Self::reply_fuse(fuse_write_connection, receiver)
-                .await
-        })
-        .fuse();
+        let reply_task =
+            task::spawn(async move { Self::reply_fuse(fuse_write_connection, receiver).await })
+                .fuse();
         #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-        let reply_task = task::spawn(async move {
-            Self::reply_fuse(fuse_write_connection, receiver)
-                .await
-        })
-        .fuse()
-        .map(Result::unwrap);
+        let reply_task =
+            task::spawn(async move { Self::reply_fuse(fuse_write_connection, receiver).await })
+                .fuse()
+                .map(Result::unwrap);
 
         pin_mut!(reply_task);
 
@@ -3854,7 +3850,7 @@ where
         .serialize(&out_header)
         .expect("won't happened");
 
-    futures_util::pin_mut!(sender);
+    pin_mut!(sender);
 
     let _ = sender.send(data).await;
 }
