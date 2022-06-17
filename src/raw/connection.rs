@@ -25,6 +25,7 @@ mod tokio_connection {
     use tokio::task;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
+    use tracing::warn;
 
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
@@ -40,21 +41,30 @@ mod tokio_connection {
         pub async fn new() -> io::Result<Self> {
             const DEV_FUSE: &str = "/dev/fuse";
 
-            let fd = tokio::fs::OpenOptions::new()
+            match tokio::fs::OpenOptions::new()
                 .write(true)
                 .read(true)
                 .custom_flags(libc::O_NONBLOCK)
                 .open(DEV_FUSE)
-                .await?
-                .into_std()
                 .await
-                .into_raw_fd();
-
-            Ok(Self {
-                fd: AsyncFd::new(fd)?,
-                read: Mutex::new(()),
-                write: Mutex::new(()),
-            })
+            {
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::NotFound {
+                        warn!("Cannot open /dev/fuse.  Is the module loaded?");
+                    }
+                    Err(e)
+                },
+                Ok(handle) => {
+                    let fd = handle.into_std()
+                    .await
+                    .into_raw_fd();
+                    Ok(Self {
+                        fd: AsyncFd::new(fd)?,
+                        read: Mutex::new(()),
+                        write: Mutex::new(()),
+                    })
+                }
+            }
         }
 
         #[cfg(all(target_os = "linux", feature = "unprivileged"))]
