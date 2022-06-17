@@ -10,7 +10,7 @@ mod tokio_connection {
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use std::{ffi::OsString, path::Path, process::Command};
+    use std::{ffi::OsString, io::IoSliceMut, path::Path, process::Command};
 
     use futures_util::lock::Mutex;
     use nix::unistd;
@@ -18,7 +18,6 @@ mod tokio_connection {
     use nix::{
         fcntl::{FcntlArg, OFlag},
         sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
-        sys::uio::IoVec,
     };
     use tokio::io::unix::AsyncFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -123,9 +122,9 @@ mod tokio_connection {
 
                 let mut cmsg_buf = nix::cmsg_space!([RawFd; 1]);
 
-                let bufs = [IoVec::from_mut_slice(&mut buf)];
+                let mut bufs = [IoSliceMut::new(&mut buf)];
 
-                let msg = match socket::recvmsg(fd1, &bufs, Some(&mut cmsg_buf), MsgFlags::empty())
+                let msg = match socket::recvmsg::<()>(fd1, &mut bufs[..], Some(&mut cmsg_buf), MsgFlags::empty())
                 {
                     Err(err) => return Err(err.into()),
 
@@ -226,7 +225,7 @@ mod async_std_connection {
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use std::{ffi::OsString, path::Path, process::Command};
+    use std::{ffi::OsString, io::IoSliceMut, path::Path, process::Command};
 
     use async_io::Async;
     use async_std::fs;
@@ -237,7 +236,6 @@ mod async_std_connection {
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use nix::{
         sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
-        sys::uio::IoVec,
     };
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
@@ -325,9 +323,9 @@ mod async_std_connection {
 
                 let mut cmsg_buf = nix::cmsg_space!([RawFd; 1]);
 
-                let bufs = [IoVec::from_mut_slice(&mut buf)];
+                let mut bufs = [IoSliceMut::new(&mut buf)];
 
-                let msg = match socket::recvmsg(fd1, &bufs, Some(&mut cmsg_buf), MsgFlags::empty())
+                let msg = match socket::recvmsg::<()>(fd1, &mut bufs[..], Some(&mut cmsg_buf), MsgFlags::empty())
                 {
                     Err(err) => return Err(err.into()),
 
