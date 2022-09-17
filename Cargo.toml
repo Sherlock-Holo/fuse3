@@ -1,6 +1,6 @@
 [package]
 name = "fuse3"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Sherlock Holo <sherlockya@gmail.com>"]
 edition = "2021"
 readme = "README.md"
@@ -30,7 +30,7 @@ cstr = "0.2"
 libc = "0.2"
 bincode = "1"
 serde = { version = "1", features = ["derive"] }
-nix = { version = "0.24.0", default-features = false, features = ["fs", "mount"] }
+nix = { version = "0.25", default-features = false, features = ["fs", "mount"] }
 which = { version = "4", optional = true }
 tokio-stream = { version = "0.1", features = ["fs"], optional = true }
 async-io = { version = "1", optional = true }
