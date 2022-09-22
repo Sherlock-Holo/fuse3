@@ -52,11 +52,9 @@ mod tokio_connection {
                         warn!("Cannot open /dev/fuse.  Is the module loaded?");
                     }
                     Err(e)
-                },
+                }
                 Ok(handle) => {
-                    let fd = handle.into_std()
-                    .await
-                    .into_raw_fd();
+                    let fd = handle.into_std().await.into_raw_fd();
                     Ok(Self {
                         fd: AsyncFd::new(fd)?,
                         read: Mutex::new(()),
@@ -124,8 +122,12 @@ mod tokio_connection {
 
                 let mut bufs = [IoSliceMut::new(&mut buf)];
 
-                let msg = match socket::recvmsg::<()>(fd1, &mut bufs[..], Some(&mut cmsg_buf), MsgFlags::empty())
-                {
+                let msg = match socket::recvmsg::<()>(
+                    fd1,
+                    &mut bufs[..],
+                    Some(&mut cmsg_buf),
+                    MsgFlags::empty(),
+                ) {
                     Err(err) => return Err(err.into()),
 
                     Ok(msg) => msg,
@@ -232,11 +234,11 @@ mod async_std_connection {
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use async_std::task;
     use futures_util::lock::Mutex;
-    use nix::unistd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use nix::{
-        sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
+    use nix::sys::socket::{
+        self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType,
     };
+    use nix::unistd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
 
@@ -325,8 +327,12 @@ mod async_std_connection {
 
                 let mut bufs = [IoSliceMut::new(&mut buf)];
 
-                let msg = match socket::recvmsg::<()>(fd1, &mut bufs[..], Some(&mut cmsg_buf), MsgFlags::empty())
-                {
+                let msg = match socket::recvmsg::<()>(
+                    fd1,
+                    &mut bufs[..],
+                    Some(&mut cmsg_buf),
+                    MsgFlags::empty(),
+                ) {
                     Err(err) => return Err(err.into()),
 
                     Ok(msg) => msg,

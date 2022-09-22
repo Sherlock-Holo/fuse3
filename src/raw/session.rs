@@ -259,15 +259,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         select! {
             reply_result = reply_task => {
-                if let Err(err) = reply_result {
-                    return Err(err)
-                }
+                reply_result?;
             }
 
             dispatch_result = dispatch_task => {
-                if let Err(err) = dispatch_result {
-                    return Err(err)
-                }
+                dispatch_result?;
             }
         }
 
