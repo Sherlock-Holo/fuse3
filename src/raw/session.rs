@@ -26,7 +26,6 @@ use nix::mount;
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
 use tokio::{fs::read_dir, task};
 #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-use tokio_stream::wrappers::ReadDirStream;
 use tracing::{debug, debug_span, error, instrument, warn, Instrument, Span};
 
 use crate::helper::*;
@@ -96,12 +95,7 @@ impl<FS> Session<FS> {
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     pub async fn mount_empty_check(&self, mount_path: &Path) -> IoResult<()> {
         #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-        if !self.mount_options.nonempty
-            && ReadDirStream::new(read_dir(mount_path).await?)
-                .next()
-                .await
-                .is_some()
-        {
+        if !self.mount_options.nonempty && read_dir(mount_path).await?.next_entry().await.is_ok() {
             return Err(IoError::new(
                 ErrorKind::AlreadyExists,
                 "mount point is not empty",

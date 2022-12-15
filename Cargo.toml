@@ -16,7 +16,7 @@ description = "FUSE user-space library async version implementation."
 members = [".", "examples"]
 
 [features]
-tokio-runtime = ["tokio", "tokio-stream"]
+tokio-runtime = ["tokio"]
 async-std-runtime = ["async-std", "async-io"]
 file-lock = []
 unprivileged = ["nix/socket", "which"]
