@@ -16,7 +16,7 @@ description = "FUSE user-space library async version implementation."
 members = [".", "examples"]
 
 [features]
-tokio-runtime = ["tokio", "tokio-stream"]
+tokio-runtime = ["tokio"]
 async-std-runtime = ["async-std", "async-io"]
 file-lock = []
 unprivileged = ["nix/socket", "which"]
@@ -32,7 +32,6 @@ bincode = "1"
 serde = { version = "1", features = ["derive"] }
 nix = { version = "0.26.1", default-features = false, features = ["fs", "mount", "user"] }
 which = { version = "4", optional = true }
-tokio-stream = { version = "0.1", features = ["fs"], optional = true }
 async-io = { version = "1", optional = true }
 bytes = "1"
 slab = "0.4"
