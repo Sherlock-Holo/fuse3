@@ -84,7 +84,7 @@ mod tokio_connection {
                 Err(err) => {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,
-                        format!("find fusermount binary failed {:?}", err),
+                        format!("find fusermount binary failed {err:?}"),
                     ));
                 }
                 Ok(path) => path,

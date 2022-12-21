@@ -211,7 +211,7 @@ impl MountOptions {
     #[cfg(target_os = "linux")]
     pub(crate) fn build(&self, fd: RawFd) -> OsString {
         let mut opts = vec![
-            format!("fd={}", fd),
+            format!("fd={fd}"),
             format!(
                 "user_id={}",
                 self.uid.unwrap_or_else(|| unistd::getuid().as_raw())
