@@ -30,7 +30,7 @@ https://github.com/Sherlock-Holo/fuse3)
 
 ## Supported Rust Versions
 
-The minimum supported version is 1.48.
+The minimum supported version is 1.63.
 
 ## License
 
