@@ -193,17 +193,9 @@ mod tokio_connection {
 
         pub async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {
             let _guard = self.write.lock().await;
+            let fd = self.fd.as_raw_fd();
 
-            loop {
-                let mut write_guard = self.fd.writable().await?;
-                if let Ok(result) = write_guard
-                    .try_io(|fd| unistd::write(fd.as_raw_fd(), buf).map_err(io::Error::from))
-                {
-                    return result;
-                } else {
-                    continue;
-                }
-            }
+            unistd::write(fd.as_raw_fd(), buf).map_err(Into::into)
         }
     }
 
@@ -377,10 +369,9 @@ mod async_std_connection {
 
         pub async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {
             let _guard = self.write.lock().await;
+            let fd = *self.fd.as_ref();
 
-            self.fd
-                .write_with(|fd| unistd::write(*fd, buf).map_err(Into::into))
-                .await
+            unistd::write(fd, buf).map_err(Into::into)
         }
     }
 
