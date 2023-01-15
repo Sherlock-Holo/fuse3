@@ -10,13 +10,16 @@ use std::vec::IntoIter;
 use async_trait::async_trait;
 use bytes::{Buf, BytesMut};
 use fuse3::raw::prelude::*;
-use fuse3::{Errno, MountOptions, Result};
+use fuse3::{Errno, Inode, MountOptions, Result};
 use futures_util::stream;
 use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
 use libc::mode_t;
 use tokio::sync::RwLock;
-use tracing::Level;
+use tracing::metadata::LevelFilter;
+use tracing::{debug, subscriber};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{fmt, Registry};
 
 const TTL: Duration = Duration::from_secs(1);
 
@@ -103,10 +106,6 @@ impl Entry {
         matches!(self, Entry::Dir(_))
     }
 
-    fn is_file(&self) -> bool {
-        !self.is_dir()
-    }
-
     async fn inode(&self) -> u64 {
         match self {
             Entry::Dir(dir) => {
@@ -128,6 +127,13 @@ impl Entry {
             FileType::Directory
         } else {
             FileType::RegularFile
+        }
+    }
+
+    async fn name(&self) -> OsString {
+        match self {
+            Entry::Dir(dir) => dir.read().await.name.clone(),
+            Entry::File(file) => file.read().await.name.clone(),
         }
     }
 }
@@ -276,7 +282,7 @@ impl Filesystem for Fs {
         let entry = inner
             .inode_map
             .get(&parent)
-            .ok_or_else(|| Errno::from(libc::ENOENT))?;
+            .ok_or_else(Errno::new_not_exist)?;
 
         if let Entry::Dir(dir) = entry {
             let mut dir = dir.write().await;
@@ -333,11 +339,16 @@ impl Filesystem for Fs {
                 return Err(libc::EISDIR.into());
             }
 
-            let inode = dir.children.remove(name).unwrap().inode().await;
+            let child_entry = dir.children.remove(name).unwrap();
 
             drop(dir); // fix inner can't borrow as mut next line
 
-            inner.inode_map.remove(&inode);
+            if match &child_entry {
+                Entry::Dir(dir) => Arc::strong_count(dir) == 1,
+                Entry::File(_) => unreachable!(),
+            } {
+                inner.inode_map.remove(&child_entry.inode().await);
+            }
 
             Ok(())
         } else {
@@ -366,11 +377,16 @@ impl Filesystem for Fs {
                 return Err(Errno::new_is_not_dir());
             }
 
-            let inode = dir.children.remove(name).unwrap().inode().await;
+            let child_entry = dir.children.remove(name).unwrap();
 
             drop(dir); // fix inner can't borrow as mut next line
 
-            inner.inode_map.remove(&inode);
+            if match &child_entry {
+                Entry::Dir(_) => unreachable!(),
+                Entry::File(file) => Arc::strong_count(file) == 1,
+            } {
+                inner.inode_map.remove(&child_entry.inode().await);
+            }
 
             Ok(())
         } else {
@@ -427,6 +443,52 @@ impl Filesystem for Fs {
         }
 
         Err(libc::ENOTDIR.into())
+    }
+
+    async fn link(
+        &self,
+        _req: Request,
+        inode: Inode,
+        new_parent: Inode,
+        new_name: &OsStr,
+    ) -> Result<ReplyEntry> {
+        let inner = self.0.write().await;
+
+        let entry = inner
+            .inode_map
+            .get(&inode)
+            .ok_or_else(Errno::new_not_exist)?;
+
+        let entry_name = entry.name().await;
+        debug!(?entry_name, "get entry");
+
+        let new_parent_entry = inner
+            .inode_map
+            .get(&new_parent)
+            .ok_or_else(Errno::new_not_exist)?;
+        let new_parent_entry_name = new_parent_entry.name().await;
+        debug!(?new_parent_entry_name, "get new parent entry");
+
+        match new_parent_entry {
+            Entry::File(_) => {
+                return Err(Errno::new_is_not_dir());
+            }
+
+            Entry::Dir(dir) => {
+                let mut dir = dir.write().await;
+                if dir.children.contains_key(new_name) {
+                    return Err(Errno::new_exist());
+                }
+
+                dir.children.insert(new_name.to_os_string(), entry.clone());
+            }
+        }
+
+        Ok(ReplyEntry {
+            ttl: TTL,
+            attr: entry.attr().await,
+            generation: 0,
+        })
     }
 
     async fn open(&self, _req: Request, inode: u64, _flags: u32) -> Result<ReplyOpen> {
@@ -801,10 +863,14 @@ impl Filesystem for Fs {
 }
 
 fn log_init() {
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    let layer = fmt::layer()
+        .pretty()
+        .with_target(true)
+        .with_writer(io::stderr);
+
+    let layered = Registry::default().with(layer).with(LevelFilter::DEBUG);
+
+    subscriber::set_global_default(layered).unwrap();
 }
 
 #[tokio::main(flavor = "current_thread")]
