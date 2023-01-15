@@ -31,6 +31,8 @@ enum Entry {
 
 impl Entry {
     async fn attr(&self) -> FileAttr {
+        const BLOCK_SIZE: f64 = 4096f64;
+
         match self {
             Entry::Dir(dir) => {
                 let dir = dir.read().await;
@@ -38,8 +40,8 @@ impl Entry {
                 FileAttr {
                     ino: dir.inode,
                     generation: 0,
-                    size: 0,
-                    blocks: 0,
+                    size: 4096,
+                    blocks: 1,
                     atime: SystemTime::UNIX_EPOCH.into(),
                     mtime: SystemTime::UNIX_EPOCH.into(),
                     ctime: SystemTime::UNIX_EPOCH.into(),
@@ -49,7 +51,7 @@ impl Entry {
                     uid: 0,
                     gid: 0,
                     rdev: 0,
-                    blksize: 0,
+                    blksize: BLOCK_SIZE as _,
                 }
             }
 
@@ -60,7 +62,7 @@ impl Entry {
                     ino: file.inode,
                     generation: 0,
                     size: file.content.len() as _,
-                    blocks: 0,
+                    blocks: (file.content.len() as f64 / BLOCK_SIZE).ceil() as _,
                     atime: SystemTime::UNIX_EPOCH.into(),
                     mtime: SystemTime::UNIX_EPOCH.into(),
                     ctime: SystemTime::UNIX_EPOCH.into(),
@@ -70,7 +72,7 @@ impl Entry {
                     uid: 0,
                     gid: 0,
                     rdev: 0,
-                    blksize: 0,
+                    blksize: BLOCK_SIZE as _,
                 }
             }
         }
@@ -344,8 +346,8 @@ impl Filesystem for Fs {
             drop(dir); // fix inner can't borrow as mut next line
 
             if match &child_entry {
-                Entry::Dir(dir) => Arc::strong_count(dir) == 1,
-                Entry::File(_) => unreachable!(),
+                Entry::Dir(_) => unreachable!(),
+                Entry::File(file) => Arc::strong_count(file) == 1,
             } {
                 inner.inode_map.remove(&child_entry.inode().await);
             }
@@ -382,8 +384,8 @@ impl Filesystem for Fs {
             drop(dir); // fix inner can't borrow as mut next line
 
             if match &child_entry {
-                Entry::Dir(_) => unreachable!(),
-                Entry::File(file) => Arc::strong_count(file) == 1,
+                Entry::Dir(dir) => Arc::strong_count(dir) == 1,
+                Entry::File(_) => unreachable!(),
             } {
                 inner.inode_map.remove(&child_entry.inode().await);
             }
