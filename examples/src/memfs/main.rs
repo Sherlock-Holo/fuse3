@@ -35,6 +35,7 @@ impl Entry {
 
         match self {
             Entry::Dir(dir) => {
+                let nlink = Arc::strong_count(dir) - 1;
                 let dir = dir.read().await;
 
                 FileAttr {
@@ -47,7 +48,7 @@ impl Entry {
                     ctime: SystemTime::UNIX_EPOCH.into(),
                     kind: FileType::Directory,
                     perm: fuse3::perm_from_mode_and_kind(FileType::Directory, dir.mode),
-                    nlink: 0,
+                    nlink: nlink as _,
                     uid: 0,
                     gid: 0,
                     rdev: 0,
@@ -56,6 +57,7 @@ impl Entry {
             }
 
             Entry::File(file) => {
+                let nlink = Arc::strong_count(file) - 1;
                 let file = file.read().await;
 
                 FileAttr {
@@ -68,7 +70,7 @@ impl Entry {
                     ctime: SystemTime::UNIX_EPOCH.into(),
                     kind: FileType::RegularFile,
                     perm: fuse3::perm_from_mode_and_kind(FileType::RegularFile, file.mode),
-                    nlink: 0,
+                    nlink: nlink as _,
                     uid: 0,
                     gid: 0,
                     rdev: 0,
