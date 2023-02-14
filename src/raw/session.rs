@@ -2100,17 +2100,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         data = &data[FUSE_SETXATTR_IN_SIZE..];
 
-        if setxattr_in.size as usize != data.len() {
-            error!(
-                "fuse_setxattr_in body length is not right, request unique {}",
-                request.unique
-            );
-
-            reply_error_in_place(libc::EINVAL.into(), request, &self.response_sender).await;
-
-            return;
-        }
-
         let (name, first_null_index) = match get_first_null_position(data) {
             None => {
                 error!(
@@ -2127,6 +2116,16 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         };
 
         data = &data[first_null_index + 1..];
+
+        // setxattr "size" field specifies size of only "Value" part of data
+        if setxattr_in.size as usize != data.len() {
+            error!(
+                "fuse_setxattr_in value field data length is not right, request unique {} setxattr_in.size={} data.len={}", request.unique, setxattr_in.size, data.len());
+
+            reply_error_in_place(libc::EINVAL.into(), request, &self.response_sender).await;
+
+            return;
+        }
 
         let data = data.to_vec();
 
