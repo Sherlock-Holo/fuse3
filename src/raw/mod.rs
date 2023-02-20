@@ -14,6 +14,7 @@ pub use session::{MountHandle, Session};
 pub(crate) mod abi;
 mod connection;
 mod filesystem;
+pub mod flags;
 pub mod reply;
 mod request;
 pub(crate) mod session;

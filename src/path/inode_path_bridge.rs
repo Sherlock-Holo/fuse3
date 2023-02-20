@@ -574,6 +574,7 @@ where
         fh: u64,
         offset: u64,
         data: &[u8],
+        write_flags: u32,
         flags: u32,
     ) -> Result<ReplyWrite> {
         let path = self
@@ -589,6 +590,7 @@ where
                 fh,
                 offset,
                 data,
+                write_flags,
                 flags,
             )
             .await
