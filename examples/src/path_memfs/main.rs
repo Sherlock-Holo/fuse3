@@ -518,6 +518,7 @@ impl PathFilesystem for Fs {
         _fh: u64,
         offset: u64,
         data: &[u8],
+        _write_flags: u32,
         _flags: u32,
     ) -> Result<ReplyWrite> {
         let path = path.ok_or_else(Errno::new_not_exist)?.to_string_lossy();
@@ -861,8 +862,9 @@ impl PathFilesystem for Fs {
             .read(req, from_path, fh_in, offset_in, length as _)
             .await?;
 
+        // write_flags set to 0 because we don't care it in this example implement
         let ReplyWrite { written } = self
-            .write(req, to_path, fh_out, offset_out, &data.data, flags as _)
+            .write(req, to_path, fh_out, offset_out, &data.data, 0, flags as _)
             .await?;
 
         Ok(ReplyCopyFileRange {

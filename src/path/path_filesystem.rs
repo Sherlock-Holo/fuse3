@@ -194,7 +194,10 @@ pub trait PathFilesystem {
     /// exception to this is when the file has been opened in `direct_io` mode, in which case the
     /// return value of the write system call will reflect the return value of this operation. `fh`
     /// will contain the value set by the open method, or will be undefined if the open method
-    /// didn't set any value. when `path` is None, it means the path may be deleted.
+    /// didn't set any value. When `path` is None, it means the path may be deleted. When
+    /// `write_flags` contains [`FUSE_WRITE_CACHE`](crate::raw::flags::FUSE_WRITE_CACHE), means the
+    /// write operation is a delay write.
+    #[allow(clippy::too_many_arguments)]
     async fn write(
         &self,
         req: Request,
@@ -202,6 +205,7 @@ pub trait PathFilesystem {
         fh: u64,
         offset: u64,
         data: &[u8],
+        write_flags: u32,
         flags: u32,
     ) -> Result<ReplyWrite> {
         Err(libc::ENOSYS.into())

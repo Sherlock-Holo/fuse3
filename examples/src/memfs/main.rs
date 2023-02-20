@@ -554,6 +554,7 @@ impl Filesystem for Fs {
         _fh: u64,
         offset: u64,
         mut data: &[u8],
+        _write_flags: u32,
         _flags: u32,
     ) -> Result<ReplyWrite> {
         let inner = self.0.read().await;

@@ -1873,6 +1873,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     write_in.fh,
                     write_in.offset,
                     &data,
+                    write_in.write_flags,
                     write_in.flags,
                 )
                 .await
