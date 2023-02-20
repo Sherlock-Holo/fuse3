@@ -57,7 +57,6 @@ impl Filesystem for HelloWorld {
             ttl: TTL,
             attr: FileAttr {
                 ino: FILE_INODE,
-                generation: 0,
                 size: CONTENT.len() as u64,
                 blocks: 0,
                 atime: SystemTime::now().into(),
@@ -87,7 +86,6 @@ impl Filesystem for HelloWorld {
                 ttl: TTL,
                 attr: FileAttr {
                     ino: PARENT_INODE,
-                    generation: 0,
                     size: 0,
                     blocks: 0,
                     atime: SystemTime::now().into(),
@@ -107,7 +105,6 @@ impl Filesystem for HelloWorld {
                 ttl: TTL,
                 attr: FileAttr {
                     ino: FILE_INODE,
-                    generation: 0,
                     size: CONTENT.len() as _,
                     blocks: 0,
                     atime: SystemTime::now().into(),
@@ -236,7 +233,6 @@ impl Filesystem for HelloWorld {
                 offset: 1,
                 attr: FileAttr {
                     ino: PARENT_INODE,
-                    generation: 0,
                     size: 0,
                     blocks: 0,
                     atime: SystemTime::now().into(),
@@ -261,7 +257,6 @@ impl Filesystem for HelloWorld {
                 offset: 2,
                 attr: FileAttr {
                     ino: PARENT_INODE,
-                    generation: 0,
                     size: 0,
                     blocks: 0,
                     atime: SystemTime::now().into(),
@@ -286,7 +281,6 @@ impl Filesystem for HelloWorld {
                 offset: 3,
                 attr: FileAttr {
                     ino: FILE_INODE,
-                    generation: 0,
                     size: CONTENT.len() as _,
                     blocks: 0,
                     atime: SystemTime::now().into(),

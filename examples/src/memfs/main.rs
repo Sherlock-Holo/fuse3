@@ -40,7 +40,6 @@ impl Entry {
 
                 FileAttr {
                     ino: dir.inode,
-                    generation: 0,
                     size: 4096,
                     blocks: 1,
                     atime: SystemTime::UNIX_EPOCH.into(),
@@ -62,7 +61,6 @@ impl Entry {
 
                 FileAttr {
                     ino: file.inode,
-                    generation: 0,
                     size: file.content.len() as _,
                     blocks: (file.content.len() as f64 / BLOCK_SIZE).ceil() as _,
                     atime: SystemTime::UNIX_EPOCH.into(),
@@ -858,7 +856,7 @@ impl Filesystem for Fs {
         let data = data.data.as_ref();
 
         let ReplyWrite { written } = self
-            .write(req, inode_out, fh_out, off_out, data, flags as _)
+            .write(req, inode_out, fh_out, off_out, data, 0, flags as _)
             .await?;
 
         Ok(ReplyCopyFileRange {
