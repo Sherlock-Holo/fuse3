@@ -50,7 +50,6 @@ impl From<(Inode, FileAttr)> for crate::raw::reply::FileAttr {
     fn from((inode, attr): (u64, FileAttr)) -> Self {
         crate::raw::reply::FileAttr {
             ino: inode,
-            generation: 0,
             size: attr.size,
             blocks: attr.blocks,
             atime: attr.atime.into(),

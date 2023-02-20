@@ -19,8 +19,6 @@ use crate::{FileType, Result, Timestamp};
 pub struct FileAttr {
     /// Inode number
     pub ino: u64,
-    /// Generation
-    pub generation: u64,
     /// Size in bytes
     pub size: u64,
     /// Size in blocks
@@ -294,7 +292,7 @@ impl From<ReplyCreated> for (fuse_entry_out, fuse_open_out) {
 
         let entry_out = fuse_entry_out {
             nodeid: attr.ino,
-            generation: attr.generation,
+            generation: created.generation,
             entry_valid: created.ttl.as_secs(),
             attr_valid: created.ttl.as_secs(),
             entry_valid_nsec: created.ttl.subsec_micros(),
