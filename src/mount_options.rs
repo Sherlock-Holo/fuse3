@@ -149,7 +149,8 @@ impl MountOptions {
         self
     }
 
-    /// enable write back cache for buffered writes, default is disable.
+    /// try to set the `FUSE_WRITEBACK_CACHE` enable write back cache for buffered writes, default
+    /// is disable.
     ///
     /// # Notes:
     ///
