@@ -69,7 +69,7 @@ mod tokio_connection {
             mount_options: MountOptions,
             mount_path: impl AsRef<Path>,
         ) -> io::Result<Self> {
-            let (fd0, fd1) = match socket::socketpair(
+            let (sock0, sock1) = match socket::socketpair(
                 AddressFamily::Unix,
                 SockType::SeqPacket,
                 None,
@@ -77,7 +77,7 @@ mod tokio_connection {
             ) {
                 Err(err) => return Err(err.into()),
 
-                Ok((fd0, fd1)) => (fd0, fd1),
+                Ok((sock0, sock1)) => (sock0, sock1),
             };
 
             let binary_path = match which::which("fusermount3") {
@@ -98,6 +98,7 @@ mod tokio_connection {
 
             let mount_path = mount_path.as_ref().as_os_str().to_os_string();
 
+            let fd0 = sock0.as_raw_fd();
             let mut child = task::spawn_blocking(move || {
                 Command::new(binary_path)
                     .env(ENV, fd0.to_string())
@@ -114,6 +115,7 @@ mod tokio_connection {
                 ));
             }
 
+            let fd1 = sock1.as_raw_fd();
             let fd = task::spawn_blocking(move || {
                 // let mut buf = vec![0; 10000]; // buf should large enough
                 let mut buf = vec![]; // it seems 0 len still works well
@@ -148,14 +150,6 @@ mod tokio_connection {
             .await
             .unwrap()?;
 
-            if let Err(err) = unistd::close(fd0) {
-                return Err(err.into());
-            }
-
-            if let Err(err) = unistd::close(fd1) {
-                return Err(err.into());
-            }
-
             Self::set_fd_non_blocking(fd)?;
 
             Ok(Self {
@@ -176,6 +170,7 @@ mod tokio_connection {
             Ok(())
         }
 
+        #[allow(clippy::needless_pass_by_ref_mut)] // Clippy false alarm
         pub async fn read(&self, buf: &mut [u8]) -> Result<usize, io::Error> {
             let _guard = self.read.lock().await;
 
@@ -267,7 +262,7 @@ mod async_std_connection {
             mount_options: MountOptions,
             mount_path: impl AsRef<Path>,
         ) -> io::Result<Self> {
-            let (fd0, fd1) = match socket::socketpair(
+            let (sock0, sock1) = match socket::socketpair(
                 AddressFamily::Unix,
                 SockType::SeqPacket,
                 None,
@@ -275,7 +270,7 @@ mod async_std_connection {
             ) {
                 Err(err) => return Err(err.into()),
 
-                Ok((fd0, fd1)) => (fd0, fd1),
+                Ok((sock0, sock1)) => (sock0, sock1),
             };
 
             let binary_path = match which::which("fusermount3") {
@@ -296,6 +291,7 @@ mod async_std_connection {
 
             let mount_path = mount_path.as_ref().as_os_str().to_os_string();
 
+            let fd0 = sock0.as_raw_fd();
             let mut child = task::spawn_blocking(move || {
                 Command::new(binary_path)
                     .env(ENV, fd0.to_string())
@@ -311,6 +307,7 @@ mod async_std_connection {
                 ));
             }
 
+            let fd1 = sock1.as_raw_fd();
             let fd = task::spawn_blocking(move || {
                 // let mut buf = vec![0; 10000]; // buf should large enough
                 let mut buf = vec![]; // it seems 0 len still works well
@@ -343,14 +340,6 @@ mod async_std_connection {
                 Ok(fd)
             })
             .await?;
-
-            if let Err(err) = unistd::close(fd0) {
-                return Err(err.into());
-            }
-
-            if let Err(err) = unistd::close(fd1) {
-                return Err(err.into());
-            }
 
             Ok(Self {
                 fd: Async::new(fd)?,
