@@ -11,7 +11,7 @@ build: &BUILD
 task:
   name: FreeBSD
   freebsd_instance:
-    image: freebsd-12-4-release-amd64
+    image: freebsd-13-2-release-amd64
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y --profile=minimal
