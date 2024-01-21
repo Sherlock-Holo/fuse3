@@ -31,12 +31,15 @@ cstr = "0.2"
 libc = "0.2"
 bincode = "1"
 serde = { version = "1", features = ["derive"] }
-nix = { version = "0.27", default-features = false, features = ["fs", "mount", "user"] }
+nix = { version = "0.27", default-features = false, features = ["fs", "mount"] }
 which = { version = "4", optional = true }
 async-io = { version = "1", optional = true }
 bytes = "1"
 slab = "0.4"
 tracing = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.27", default-features = false, features = ["user"] }
 
 [dependencies.async-std]
 version = "1"
