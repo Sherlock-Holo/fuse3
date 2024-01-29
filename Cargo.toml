@@ -26,17 +26,17 @@ doc = ["file-lock", "unprivileged", "tokio-runtime"]
 [dependencies]
 futures-util = { version = "0.3", features = ["sink"] }
 futures-channel = { version = "0.3", features = ["sink"] }
-async-trait = "0.1"
+async-trait = "0.1.2"
 cstr = "0.2"
-libc = "0.2"
-bincode = "1"
-serde = { version = "1", features = ["derive"] }
+libc = "0.2.147"
+bincode = "1.3.1"
+serde = { version = "1.0.103", features = ["derive"] }
 nix = { version = "0.27", default-features = false, features = ["fs", "mount"] }
 which = { version = "4", optional = true }
-async-io = { version = "1", optional = true }
+async-io = { version = "1.4", optional = true }
 bytes = "1"
-slab = "0.4"
-tracing = "0.1"
+slab = "0.4.2"
+tracing = "0.1.21"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.27", default-features = false, features = ["user"] }

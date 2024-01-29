@@ -1,12 +1,17 @@
 build: &BUILD
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock || echo ""
   build_script:
     - . $HOME/.cargo/env || true
     - rustup component add clippy
-    - cargo build --all-targets --features=tokio-runtime,file-lock,unprivileged
-    - cargo build --all-targets --features=async-std-runtime,file-lock,unprivileged
+    - cargo check --all-targets --features=tokio-runtime,file-lock,unprivileged
+    - cargo check --all-targets --features=async-std-runtime,file-lock,unprivileged
     - cargo doc --no-deps --features=doc
     - cargo clippy --all-targets --features=tokio-runtime,file-lock,unprivileged
     - cargo clippy --all-targets --features=async-std-runtime,file-lock,unprivileged
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
+
 
 task:
   name: FreeBSD
@@ -23,3 +28,19 @@ task:
   container:
    image: rust:latest
   << : *BUILD
+
+minver_task:
+  depends_on:
+    - FreeBSD
+    - Linux
+  freebsd_instance:
+    image: freebsd-13-2-release-amd64
+  setup_script:
+    - fetch https://sh.rustup.rs -o rustup.sh
+    - sh rustup.sh -y --default-toolchain nightly --profile=minimal
+    - . $HOME/.cargo/env
+  test_script:
+    - . $HOME/.cargo/env || true
+    - cargo update -Zdirect-minimal-versions
+    - cargo check --all-targets --features=tokio-runtime,file-lock,unprivileged
+    - cargo check --all-targets --features=async-std-runtime,file-lock,unprivileged
