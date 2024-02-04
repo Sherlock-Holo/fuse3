@@ -272,7 +272,7 @@ impl MountOptions {
             opts.push("allow_other".to_string());
         }
 
-        if matches!(self.read_only, true) {
+        if self.read_only {
             opts.push("ro".to_string());
         }
 

@@ -1,6 +1,5 @@
 use std::ffi::OsStr;
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream::Stream;
 
@@ -16,14 +15,14 @@ use crate::notify::Notify;
 use crate::{Result, SetAttr};
 
 #[allow(unused_variables)]
-#[async_trait]
+#[trait_variant::make(PathFilesystem: Send)]
 /// Path based filesystem trait.
 ///
 /// # Notes:
 ///
 /// this trait is defined with async_trait, you can use
 /// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
-pub trait PathFilesystem {
+pub trait LocalPathFilesystem {
     /// dir entry stream given by [`readdir`][PathFilesystem::readdir].
     type DirEntryStream: Stream<Item = Result<DirectoryEntry>> + Send;
 

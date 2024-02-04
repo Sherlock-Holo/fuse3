@@ -41,7 +41,7 @@ pub fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 }
 
 /// returns the permission for a given file kind and mode
-#[allow(clippy::unnecessary_cast)]  // Not unnecessary on all platforms.
+#[allow(clippy::unnecessary_cast)] // Not unnecessary on all platforms.
 pub fn perm_from_mode_and_kind(kind: FileType, mode: mode_t) -> u16 {
     (mode ^ mode_t::from(kind)) as u16
 }

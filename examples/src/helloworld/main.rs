@@ -4,7 +4,6 @@ use std::iter::Skip;
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use fuse3::raw::prelude::*;
 use fuse3::{MountOptions, Result};
@@ -33,7 +32,6 @@ const STATFS: ReplyStatFs = ReplyStatFs {
 
 struct HelloWorld;
 
-#[async_trait]
 impl Filesystem for HelloWorld {
     type DirEntryStream = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>;
     type DirEntryPlusStream = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>;

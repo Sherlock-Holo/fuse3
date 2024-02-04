@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use fuse3::raw::prelude::*;
 use fuse3::{MountOptions, Result};
@@ -32,7 +31,6 @@ struct Poll {
     ready: Arc<AtomicBool>,
 }
 
-#[async_trait]
 impl Filesystem for Poll {
     type DirEntryStream = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>;
     type DirEntryPlusStream = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>;
