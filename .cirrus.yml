@@ -7,7 +7,8 @@ build: &BUILD
     - rustup component add clippy
     - cargo check --all-targets --features=tokio-runtime,file-lock,unprivileged
     - cargo check --all-targets --features=async-std-runtime,file-lock,unprivileged
-    - RUSTDOCFLAGS="--cfg docsrs" cargo doc --features=file-lock,unprivileged,tokio-runtime
+    #    - RUSTDOCFLAGS="--cfg docsrs" cargo doc --features=file-lock,unprivileged,tokio-runtime # disable until doc_cfg and doc_auto_cfg are stable
+    - cargo doc --features=file-lock,unprivileged,tokio-runtime
     - cargo clippy --all-targets --features=tokio-runtime,file-lock,unprivileged
     - cargo clippy --all-targets --features=async-std-runtime,file-lock,unprivileged
   before_cache_script: rm -rf $HOME/.cargo/registry/index
