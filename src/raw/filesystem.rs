@@ -9,14 +9,14 @@ use crate::raw::request::Request;
 use crate::{Inode, Result, SetAttr};
 
 #[allow(unused_variables)]
-#[trait_variant::make(Filesystem: Send)]
+#[trait_make::make(Send)]
 /// Inode based filesystem trait.
 ///
 /// # Notes:
 ///
 /// this trait is defined with async_trait, you can use
 /// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
-pub trait LocalFilesystem {
+pub trait Filesystem {
     /// dir entry stream given by [`readdir`][Filesystem::readdir].
     type DirEntryStream: Stream<Item = Result<DirectoryEntry>> + Send;
 

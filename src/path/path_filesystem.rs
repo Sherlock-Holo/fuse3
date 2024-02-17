@@ -15,14 +15,14 @@ use crate::notify::Notify;
 use crate::{Result, SetAttr};
 
 #[allow(unused_variables)]
-#[trait_variant::make(PathFilesystem: Send)]
+#[trait_make::make(Send)]
 /// Path based filesystem trait.
 ///
 /// # Notes:
 ///
 /// this trait is defined with async_trait, you can use
 /// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
-pub trait LocalPathFilesystem {
+pub trait PathFilesystem {
     /// dir entry stream given by [`readdir`][PathFilesystem::readdir].
     type DirEntryStream: Stream<Item = Result<DirectoryEntry>> + Send;
 

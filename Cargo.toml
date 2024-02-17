@@ -21,7 +21,6 @@ tokio-runtime = ["tokio"]
 async-std-runtime = ["async-std", "async-io"]
 file-lock = []
 unprivileged = ["nix/socket", "which"]
-doc = ["file-lock", "unprivileged", "tokio-runtime"]
 
 [dependencies]
 async-io = { version = "1.4", optional = true }
@@ -35,7 +34,7 @@ nix = { version = "0.27", default-features = false, features = ["fs", "mount"] }
 serde = { version = "1.0.103", features = ["derive"] }
 slab = "0.4.2"
 tracing = "0.1.21"
-trait-variant = { version = "0.1", git = "https://github.com/Sherlock-Holo/impl-trait-utils", branch = "support-default-method" }
+trait-make = "0.1"
 which = { version = "4", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -52,7 +51,8 @@ features = ["fs", "rt", "sync", "net", "macros"]
 optional = true
 
 [package.metadata.docs.rs]
-features = [ "doc" ]
+rustdoc-args = ["--cfg", "docsrs"]
+features = ["file-lock", "unprivileged", "tokio-runtime"]
 targets = [
   "i686-unknown-freebsd",
   "i686-unknown-linux-gnu",
