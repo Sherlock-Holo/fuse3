@@ -17,13 +17,13 @@
 //!
 //! You must enable `async-std-runtime` or `tokio-runtime` feature.
 
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+
 use std::{
     convert::TryInto,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-/// re-export [`async_trait`][async_trait::async_trait].
-pub use async_trait::async_trait;
 pub use errno::Errno;
 pub use helper::{mode_from_kind_and_perm, perm_from_mode_and_kind};
 pub use mount_options::MountOptions;

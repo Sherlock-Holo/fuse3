@@ -7,7 +7,6 @@ use std::vec::IntoIter;
 
 #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
 use async_std::sync::RwLock;
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream::{self, Iter, Stream, StreamExt};
 use slab::Slab;
@@ -144,7 +143,6 @@ impl<FS> Debug for InodePathBridge<FS> {
     }
 }
 
-#[async_trait]
 impl<FS> Filesystem for InodePathBridge<FS>
 where
     FS: PathFilesystem + Send + Sync,

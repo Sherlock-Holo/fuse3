@@ -1,6 +1,5 @@
 use std::ffi::OsStr;
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream::Stream;
 
@@ -10,7 +9,7 @@ use crate::raw::request::Request;
 use crate::{Inode, Result, SetAttr};
 
 #[allow(unused_variables)]
-#[async_trait]
+#[trait_make::make(Send)]
 /// Inode based filesystem trait.
 ///
 /// # Notes:

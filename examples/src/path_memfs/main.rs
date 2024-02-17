@@ -5,7 +5,6 @@ use std::io::{Cursor, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
-use async_trait::async_trait;
 use bytes::{Buf, BufMut, BytesMut};
 use fuse3::path::prelude::*;
 use fuse3::{Errno, MountOptions, Result};
@@ -138,7 +137,6 @@ impl Default for Fs {
     }
 }
 
-#[async_trait]
 impl PathFilesystem for Fs {
     type DirEntryStream = Empty<Result<DirectoryEntry>>;
     type DirEntryPlusStream = Iter<IntoIter<Result<DirectoryEntryPlus>>>;

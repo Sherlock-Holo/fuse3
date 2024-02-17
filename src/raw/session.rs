@@ -245,10 +245,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             task::spawn(async move { Self::reply_fuse(fuse_write_connection, receiver).await })
                 .fuse();
         #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
-        let reply_task =
-            task::spawn(Self::reply_fuse(fuse_write_connection, receiver))
-                .fuse()
-                .map(Result::unwrap);
+        let reply_task = task::spawn(Self::reply_fuse(fuse_write_connection, receiver))
+            .fuse()
+            .map(Result::unwrap);
 
         pin_mut!(reply_task);
 
