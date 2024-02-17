@@ -26,7 +26,7 @@ path = "src/path_memfs/main.rs"
 [dependencies]
 fuse3 = { path = "../", features = ["tokio-runtime", "unprivileged"] }
 libc = "0.2.153"
-tokio = { version = "1", features = ["macros", "rt", "time"] }
+tokio = { version = "1", features = ["macros", "rt", "time", "signal"] }
 futures-util = "0.3"
 mio = { version = "0.8", features = ["os-poll"] }
 tempfile = "3"

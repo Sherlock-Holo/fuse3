@@ -14,6 +14,7 @@ use futures_util::stream;
 use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
 use libc::mode_t;
+use tokio::signal;
 use tokio::sync::RwLock;
 use tracing::metadata::LevelFilter;
 use tracing::{debug, subscriber};
@@ -894,10 +895,18 @@ async fn main() {
         .gid(gid);
 
     let mount_path = mount_path.expect("no mount point specified");
-    Session::new(mount_options)
+
+    let mut mount_handle = Session::new(mount_options)
         .mount_with_unprivileged(Fs::default(), mount_path)
         .await
-        .unwrap()
-        .await
         .unwrap();
+
+    let handle = &mut mount_handle;
+
+    tokio::select! {
+        res = handle => res.unwrap(),
+        _ = signal::ctrl_c() => {
+            mount_handle.unmount().await.unwrap()
+        }
+    }
 }

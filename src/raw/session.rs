@@ -7,7 +7,7 @@ use std::io::Result as IoResult;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -40,20 +40,55 @@ use crate::{Errno, SetAttr};
 
 /// A Future which returns when a file system is unmounted
 #[derive(Debug)]
-pub struct MountHandle(task::JoinHandle<IoResult<()>>);
+pub struct MountHandle {
+    task: task::JoinHandle<IoResult<()>>,
+    mount_path: PathBuf,
+    unprivileged: bool,
+}
+
+impl MountHandle {
+    #[cfg(target_os = "linux")]
+    pub async fn unmount(self) -> IoResult<()> {
+        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+        {
+            if let Some(res) = self.task.cancel().await {
+                res?;
+            }
+
+            if !self.unprivileged {
+                let mount_path = self.mount_path.clone();
+                task::spawn_blocking(move || mount::umount(&mount_path)).await?;
+            }
+        }
+
+        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+        {
+            self.task.abort();
+
+            if !self.unprivileged {
+                let mount_path = self.mount_path.clone();
+                task::spawn_blocking(move || mount::umount(&mount_path))
+                    .await
+                    .unwrap()?;
+            }
+        }
+
+        Ok(())
+    }
+}
 
 impl Future for MountHandle {
     type Output = IoResult<()>;
 
     #[cfg(feature = "async-std-runtime")]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.0).poll(cx)
+        Pin::new(&mut self.task).poll(cx)
     }
 
     #[cfg(feature = "tokio-runtime")]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // The unwrap is necessary in order to provide the same API for both runtimes.
-        Pin::new(&mut self.0).poll(cx).map(Result::unwrap)
+        Pin::new(&mut self.task).poll(cx).map(Result::unwrap)
     }
 }
 
@@ -92,7 +127,7 @@ impl<FS> Session<FS> {
 
 #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
-    pub async fn mount_empty_check(&self, mount_path: &Path) -> IoResult<()> {
+    async fn mount_empty_check(&self, mount_path: &Path) -> IoResult<()> {
         #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
         if !self.mount_options.nonempty
             && matches!(read_dir(mount_path).await?.next_entry().await, Ok(Some(_)))
@@ -149,7 +184,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("mount {:?} success", mount_path);
 
-        Ok(MountHandle(task::spawn(self.inner_mount())))
+        Ok(MountHandle {
+            task: task::spawn(self.inner_mount()),
+            mount_path: mount_path.to_path_buf(),
+            unprivileged: true,
+        })
     }
 
     /// mount the filesystem. This function will block until the filesystem is unmounted.
@@ -191,7 +230,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("mount {:?} success", mount_path);
 
-        Ok(MountHandle(task::spawn(self.inner_mount())))
+        Ok(MountHandle {
+            task: task::spawn(self.inner_mount()),
+            mount_path: mount_path.to_path_buf(),
+            unprivileged: false,
+        })
     }
 
     /// mount the filesystem. This function will block until the filesystem is
@@ -228,7 +271,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("mount {:?} success", mount_path);
 
-        Ok(MountHandle(task::spawn(self.inner_mount())))
+        Ok(MountHandle {
+            task: task::spawn(self.inner_mount()),
+            mount_path: mount_path.to_path_buf(),
+            unprivileged: true,
+        })
     }
 
     async fn inner_mount(mut self) -> IoResult<()> {
