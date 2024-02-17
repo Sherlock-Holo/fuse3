@@ -35,7 +35,7 @@ serde = { version = "1.0.103", features = ["derive"] }
 slab = "0.4.2"
 tracing = "0.1.21"
 trait-make = "0.1"
-which = { version = "4", optional = true }
+which = { version = "6", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.27", default-features = false, features = ["user"] }
