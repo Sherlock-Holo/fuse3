@@ -19,10 +19,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-use std::{
-    convert::TryInto,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use errno::Errno;
 pub use helper::{mode_from_kind_and_perm, perm_from_mode_and_kind};

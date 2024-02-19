@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Debug, Formatter};
-use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::vec::IntoIter;
 

@@ -18,7 +18,6 @@
 //!
 //! Items without a version annotation are valid with ABI 7.8 and later
 
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::mem;

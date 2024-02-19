@@ -6,8 +6,11 @@ pub use tokio_connection::FuseConnection;
 #[cfg(feature = "tokio-runtime")]
 mod tokio_connection {
     use std::io;
+    use std::io::ErrorKind;
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+    use std::os::fd::FromRawFd;
+    use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
     use std::os::unix::io::AsRawFd;
-    use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{ffi::OsString, io::IoSliceMut, path::Path, process::Command};
@@ -31,7 +34,7 @@ mod tokio_connection {
 
     #[derive(Debug)]
     pub struct FuseConnection {
-        fd: AsyncFd<RawFd>,
+        fd: AsyncFd<OwnedFd>,
         read: Mutex<()>,
         write: Mutex<()>,
     }
@@ -48,13 +51,13 @@ mod tokio_connection {
                 .await
             {
                 Err(e) => {
-                    if e.kind() == io::ErrorKind::NotFound {
+                    if e.kind() == ErrorKind::NotFound {
                         warn!("Cannot open /dev/fuse.  Is the module loaded?");
                     }
                     Err(e)
                 }
                 Ok(handle) => {
-                    let fd = handle.into_std().await.into_raw_fd();
+                    let fd = OwnedFd::from(handle.into_std().await);
                     Ok(Self {
                         fd: AsyncFd::new(fd)?,
                         read: Mutex::new(()),
@@ -83,8 +86,8 @@ mod tokio_connection {
             let binary_path = match which::which("fusermount3") {
                 Err(err) => {
                     return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("find fusermount binary failed {err:?}"),
+                        ErrorKind::Other,
+                        format!("find fusermount3 binary failed {err:?}"),
                     ));
                 }
                 Ok(path) => path,
@@ -137,12 +140,12 @@ mod tokio_connection {
 
                 let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
                     if fds.is_empty() {
-                        return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
+                        return Err(io::Error::new(ErrorKind::Other, "no fuse fd"));
                     }
 
                     fds[0]
                 } else {
-                    return Err(io::Error::new(io::ErrorKind::Other, "get fuse fd failed"));
+                    return Err(io::Error::new(ErrorKind::Other, "get fuse fd failed"));
                 };
 
                 Ok(fd)
@@ -151,6 +154,9 @@ mod tokio_connection {
             .unwrap()?;
 
             Self::set_fd_non_blocking(fd)?;
+
+            // Safety: fd is valid
+            let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
             Ok(Self {
                 fd: AsyncFd::new(fd)?,
@@ -194,15 +200,15 @@ mod tokio_connection {
         }
     }
 
-    impl AsRawFd for FuseConnection {
-        fn as_raw_fd(&self) -> RawFd {
-            self.fd.as_raw_fd()
+    impl AsFd for FuseConnection {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            self.fd.as_fd()
         }
     }
 
-    impl Drop for FuseConnection {
-        fn drop(&mut self) {
-            let _ = unistd::close(self.as_raw_fd());
+    impl AsRawFd for FuseConnection {
+        fn as_raw_fd(&self) -> RawFd {
+            self.fd.as_raw_fd()
         }
     }
 }

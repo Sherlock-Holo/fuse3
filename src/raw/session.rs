@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::ffi::OsString;
 use std::future::Future;
 use std::io::Error as IoError;
