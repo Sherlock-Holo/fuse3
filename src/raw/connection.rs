@@ -219,7 +219,9 @@ mod tokio_connection {
 
 #[cfg(feature = "async-io-runtime")]
 mod async_io_connection {
-    use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+    use std::os::fd::FromRawFd;
+    use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::RawFd;
     use std::pin::pin;
