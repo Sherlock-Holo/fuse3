@@ -886,6 +886,8 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
+    let not_unprivileged = env::var("NOT_UNPRIVILEGED").ok().as_deref() == Some("1");
+
     let mut mount_options = MountOptions::default();
     // .allow_other(true)
     mount_options
@@ -896,10 +898,17 @@ async fn main() {
 
     let mount_path = mount_path.expect("no mount point specified");
 
-    let mut mount_handle = Session::new(mount_options)
-        .mount_with_unprivileged(Fs::default(), mount_path)
-        .await
-        .unwrap();
+    let mut mount_handle = if !not_unprivileged {
+        Session::new(mount_options)
+            .mount_with_unprivileged(Fs::default(), mount_path)
+            .await
+            .unwrap()
+    } else {
+        Session::new(mount_options)
+            .mount(Fs::default(), mount_path)
+            .await
+            .unwrap()
+    };
 
     let handle = &mut mount_handle;
 
