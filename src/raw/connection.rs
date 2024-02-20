@@ -13,7 +13,7 @@ mod tokio_connection {
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use std::{ffi::OsString, io::IoSliceMut, path::Path, process::Command};
+    use std::{ffi::OsString, io::IoSliceMut, path::Path};
 
     use futures_util::lock::Mutex;
     use nix::unistd;
@@ -24,11 +24,14 @@ mod tokio_connection {
     };
     use tokio::io::unix::AsyncFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+    use tokio::process::Command;
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tokio::task;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
     use tracing::warn;
 
+    use crate::find_fusermount3;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
 
@@ -83,15 +86,7 @@ mod tokio_connection {
                 Ok((sock0, sock1)) => (sock0, sock1),
             };
 
-            let binary_path = match which::which("fusermount3") {
-                Err(err) => {
-                    return Err(io::Error::new(
-                        ErrorKind::Other,
-                        format!("find fusermount3 binary failed {err:?}"),
-                    ));
-                }
-                Ok(path) => path,
-            };
+            let binary_path = find_fusermount3()?;
 
             const ENV: &str = "_FUSE_COMMFD";
 
@@ -102,16 +97,12 @@ mod tokio_connection {
             let mount_path = mount_path.as_ref().as_os_str().to_os_string();
 
             let fd0 = sock0.as_raw_fd();
-            let mut child = task::spawn_blocking(move || {
-                Command::new(binary_path)
-                    .env(ENV, fd0.to_string())
-                    .args(vec![OsString::from("-o"), options, mount_path])
-                    .spawn()
-            })
-            .await
-            .unwrap()?;
+            let mut child = Command::new(binary_path)
+                .env(ENV, fd0.to_string())
+                .args(vec![OsString::from("-o"), options, mount_path])
+                .spawn()?;
 
-            if !child.wait()?.success() {
+            if !child.wait().await?.success() {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     "fusermount run failed",
@@ -220,10 +211,12 @@ mod async_std_connection {
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use std::{ffi::OsString, io::IoSliceMut, path::Path, process::Command};
+    use std::{ffi::OsString, io::IoSliceMut, path::Path};
 
     use async_io::Async;
     use async_std::fs;
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+    use async_std::process::Command;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use async_std::task;
     use futures_util::lock::Mutex;
@@ -235,6 +228,7 @@ mod async_std_connection {
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
 
+    use crate::find_fusermount3;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
 
@@ -279,15 +273,7 @@ mod async_std_connection {
                 Ok((sock0, sock1)) => (sock0, sock1),
             };
 
-            let binary_path = match which::which("fusermount3") {
-                Err(err) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("find fusermount binary failed {:?}", err),
-                    ));
-                }
-                Ok(path) => path,
-            };
+            let binary_path = find_fusermount3()?;
 
             const ENV: &str = "_FUSE_COMMFD";
 
@@ -298,15 +284,12 @@ mod async_std_connection {
             let mount_path = mount_path.as_ref().as_os_str().to_os_string();
 
             let fd0 = sock0.as_raw_fd();
-            let mut child = task::spawn_blocking(move || {
-                Command::new(binary_path)
-                    .env(ENV, fd0.to_string())
-                    .args(vec![OsString::from("-o"), options, mount_path])
-                    .spawn()
-            })
-            .await?;
+            let mut child = Command::new(binary_path)
+                .env(ENV, fd0.to_string())
+                .args(vec![OsString::from("-o"), options, mount_path])
+                .spawn()?;
 
-            if !child.wait()?.success() {
+            if !child.status().await?.success() {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     "fusermount run failed",

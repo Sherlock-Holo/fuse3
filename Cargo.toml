@@ -47,7 +47,7 @@ optional = true
 
 [dependencies.tokio]
 version = "1"
-features = ["fs", "rt", "sync", "net", "macros"]
+features = ["fs", "rt", "sync", "net", "macros", "process"]
 optional = true
 
 [package.metadata.docs.rs]

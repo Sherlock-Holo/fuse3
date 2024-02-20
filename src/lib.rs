@@ -19,6 +19,9 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
+use std::io;
+use std::io::ErrorKind;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use errno::Errno;
@@ -191,4 +194,13 @@ impl From<SystemTime> for Timestamp {
             nsec: d.subsec_nanos(),
         }
     }
+}
+
+fn find_fusermount3() -> io::Result<PathBuf> {
+    which::which("fusermount3").map_err(|err| {
+        io::Error::new(
+            ErrorKind::Other,
+            format!("find fusermount3 binary failed {err:?}"),
+        )
+    })
 }
