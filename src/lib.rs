@@ -19,10 +19,11 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-use std::{
-    convert::TryInto,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+#[cfg(target_os = "linux")]
+use std::io::{self, ErrorKind};
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use errno::Errno;
 pub use helper::{mode_from_kind_and_perm, perm_from_mode_and_kind};
@@ -194,4 +195,14 @@ impl From<SystemTime> for Timestamp {
             nsec: d.subsec_nanos(),
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn find_fusermount3() -> io::Result<PathBuf> {
+    which::which("fusermount3").map_err(|err| {
+        io::Error::new(
+            ErrorKind::Other,
+            format!("find fusermount3 binary failed {err:?}"),
+        )
+    })
 }

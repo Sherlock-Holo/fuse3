@@ -14,6 +14,7 @@ use futures_util::stream;
 use futures_util::stream::{Empty, Iter};
 use futures_util::StreamExt;
 use libc::mode_t;
+use tokio::signal;
 use tokio::sync::RwLock;
 use tracing::metadata::LevelFilter;
 use tracing::{debug, subscriber};
@@ -885,6 +886,8 @@ async fn main() {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
+    let not_unprivileged = env::var("NOT_UNPRIVILEGED").ok().as_deref() == Some("1");
+
     let mut mount_options = MountOptions::default();
     // .allow_other(true)
     mount_options
@@ -894,10 +897,25 @@ async fn main() {
         .gid(gid);
 
     let mount_path = mount_path.expect("no mount point specified");
-    Session::new(mount_options)
-        .mount_with_unprivileged(Fs::default(), mount_path)
-        .await
-        .unwrap()
-        .await
-        .unwrap();
+
+    let mut mount_handle = if !not_unprivileged {
+        Session::new(mount_options)
+            .mount_with_unprivileged(Fs::default(), mount_path)
+            .await
+            .unwrap()
+    } else {
+        Session::new(mount_options)
+            .mount(Fs::default(), mount_path)
+            .await
+            .unwrap()
+    };
+
+    let handle = &mut mount_handle;
+
+    tokio::select! {
+        res = handle => res.unwrap(),
+        _ = signal::ctrl_c() => {
+            mount_handle.unmount().await.unwrap()
+        }
+    }
 }
