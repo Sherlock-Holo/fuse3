@@ -1,19 +1,20 @@
-#[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-pub use async_std_connection::FuseConnection;
-#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+#[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+pub use async_io_connection::FuseConnection;
+#[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
 pub use tokio_connection::FuseConnection;
 
 #[cfg(feature = "tokio-runtime")]
 mod tokio_connection {
-    use std::io;
     use std::io::ErrorKind;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::os::fd::FromRawFd;
     use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+    use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{ffi::OsString, io::IoSliceMut, path::Path};
+    use std::{fs, io};
 
     use futures_util::lock::Mutex;
     use nix::unistd;
@@ -44,15 +45,14 @@ mod tokio_connection {
     }
 
     impl FuseConnection {
-        pub async fn new() -> io::Result<Self> {
+        pub fn new() -> io::Result<Self> {
             const DEV_FUSE: &str = "/dev/fuse";
 
-            match tokio::fs::OpenOptions::new()
+            match fs::OpenOptions::new()
                 .write(true)
                 .read(true)
                 .custom_flags(libc::O_NONBLOCK)
                 .open(DEV_FUSE)
-                .await
             {
                 Err(e) => {
                     if e.kind() == ErrorKind::NotFound {
@@ -60,14 +60,11 @@ mod tokio_connection {
                     }
                     Err(e)
                 }
-                Ok(handle) => {
-                    let fd = OwnedFd::from(handle.into_std().await);
-                    Ok(Self {
-                        fd: AsyncFd::new(fd)?,
-                        read: Mutex::new(()),
-                        write: Mutex::new(()),
-                    })
-                }
+                Ok(file) => Ok(Self {
+                    fd: AsyncFd::new(file.into())?,
+                    read: Mutex::new(()),
+                    write: Mutex::new(()),
+                }),
             }
         }
 
@@ -205,22 +202,18 @@ mod tokio_connection {
     }
 }
 
-#[cfg(feature = "async-std-runtime")]
-mod async_std_connection {
-    use std::io;
+#[cfg(feature = "async-io-runtime")]
+mod async_io_connection {
     use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
     use std::os::unix::io::AsRawFd;
-    use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{ffi::OsString, io::IoSliceMut, path::Path};
+    use std::{fs, io};
 
     use async_io::Async;
-    use async_std::fs;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use async_std::process::Command;
-    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    use async_std::task;
+    use async_process::Command;
     use futures_util::lock::Mutex;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use nix::sys::socket::{
@@ -243,20 +236,16 @@ mod async_std_connection {
     }
 
     impl FuseConnection {
-        pub async fn new() -> io::Result<Self> {
+        pub fn new() -> io::Result<Self> {
             const DEV_FUSE: &str = "/dev/fuse";
 
             let file = fs::OpenOptions::new()
                 .write(true)
                 .read(true)
-                .open(DEV_FUSE)
-                .await?;
-
-            // Safety: fd is valid
-            let fd = unsafe { OwnedFd::from_raw_fd(file.into_raw_fd()) };
+                .open(DEV_FUSE)?;
 
             Ok(Self {
-                fd: Async::new(fd)?,
+                fd: Async::new(file.into())?,
                 read: Mutex::new(()),
                 write: Mutex::new(()),
             })
@@ -302,7 +291,7 @@ mod async_std_connection {
             }
 
             let fd1 = sock1.as_raw_fd();
-            let fd = task::spawn_blocking(move || {
+            let fd = async_global_executor::spawn_blocking(move || {
                 // let mut buf = vec![0; 10000]; // buf should large enough
                 let mut buf = vec![]; // it seems 0 len still works well
 

@@ -9,13 +9,14 @@
 //! # Features:
 //!
 //! - `file-lock`: enable POSIX file lock feature.
-//! - `async-std-runtime`: use [async_std](https://docs.rs/async-std) runtime.
-//! - `tokio-runtime`: use [tokio](https://docs.rs/tokio) runtime.
+//! - `async-io-runtime`: use [async_io](https://docs.rs/async-io) and
+//! [async-global-executor](https://docs.rs/async-global-executor) to drive async io and task.
+//! - `tokio-runtime`: use [tokio](https://docs.rs/tokio) runtime to drive async io and task.
 //! - `unprivileged`: allow mount filesystem without root permission by using `fusermount3`.
 //!
 //! # Notes:
 //!
-//! You must enable `async-std-runtime` or `tokio-runtime` feature.
+//! You must enable `async-io-runtime` or `tokio-runtime` feature.
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
