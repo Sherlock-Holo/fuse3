@@ -31,6 +31,7 @@ mod tokio_connection {
     use tracing::debug;
     use tracing::warn;
 
+    #[cfg(target_os = "linux")]
     use crate::find_fusermount3;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
@@ -228,6 +229,7 @@ mod async_std_connection {
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use tracing::debug;
 
+    #[cfg(target_os = "linux")]
     use crate::find_fusermount3;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use crate::MountOptions;
