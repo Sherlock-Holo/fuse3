@@ -4,12 +4,12 @@ use std::fmt::{self, Debug, Formatter};
 use std::path::PathBuf;
 use std::vec::IntoIter;
 
-#[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-use async_std::sync::RwLock;
+#[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+use async_lock::RwLock;
 use bytes::Bytes;
 use futures_util::stream::{self, Iter, Stream, StreamExt};
 use slab::Slab;
-#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+#[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
 use tokio::sync::RwLock;
 
 use super::inode_generator::InodeGenerator;

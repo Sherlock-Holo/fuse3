@@ -6,14 +6,14 @@ use crate::path::path_filesystem::PathFilesystem;
 use crate::raw;
 use crate::MountOptions;
 
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+#[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 #[derive(Debug)]
 /// fuse filesystem session, path based.
 pub struct Session {
     mount_options: MountOptions,
 }
 
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+#[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 impl Session {
     /// new a fuse filesystem session.
     pub fn new(mount_options: MountOptions) -> Self {

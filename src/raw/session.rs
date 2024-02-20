@@ -14,14 +14,16 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+#[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+use async_fs::read_dir;
+#[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+use async_global_executor::{self as task, Task as JoinHandle};
 #[cfg(all(
     target_os = "linux",
     not(feature = "tokio-runtime"),
-    feature = "async-std-runtime"
+    feature = "async-io-runtime"
 ))]
-use async_std::process::Command;
-#[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
-use async_std::{fs::read_dir, task};
+use async_process::Command;
 use bincode::Options;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures_util::future::FutureExt;
@@ -33,11 +35,13 @@ use nix::mount;
 use nix::mount::MntFlags;
 #[cfg(all(
     target_os = "linux",
-    not(feature = "async-std-runtime"),
+    not(feature = "async-io-runtime"),
     feature = "tokio-runtime"
 ))]
 use tokio::process::Command;
-#[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+#[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
+use tokio::task::JoinHandle;
+#[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
 use tokio::{fs::read_dir, task};
 use tracing::{debug, debug_span, error, instrument, warn, Instrument, Span};
 
@@ -46,7 +50,7 @@ use crate::find_fusermount3;
 use crate::helper::*;
 use crate::notify::Notify;
 use crate::raw::abi::*;
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+#[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 use crate::raw::connection::FuseConnection;
 use crate::raw::filesystem::Filesystem;
 use crate::raw::reply::ReplyXAttr;
@@ -76,15 +80,22 @@ impl MountHandle {
 impl Drop for MountHandle {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.take() {
-            #[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
-            task::spawn(inner.inner_unmount());
+            #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+            {
+                task::spawn(inner.inner_unmount()).detach();
+            }
+
+            #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
+            {
+                task::spawn(inner.inner_unmount());
+            }
         }
     }
 }
 
 #[derive(Debug)]
 struct MountHandleInner {
-    task: task::JoinHandle<IoResult<()>>,
+    task: JoinHandle<IoResult<()>>,
     mount_path: PathBuf,
     #[cfg(target_os = "linux")]
     unprivileged: bool,
@@ -92,7 +103,7 @@ struct MountHandleInner {
 
 impl MountHandleInner {
     async fn inner_unmount(self) -> IoResult<()> {
-        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
         {
             if let Some(res) = self.task.cancel().await {
                 res?;
@@ -126,7 +137,7 @@ impl MountHandleInner {
             }
         }
 
-        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+        #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
         {
             self.task.abort();
 
@@ -168,7 +179,7 @@ impl MountHandleInner {
 impl Future for MountHandle {
     type Output = IoResult<()>;
 
-    #[cfg(feature = "async-std-runtime")]
+    #[cfg(feature = "async-io-runtime")]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.inner.as_mut().expect("inner should be Some()").task).poll(cx)
     }
@@ -184,7 +195,7 @@ impl Future for MountHandle {
     }
 }
 
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+#[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 /// fuse filesystem session, inode based.
 pub struct Session<FS> {
     fuse_connection: Option<Arc<FuseConnection>>,
@@ -194,7 +205,7 @@ pub struct Session<FS> {
     mount_options: MountOptions,
 }
 
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+#[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 impl<FS> Session<FS> {
     /// new a fuse filesystem session.
     pub fn new(mount_options: MountOptions) -> Self {
@@ -217,10 +228,10 @@ impl<FS> Session<FS> {
     }
 }
 
-#[cfg(any(feature = "async-std-runtime", feature = "tokio-runtime"))]
+#[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     async fn mount_empty_check(&self, mount_path: &Path) -> IoResult<()> {
-        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+        #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
         if !self.mount_options.nonempty
             && matches!(read_dir(mount_path).await?.next_entry().await, Ok(Some(_)))
         {
@@ -230,7 +241,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             ));
         }
 
-        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
         if !self.mount_options.nonempty && read_dir(mount_path).await?.next().await.is_some() {
             return Err(IoError::new(
                 ErrorKind::AlreadyExists,
@@ -292,7 +303,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         self.mount_empty_check(mount_path).await?;
 
-        let fuse_connection = FuseConnection::new().await?;
+        let fuse_connection = FuseConnection::new()?;
 
         let fd = fuse_connection.as_raw_fd();
 
@@ -343,7 +354,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         self.mount_empty_check(mount_path).await?;
 
-        let fuse_connection = FuseConnection::new().await?;
+        let fuse_connection = FuseConnection::new()?;
 
         let fd = fuse_connection.as_raw_fd();
 
@@ -384,11 +395,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         pin_mut!(dispatch_task);
 
-        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-std-runtime"))]
+        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
         let reply_task =
             task::spawn(async move { Self::reply_fuse(fuse_write_connection, receiver).await })
                 .fuse();
-        #[cfg(all(not(feature = "async-std-runtime"), feature = "tokio-runtime"))]
+        #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
         let reply_task = task::spawn(Self::reply_fuse(fuse_write_connection, receiver))
             .fuse()
             .map(Result::unwrap);
@@ -3995,5 +4006,9 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
+    #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
     task::spawn(fut.instrument(span));
+
+    #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+    task::spawn(fut.instrument(span)).detach()
 }
