@@ -208,6 +208,7 @@ mod tokio_connection {
 #[cfg(feature = "async-std-runtime")]
 mod async_std_connection {
     use std::io;
+    use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::io::RawFd;
@@ -236,7 +237,7 @@ mod async_std_connection {
 
     #[derive(Debug)]
     pub struct FuseConnection {
-        fd: Async<RawFd>,
+        fd: Async<OwnedFd>,
         read: Mutex<()>,
         write: Mutex<()>,
     }
@@ -245,12 +246,14 @@ mod async_std_connection {
         pub async fn new() -> io::Result<Self> {
             const DEV_FUSE: &str = "/dev/fuse";
 
-            let fd = fs::OpenOptions::new()
+            let file = fs::OpenOptions::new()
                 .write(true)
                 .read(true)
                 .open(DEV_FUSE)
-                .await?
-                .into_raw_fd();
+                .await?;
+
+            // Safety: fd is valid
+            let fd = unsafe { OwnedFd::from_raw_fd(file.into_raw_fd()) };
 
             Ok(Self {
                 fd: Async::new(fd)?,
@@ -332,6 +335,9 @@ mod async_std_connection {
             })
             .await?;
 
+            // Safety: fd is valid
+            let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+
             Ok(Self {
                 fd: Async::new(fd)?,
                 read: Mutex::new(()),
@@ -343,27 +349,26 @@ mod async_std_connection {
             let _guard = self.read.lock().await;
 
             self.fd
-                .read_with(|fd| unistd::read(*fd, buf).map_err(Into::into))
+                .read_with(|fd| unistd::read(fd.as_raw_fd(), buf).map_err(Into::into))
                 .await
         }
 
         pub async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {
             let _guard = self.write.lock().await;
-            let fd = *self.fd.as_ref();
 
-            unistd::write(fd, buf).map_err(Into::into)
+            unistd::write(self.fd.as_raw_fd(), buf).map_err(Into::into)
+        }
+    }
+
+    impl AsFd for FuseConnection {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            self.fd.as_fd()
         }
     }
 
     impl AsRawFd for FuseConnection {
         fn as_raw_fd(&self) -> RawFd {
             self.fd.as_raw_fd()
-        }
-    }
-
-    impl Drop for FuseConnection {
-        fn drop(&mut self) {
-            let _ = unistd::close(self.fd.as_raw_fd());
         }
     }
 }
