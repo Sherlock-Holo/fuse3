@@ -97,17 +97,19 @@ impl Drop for MountHandle {
 struct MountHandleInner {
     task: JoinHandle<IoResult<()>>,
     mount_path: PathBuf,
+    destroy_notify: Arc<async_notify::Notify>,
     #[cfg(target_os = "linux")]
     unprivileged: bool,
 }
 
 impl MountHandleInner {
     async fn inner_unmount(self) -> IoResult<()> {
+        self.destroy_notify.notify();
+
         #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
         {
-            if let Some(res) = self.task.cancel().await {
-                res?;
-            }
+            // wait destroy done
+            self.task.await?;
 
             // TODO: freebsd mount is unprivileged, then unmount is unprivileged too?
             #[cfg(target_os = "freebsd")]
@@ -139,7 +141,8 @@ impl MountHandleInner {
 
         #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
         {
-            self.task.abort();
+            // wait destroy done
+            self.task.await.unwrap()?;
 
             // TODO: freebsd mount is unprivileged, then unmount is unprivileged too?
             #[cfg(target_os = "freebsd")]
@@ -278,8 +281,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         self.mount_empty_check(mount_path).await?;
 
-        let fuse_connection =
-            FuseConnection::new_with_unprivileged(self.mount_options.clone(), mount_path).await?;
+        let notify = Arc::new(async_notify::Notify::new());
+        let fuse_connection = FuseConnection::new_with_unprivileged(
+            self.mount_options.clone(),
+            mount_path,
+            notify.clone(),
+        )
+        .await?;
 
         self.fuse_connection.replace(Arc::new(fuse_connection));
 
@@ -291,6 +299,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             inner: Some(MountHandleInner {
                 task: task::spawn(self.inner_mount()),
                 mount_path: mount_path.to_path_buf(),
+                destroy_notify: notify,
                 unprivileged: true,
             }),
         })
@@ -303,7 +312,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         self.mount_empty_check(mount_path).await?;
 
-        let fuse_connection = FuseConnection::new()?;
+        let notify = Arc::new(async_notify::Notify::new());
+        let fuse_connection = FuseConnection::new(notify.clone())?;
 
         let fd = fuse_connection.as_raw_fd();
 
@@ -339,6 +349,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             inner: Some(MountHandleInner {
                 task: task::spawn(self.inner_mount()),
                 mount_path: mount_path.to_path_buf(),
+                destroy_notify: notify,
                 unprivileged: false,
             }),
         })
@@ -354,7 +365,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         self.mount_empty_check(mount_path).await?;
 
-        let fuse_connection = FuseConnection::new()?;
+        let notify = Arc::new(async_notify::Notify::new());
+        let fuse_connection = FuseConnection::new(notify.clone())?;
 
         let fd = fuse_connection.as_raw_fd();
 
@@ -382,6 +394,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             inner: Some(MountHandleInner {
                 task: task::spawn(self.inner_mount()),
                 mount_path: mount_path.to_path_buf(),
+                destroy_notify: notify,
             }),
         })
     }
@@ -473,7 +486,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     return Err(err);
                 }
 
-                Ok(n) => &buffer[..n],
+                Ok(None) => {
+                    fs.destroy(Request {
+                        unique: 0,
+                        uid: 0,
+                        gid: 0,
+                        pid: 0,
+                    })
+                    .await;
+
+                    return Ok(());
+                }
+
+                Ok(Some(n)) => &buffer[..n],
             };
 
             let in_header = match get_bincode_config().deserialize::<fuse_in_header>(data) {

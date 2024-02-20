@@ -12,11 +12,15 @@ mod tokio_connection {
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::RawFd;
+    use std::pin::pin;
+    use std::sync::Arc;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{ffi::OsString, io::IoSliceMut, path::Path};
     use std::{fs, io};
 
+    use async_notify::Notify;
     use futures_util::lock::Mutex;
+    use futures_util::{select, FutureExt};
     use nix::unistd;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use nix::{
@@ -42,10 +46,11 @@ mod tokio_connection {
         fd: AsyncFd<OwnedFd>,
         read: Mutex<()>,
         write: Mutex<()>,
+        unmount_notify: Arc<Notify>,
     }
 
     impl FuseConnection {
-        pub fn new() -> io::Result<Self> {
+        pub fn new(unmount_notify: Arc<Notify>) -> io::Result<Self> {
             const DEV_FUSE: &str = "/dev/fuse";
 
             match fs::OpenOptions::new()
@@ -64,6 +69,7 @@ mod tokio_connection {
                     fd: AsyncFd::new(file.into())?,
                     read: Mutex::new(()),
                     write: Mutex::new(()),
+                    unmount_notify,
                 }),
             }
         }
@@ -72,6 +78,7 @@ mod tokio_connection {
         pub async fn new_with_unprivileged(
             mount_options: MountOptions,
             mount_path: impl AsRef<Path>,
+            unmount_notify: Arc<Notify>,
         ) -> io::Result<Self> {
             let (sock0, sock1) = match socket::socketpair(
                 AddressFamily::Unix,
@@ -151,11 +158,12 @@ mod tokio_connection {
                 fd: AsyncFd::new(fd)?,
                 read: Mutex::new(()),
                 write: Mutex::new(()),
+                unmount_notify,
             })
         }
 
         #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-        pub fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
+        fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
             let flags = nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
 
             let flags = OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK;
@@ -166,15 +174,22 @@ mod tokio_connection {
         }
 
         #[allow(clippy::needless_pass_by_ref_mut)] // Clippy false alarm
-        pub async fn read(&self, buf: &mut [u8]) -> Result<usize, io::Error> {
+        pub async fn read(&self, buf: &mut [u8]) -> Result<Option<usize>, io::Error> {
             let _guard = self.read.lock().await;
 
             loop {
-                let mut read_guard = self.fd.readable().await?;
+                let mut unmount_fut = pin!(self.unmount_notify.notified().fuse());
+                let mut readable_fut = pin!(self.fd.readable().fuse());
+
+                let mut read_guard = select! {
+                    _ = unmount_fut => return Ok(None),
+                    res = readable_fut => res?,
+                };
+
                 if let Ok(result) = read_guard
                     .try_io(|fd| unistd::read(fd.as_raw_fd(), buf).map_err(io::Error::from))
                 {
-                    return result;
+                    return result.map(Some);
                 } else {
                     continue;
                 }
@@ -207,14 +222,18 @@ mod async_io_connection {
     use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd};
     use std::os::unix::io::AsRawFd;
     use std::os::unix::io::RawFd;
+    use std::pin::pin;
+    use std::sync::Arc;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use std::{ffi::OsString, io::IoSliceMut, path::Path};
     use std::{fs, io};
 
     use async_io::Async;
+    use async_notify::Notify;
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use async_process::Command;
     use futures_util::lock::Mutex;
+    use futures_util::{select, FutureExt};
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     use nix::sys::socket::{
         self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType,
@@ -233,10 +252,11 @@ mod async_io_connection {
         fd: Async<OwnedFd>,
         read: Mutex<()>,
         write: Mutex<()>,
+        unmount_notify: Arc<Notify>,
     }
 
     impl FuseConnection {
-        pub fn new() -> io::Result<Self> {
+        pub fn new(unmount_notify: Arc<Notify>) -> io::Result<Self> {
             const DEV_FUSE: &str = "/dev/fuse";
 
             let file = fs::OpenOptions::new()
@@ -248,6 +268,7 @@ mod async_io_connection {
                 fd: Async::new(file.into())?,
                 read: Mutex::new(()),
                 write: Mutex::new(()),
+                unmount_notify,
             })
         }
 
@@ -255,6 +276,7 @@ mod async_io_connection {
         pub async fn new_with_unprivileged(
             mount_options: MountOptions,
             mount_path: impl AsRef<Path>,
+            unmount_notify: Arc<Notify>,
         ) -> io::Result<Self> {
             let (sock0, sock1) = match socket::socketpair(
                 AddressFamily::Unix,
@@ -331,15 +353,25 @@ mod async_io_connection {
                 fd: Async::new(fd)?,
                 read: Mutex::new(()),
                 write: Mutex::new(()),
+                unmount_notify,
             })
         }
 
-        pub async fn read(&self, buf: &mut [u8]) -> Result<usize, io::Error> {
+        pub async fn read(&self, buf: &mut [u8]) -> Result<Option<usize>, io::Error> {
             let _guard = self.read.lock().await;
 
-            self.fd
-                .read_with(|fd| unistd::read(fd.as_raw_fd(), buf).map_err(Into::into))
-                .await
+            let mut notify_fut = pin!(self.unmount_notify.notified().fuse());
+            let mut read_fut = pin!(self
+                .fd
+                .read_with(|fd| unistd::read(fd.as_raw_fd(), buf)
+                    .map(Some)
+                    .map_err(Into::into))
+                .fuse());
+
+            select! {
+                _ = notify_fut => Ok(None),
+                res = read_fut => res
+            }
         }
 
         pub async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {

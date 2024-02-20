@@ -119,6 +119,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-notify"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db96c36382f56ea91e5d012c4c7170046c7731449daa46655cbcabc594c8bee6"
+dependencies = [
+ "event-listener 4.0.3",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-process"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -358,6 +369,7 @@ dependencies = [
  "async-global-executor",
  "async-io",
  "async-lock 3.3.0",
+ "async-notify",
  "async-process",
  "bincode",
  "bytes",
