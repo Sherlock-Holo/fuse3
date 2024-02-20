@@ -9,7 +9,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -27,9 +27,9 @@ use async_process::Command;
 use bincode::Options;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures_util::future::FutureExt;
+use futures_util::select;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
-use futures_util::{pin_mut, select};
 use nix::mount;
 #[cfg(target_os = "freebsd")]
 use nix::mount::MntFlags;
@@ -392,8 +392,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let receiver = self.response_receiver.take().unwrap();
 
         let dispatch_task = self.dispatch().fuse();
-
-        pin_mut!(dispatch_task);
+        let mut dispatch_task = pin!(dispatch_task);
 
         #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
         let reply_task =
@@ -404,7 +403,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             .fuse()
             .map(Result::unwrap);
 
-        pin_mut!(reply_task);
+        let mut reply_task = pin!(reply_task);
 
         select! {
             reply_result = reply_task => {
@@ -2749,7 +2748,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             let mut entry_data = Vec::with_capacity(max_size);
 
             let entries = reply_readdir.entries;
-            pin_mut!(entries);
+            let mut entries = pin!(entries);
 
             while let Some(entry) = entries.next().await {
                 let entry = match entry {
@@ -3654,7 +3653,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             let mut entry_data = Vec::with_capacity(max_size);
 
             let entries = directory_plus.entries;
-            pin_mut!(entries);
+            let mut entries = pin!(entries);
 
             while let Some(entry) = entries.next().await {
                 let entry = match entry {
@@ -3995,9 +3994,7 @@ where
         .serialize(&out_header)
         .expect("won't happened");
 
-    pin_mut!(sender);
-
-    let _ = sender.send(data).await;
+    let _ = pin!(sender).send(data).await;
 }
 
 #[inline]
