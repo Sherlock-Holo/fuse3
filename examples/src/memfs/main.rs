@@ -17,7 +17,7 @@ use libc::mode_t;
 use tokio::signal;
 use tokio::sync::RwLock;
 use tracing::metadata::LevelFilter;
-use tracing::{debug, subscriber};
+use tracing::{debug, info, subscriber};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, Registry};
 
@@ -196,7 +196,9 @@ impl Filesystem for Fs {
         Ok(())
     }
 
-    async fn destroy(&self, _req: Request) {}
+    async fn destroy(&self, _req: Request) {
+        info!("destroy done")
+    }
 
     async fn lookup(&self, _req: Request, parent: u64, name: &OsStr) -> Result<ReplyEntry> {
         let inner = self.0.read().await;
