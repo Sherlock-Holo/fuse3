@@ -20,9 +20,9 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::io::{self, ErrorKind};
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -198,7 +198,7 @@ impl From<SystemTime> for Timestamp {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unprivileged"))]
 fn find_fusermount3() -> io::Result<PathBuf> {
     which::which("fusermount3").map_err(|err| {
         io::Error::new(

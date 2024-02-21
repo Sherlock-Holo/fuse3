@@ -1,10 +1,11 @@
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::future::Future;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
+use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::io::AsRawFd;
@@ -21,7 +22,8 @@ use async_global_executor::{self as task, Task as JoinHandle};
 #[cfg(all(
     target_os = "linux",
     not(feature = "tokio-runtime"),
-    feature = "async-io-runtime"
+    feature = "async-io-runtime",
+    feature = "unprivileged"
 ))]
 use async_process::Command;
 use bincode::Options;
@@ -36,7 +38,8 @@ use nix::mount::MntFlags;
 #[cfg(all(
     target_os = "linux",
     not(feature = "async-io-runtime"),
-    feature = "tokio-runtime"
+    feature = "tokio-runtime",
+    feature = "unprivileged"
 ))]
 use tokio::process::Command;
 #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
@@ -45,7 +48,7 @@ use tokio::task::JoinHandle;
 use tokio::{fs::read_dir, task};
 use tracing::{debug, debug_span, error, instrument, warn, Instrument, Span};
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::find_fusermount3;
 use crate::helper::*;
 use crate::notify::Notify;
@@ -98,7 +101,7 @@ struct MountHandleInner {
     task: JoinHandle<IoResult<()>>,
     mount_path: PathBuf,
     destroy_notify: Arc<async_notify::Notify>,
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     unprivileged: bool,
 }
 
@@ -122,9 +125,8 @@ impl MountHandleInner {
 
             #[cfg(target_os = "linux")]
             {
-                if !self.unprivileged {
-                    task::spawn_blocking(move || mount::umount(&self.mount_path)).await?;
-                } else {
+                #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+                if self.unprivileged {
                     let binary_path = find_fusermount3()?;
                     let mut child = Command::new(binary_path)
                         .args([OsStr::new("-u"), self.mount_path.as_os_str()])
@@ -135,7 +137,11 @@ impl MountHandleInner {
                             "call fusermount3 -u to unmount failed",
                         ));
                     }
+
+                    return Ok(());
                 }
+
+                task::spawn_blocking(move || mount::umount(&self.mount_path)).await?;
             }
         }
 
@@ -156,11 +162,8 @@ impl MountHandleInner {
 
             #[cfg(target_os = "linux")]
             {
-                if !self.unprivileged {
-                    task::spawn_blocking(move || mount::umount(&self.mount_path))
-                        .await
-                        .unwrap()?;
-                } else {
+                #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+                if self.unprivileged {
                     let binary_path = find_fusermount3()?;
                     let mut child = Command::new(binary_path)
                         .args([OsStr::new("-u"), self.mount_path.as_os_str()])
@@ -171,7 +174,13 @@ impl MountHandleInner {
                             "call fusermount3 -u to unmount failed",
                         ));
                     }
+
+                    return Ok(());
                 }
+
+                task::spawn_blocking(move || mount::umount(&self.mount_path))
+                    .await
+                    .unwrap()?;
             }
         }
 
@@ -315,7 +324,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let notify = Arc::new(async_notify::Notify::new());
         let fuse_connection = FuseConnection::new(notify.clone())?;
 
-        let fd = fuse_connection.as_raw_fd();
+        let fd = fuse_connection.as_fd().as_raw_fd();
 
         let options = self.mount_options.build(fd);
 
@@ -350,6 +359,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 task: task::spawn(self.inner_mount()),
                 mount_path: mount_path.to_path_buf(),
                 destroy_notify: notify,
+                #[cfg(all(target_os = "linux", feature = "unprivileged"))]
                 unprivileged: false,
             }),
         })
@@ -368,7 +378,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let notify = Arc::new(async_notify::Notify::new());
         let fuse_connection = FuseConnection::new(notify.clone())?;
 
-        let fd = fuse_connection.as_raw_fd();
+        let fd = fuse_connection.as_fd().as_raw_fd();
 
         {
             let mut nmount = self.mount_options.build();

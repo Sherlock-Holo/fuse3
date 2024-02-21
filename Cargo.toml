@@ -18,7 +18,7 @@ members = [".", "examples"]
 
 [features]
 tokio-runtime = ["dep:tokio"]
-async-io-runtime = ["dep:async-fs", "dep:async-global-executor", "dep:async-lock", "dep:async-io", "dep:async-process"]
+async-io-runtime = ["dep:async-fs", "dep:async-global-executor", "dep:async-lock", "dep:async-io", "dep:async-process", "futures-util/io"]
 file-lock = []
 unprivileged = ["nix/socket", "dep:which"]
 
