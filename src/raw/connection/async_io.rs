@@ -1,4 +1,6 @@
-use std::fs::{File, OpenOptions};
+#[cfg(target_os = "linux")]
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io;
 #[cfg(target_os = "linux")]
 use std::io::Write;
@@ -51,7 +53,7 @@ impl FuseConnection {
     pub fn new(unmount_notify: Arc<Notify>) -> io::Result<Self> {
         #[cfg(target_os = "freebsd")]
         {
-            let connection = NonBlockFuseConnection::new(unmount_notify)?;
+            let connection = NonBlockFuseConnection::new()?;
 
             Ok(Self {
                 unmount_notify,
@@ -211,10 +213,7 @@ impl NonBlockFuseConnection {
     fn new() -> io::Result<Self> {
         const DEV_FUSE: &str = "/dev/fuse";
 
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .read(true)
-            .open(DEV_FUSE)?;
+        let file = OpenOptions::new().write(true).read(true).open(DEV_FUSE)?;
 
         Ok(Self {
             fd: Async::new(file.into())?,

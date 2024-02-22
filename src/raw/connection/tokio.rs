@@ -1,6 +1,11 @@
-use std::fs::{File, OpenOptions};
+#[cfg(target_os = "linux")]
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "freebsd"
+))]
 use std::io::ErrorKind;
 #[cfg(target_os = "linux")]
 use std::io::Write;
@@ -140,6 +145,7 @@ enum ConnectionMode {
     NonBlock(NonBlockFuseConnection),
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Debug)]
 struct BlockFuseConnection {
     file: File,
@@ -147,6 +153,7 @@ struct BlockFuseConnection {
     write: Mutex<()>,
 }
 
+#[cfg(target_os = "linux")]
 impl BlockFuseConnection {
     pub fn new() -> io::Result<Self> {
         const DEV_FUSE: &str = "/dev/fuse";
@@ -216,7 +223,7 @@ struct NonBlockFuseConnection {
 ))]
 impl NonBlockFuseConnection {
     #[cfg(target_os = "freebsd")]
-    async fn new() -> io::Result<Self> {
+    fn new() -> io::Result<Self> {
         const DEV_FUSE: &str = "/dev/fuse";
 
         match OpenOptions::new()
