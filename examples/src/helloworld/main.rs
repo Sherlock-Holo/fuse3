@@ -33,9 +33,6 @@ const STATFS: ReplyStatFs = ReplyStatFs {
 struct HelloWorld;
 
 impl Filesystem for HelloWorld {
-    type DirEntryStream = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>;
-    type DirEntryPlusStream = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>;
-
     async fn init(&self, _req: Request) -> Result<()> {
         Ok(())
     }
@@ -157,13 +154,15 @@ impl Filesystem for HelloWorld {
         }
     }
 
+    type DirEntryStream<'a> = Iter<Skip<IntoIter<Result<DirectoryEntry>>>> where Self: 'a;
+
     async fn readdir(
         &self,
         _req: Request,
         inode: u64,
         _fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream<'_>>> {
         if inode == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }
@@ -206,6 +205,8 @@ impl Filesystem for HelloWorld {
         Ok(())
     }
 
+    type DirEntryPlusStream<'a> = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>> where Self: 'a;
+
     async fn readdirplus(
         &self,
         _req: Request,
@@ -213,7 +214,7 @@ impl Filesystem for HelloWorld {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
         if parent == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }

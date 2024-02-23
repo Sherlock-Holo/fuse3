@@ -189,8 +189,7 @@ impl Default for Fs {
 }
 
 impl Filesystem for Fs {
-    type DirEntryStream = Empty<Result<DirectoryEntry>>;
-    type DirEntryPlusStream = Iter<IntoIter<Result<DirectoryEntryPlus>>>;
+    type DirEntryStream<'a> = Empty<Result<DirectoryEntry>> where Self: 'a;
 
     async fn init(&self, _req: Request) -> Result<()> {
         Ok(())
@@ -713,6 +712,8 @@ impl Filesystem for Fs {
         }
     }
 
+    type DirEntryPlusStream<'a> = Iter<IntoIter<Result<DirectoryEntryPlus>>> where Self: 'a;
+
     async fn readdirplus(
         &self,
         _req: Request,
@@ -720,7 +721,7 @@ impl Filesystem for Fs {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
         let inner = self.0.read().await;
 
         let entry = inner
