@@ -144,15 +144,11 @@ impl<FS> Debug for InodePathBridge<FS> {
 
 impl<FS> Filesystem for InodePathBridge<FS>
 where
-    FS: PathFilesystem + Send + Sync,
+    FS: PathFilesystem + Send + Sync + 'static,
 {
-    type DirEntryStream = Iter<IntoIter<Result<DirectoryEntry>>>;
-    type DirEntryPlusStream = Iter<IntoIter<Result<DirectoryEntryPlus>>>;
-
     async fn init(&self, req: Request) -> Result<()> {
         self.path_filesystem.init(req).await
     }
-
     async fn destroy(&self, req: Request) {
         self.path_filesystem.destroy(req).await
     }
@@ -722,13 +718,15 @@ where
             .await
     }
 
+    type DirEntryStream<'a> = Iter<IntoIter<Result<DirectoryEntry>>> where Self: 'a;
+
     async fn readdir(
         &self,
         req: Request,
         parent: u64,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream<'_>>> {
         let mut inode_name_manager = self.inode_name_manager.write().await;
         let parent_path = inode_name_manager
             .get_absolute_path(parent)
@@ -1031,6 +1029,8 @@ where
             .await
     }
 
+    type DirEntryPlusStream<'a> = Iter<IntoIter<Result<DirectoryEntryPlus>>> where Self: 'a;
+
     async fn readdirplus(
         &self,
         req: Request,
@@ -1038,7 +1038,7 @@ where
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
         let mut inode_name_manager = self.inode_name_manager.write().await;
         let parent_path = inode_name_manager
             .get_absolute_path(parent)

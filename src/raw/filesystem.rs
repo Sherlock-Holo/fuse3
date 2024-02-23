@@ -17,12 +17,6 @@ use crate::{Inode, Result, SetAttr};
 /// this trait is defined with async_trait, you can use
 /// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
 pub trait Filesystem {
-    /// dir entry stream given by [`readdir`][Filesystem::readdir].
-    type DirEntryStream: Stream<Item = Result<DirectoryEntry>> + Send;
-
-    /// dir entry plus stream given by [`readdirplus`][Filesystem::readdirplus].
-    type DirEntryPlusStream: Stream<Item = Result<DirectoryEntryPlus>> + Send;
-
     /// initialize filesystem. Called before any other filesystem method.
     async fn init(&self, req: Request) -> Result<()>;
 
@@ -296,16 +290,21 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
+    /// dir entry stream given by [`readdir`][Filesystem::readdir].
+    type DirEntryStream<'a>: Stream<Item = Result<DirectoryEntry>> + Send + 'a
+    where
+        Self: 'a;
+
     /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
     /// contain the value set by the [`opendir`][Filesystem::opendir] method, or will be
     /// undefined if the [`opendir`][Filesystem::opendir] method didn't set any value.
-    async fn readdir(
-        &self,
+    async fn readdir<'a>(
+        &'a self,
         req: Request,
         parent: Inode,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory<Self::DirEntryStream>> {
+    ) -> Result<ReplyDirectory<Self::DirEntryStream<'a>>> {
         Err(libc::ENOSYS.into())
     }
 
@@ -480,16 +479,21 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
+    /// dir entry plus stream given by [`readdirplus`][Filesystem::readdirplus].
+    type DirEntryPlusStream<'a>: Stream<Item = Result<DirectoryEntryPlus>> + Send + 'a
+    where
+        Self: 'a;
+
     /// read directory entries, but with their attribute, like [`readdir`][Filesystem::readdir]
     /// + [`lookup`][Filesystem::lookup] at the same time.
-    async fn readdirplus(
-        &self,
+    async fn readdirplus<'a>(
+        &'a self,
         req: Request,
         parent: Inode,
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
         Err(libc::ENOSYS.into())
     }
 

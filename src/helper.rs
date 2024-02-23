@@ -27,8 +27,8 @@ pub fn get_first_null_position(data: impl AsRef<[u8]>) -> Option<usize> {
 #[cfg(target_os = "linux")]
 #[allow(trivial_numeric_casts)]
 /// returns the mode for a given file kind and permission
-pub fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
-    mode_t::from(kind) | perm as mode_t
+pub const fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
+    kind.const_into_mode_t() | perm as mode_t
 }
 
 // Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
@@ -36,18 +36,18 @@ pub fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 #[cfg(all(not(target_os = "linux"), target_os = "freebsd"))]
 #[allow(trivial_numeric_casts)]
 /// returns the mode for a given file kind and permission
-pub fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
-    (mode_t::from(kind) | perm as mode_t) as u32
+pub const fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
+    (kind.const_into_mode_t() | perm as mode_t) as u32
 }
 
 /// returns the permission for a given file kind and mode
 #[allow(clippy::unnecessary_cast)] // Not unnecessary on all platforms.
-pub fn perm_from_mode_and_kind(kind: FileType, mode: mode_t) -> u16 {
-    (mode ^ mode_t::from(kind)) as u16
+pub const fn perm_from_mode_and_kind(kind: FileType, mode: mode_t) -> u16 {
+    (mode ^ kind.const_into_mode_t()) as u16
 }
 
 #[inline]
-pub fn get_padding_size(dir_entry_size: usize) -> usize {
+pub const fn get_padding_size(dir_entry_size: usize) -> usize {
     // 64bit align
     let entry_size = (dir_entry_size + mem::size_of::<u64>() - 1) & !(mem::size_of::<u64>() - 1);
 

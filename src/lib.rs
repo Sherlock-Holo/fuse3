@@ -67,9 +67,10 @@ pub enum FileType {
     Socket,
 }
 
-impl From<FileType> for mode_t {
-    fn from(kind: FileType) -> Self {
-        match kind {
+impl FileType {
+    /// convert [`FileType`] into [`mode_t`]
+    pub const fn const_into_mode_t(self) -> mode_t {
+        match self {
             FileType::NamedPipe => libc::S_IFIFO,
             FileType::CharDevice => libc::S_IFCHR,
             FileType::BlockDevice => libc::S_IFBLK,
@@ -78,6 +79,12 @@ impl From<FileType> for mode_t {
             FileType::Symlink => libc::S_IFLNK,
             FileType::Socket => libc::S_IFSOCK,
         }
+    }
+}
+
+impl From<FileType> for mode_t {
+    fn from(kind: FileType) -> Self {
+        kind.const_into_mode_t()
     }
 }
 

@@ -138,8 +138,7 @@ impl Default for Fs {
 }
 
 impl PathFilesystem for Fs {
-    type DirEntryStream = Empty<Result<DirectoryEntry>>;
-    type DirEntryPlusStream = Iter<IntoIter<Result<DirectoryEntryPlus>>>;
+    type DirEntryStream<'a> = Empty<Result<DirectoryEntry>> where Self: 'a;
 
     async fn init(&self, _req: Request) -> Result<()> {
         Ok(())
@@ -715,6 +714,8 @@ impl PathFilesystem for Fs {
         }
     }
 
+    type DirEntryPlusStream<'a> = Iter<IntoIter<Result<DirectoryEntryPlus>>> where Self: 'a;
+
     async fn readdirplus(
         &self,
         _req: Request,
@@ -722,7 +723,7 @@ impl PathFilesystem for Fs {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream>> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
         let path = parent.to_string_lossy();
         let paths = split_path(&path);
 
