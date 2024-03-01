@@ -322,7 +322,7 @@ pub trait PathFilesystem {
     async fn readdir<'a>(
         &'a self,
         req: Request,
-        path: &OsStr,
+        path: &'a OsStr,
         fh: u64,
         offset: i64,
     ) -> Result<ReplyDirectory<Self::DirEntryStream<'a>>> {
@@ -510,7 +510,7 @@ pub trait PathFilesystem {
     async fn readdirplus<'a>(
         &'a self,
         req: Request,
-        parent: &OsStr,
+        parent: &'a OsStr,
         fh: u64,
         offset: u64,
         lock_owner: u64,

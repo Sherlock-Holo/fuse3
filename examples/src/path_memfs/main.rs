@@ -716,14 +716,14 @@ impl PathFilesystem for Fs {
 
     type DirEntryPlusStream<'a> = Iter<IntoIter<Result<DirectoryEntryPlus>>> where Self: 'a;
 
-    async fn readdirplus(
-        &self,
+    async fn readdirplus<'a>(
+        &'a self,
         _req: Request,
-        parent: &OsStr,
+        parent: &'a OsStr,
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
+    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
         let path = parent.to_string_lossy();
         let paths = split_path(&path);
 
