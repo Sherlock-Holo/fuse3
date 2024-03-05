@@ -27,8 +27,9 @@ use async_global_executor::{self as task, Task as JoinHandle};
 ))]
 use async_process::Command;
 use bincode::Options;
+use bytes::Bytes;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures_util::future::FutureExt;
+use futures_util::future::{Either, FutureExt};
 use futures_util::select;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
@@ -58,6 +59,7 @@ use crate::raw::connection::FuseConnection;
 use crate::raw::filesystem::Filesystem;
 use crate::raw::reply::ReplyXAttr;
 use crate::raw::request::Request;
+use crate::raw::FuseData;
 use crate::MountOptions;
 use crate::{Errno, SetAttr};
 
@@ -212,8 +214,8 @@ impl Future for MountHandle {
 pub struct Session<FS> {
     fuse_connection: Option<Arc<FuseConnection>>,
     filesystem: Option<Arc<FS>>,
-    response_sender: UnboundedSender<Vec<u8>>,
-    response_receiver: Option<UnboundedReceiver<Vec<u8>>>,
+    response_sender: UnboundedSender<FuseData>,
+    response_receiver: Option<UnboundedReceiver<FuseData>>,
     mount_options: MountOptions,
 }
 
@@ -443,10 +445,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
     async fn reply_fuse(
         fuse_connection: Arc<FuseConnection>,
-        mut response_receiver: UnboundedReceiver<Vec<u8>>,
+        mut response_receiver: UnboundedReceiver<FuseData>,
     ) -> IoResult<()> {
         while let Some(response) = response_receiver.next().await {
-            if let Err(err) = fuse_connection.write(&response).await {
+            let (data, extend_data) = match response {
+                Either::Left(data) => (data, None),
+                Either::Right((data, extend_data)) => (data, Some(extend_data)),
+            };
+            if let Err(err) = fuse_connection.write_vectored(data, extend_data).await.1 {
                 if err.kind() == ErrorKind::NotFound {
                     warn!(
                         "may reply interrupted fuse request, ignore this error {}",
@@ -788,7 +794,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     .serialize(&init_out_header)
                     .expect("won't happened");
 
-                if let Err(err) = fuse_connection.write(&init_out_header_data).await {
+                if let Err(err) = fuse_connection
+                    .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
+                    .await
+                    .1
+                {
                     error!("write error init out data to /dev/fuse failed {}", err);
                 }
 
@@ -962,7 +972,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&init_out_header)
                 .expect("won't happened");
 
-            if let Err(err) = fuse_connection.write(&init_out_header_data).await {
+            if let Err(err) = fuse_connection
+                .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
+                .await
+                .1
+            {
                 error!("write error init out data to /dev/fuse failed {}", err);
             }
 
@@ -1000,7 +1014,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             .serialize_into(&mut data, &init_out)
             .expect("won't happened");
 
-        if let Err(err) = fuse_connection.write(&data).await {
+        if let Err(err) = fuse_connection
+            .write_vectored::<_, Vec<u8>>(data, None)
+            .await
+            .1
+        {
             error!("write init out data to /dev/fuse failed {}", err);
 
             return Err(err);
@@ -1077,7 +1095,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1198,7 +1216,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1277,7 +1295,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1300,29 +1318,27 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    get_bincode_config()
-                        .serialize(&out_header)
-                        .expect("won't happened")
+                    Either::Left(
+                        get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened"),
+                    )
                 }
 
                 Ok(data) => {
-                    let content = data.data.as_ref();
-
                     let out_header = fuse_out_header {
-                        len: (FUSE_OUT_HEADER_SIZE + content.len()) as u32,
+                        len: (FUSE_OUT_HEADER_SIZE + data.data.len()) as u32,
                         error: 0,
                         unique: request.unique,
                     };
 
-                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + content.len());
+                    let mut data_buf = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
                     get_bincode_config()
-                        .serialize_into(&mut data, &out_header)
+                        .serialize_into(&mut data_buf, &out_header)
                         .expect("won't happened");
 
-                    data.extend_from_slice(content);
-
-                    data
+                    Either::Right((data_buf, data.data))
                 }
             };
 
@@ -1414,7 +1430,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1499,7 +1515,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &entry_out)
                         .expect("won't happened");
 
-                    let _ = resp_sender.send(data).await;
+                    let _ = resp_sender.send(Either::Left(data)).await;
                 }
             }
         });
@@ -1586,7 +1602,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &entry_out)
                         .expect("won't happened");
 
-                    let _ = resp_sender.send(data).await;
+                    let _ = resp_sender.send(Either::Left(data)).await;
                 }
             }
         });
@@ -1640,7 +1656,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1692,7 +1708,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1787,7 +1803,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1866,7 +1882,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &entry_out)
                         .expect("won't happened");
 
-                    let _ = resp_sender.send(data).await;
+                    let _ = resp_sender.send(Either::Left(data)).await;
                 }
             }
         });
@@ -1931,7 +1947,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &open_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1967,7 +1983,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 request.unique, in_header.nodeid, read_in
             );
 
-            let reply_data = match fs
+            let mut reply_data = match fs
                 .read(
                     request,
                     in_header.nodeid,
@@ -1986,10 +2002,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 Ok(reply_data) => reply_data.data,
             };
 
-            let mut reply_data = reply_data.as_ref();
-
             if reply_data.len() > read_in.size as _ {
-                reply_data = &reply_data[..read_in.size as _];
+                reply_data.truncate(read_in.size as _);
             }
 
             let out_header = fuse_out_header {
@@ -1998,15 +2012,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + reply_data.len());
+            let mut data_buf = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
             get_bincode_config()
-                .serialize_into(&mut data, &out_header)
+                .serialize_into(&mut data_buf, &out_header)
                 .expect("won't happened");
 
-            data.extend_from_slice(reply_data);
-
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender
+                .send(Either::Right((data_buf, reply_data)))
+                .await;
         });
     }
 
@@ -2092,7 +2106,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &write_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2134,7 +2148,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &statfs_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2203,7 +2217,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2260,7 +2274,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2354,7 +2368,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2436,7 +2450,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &getxattr_out)
                         .expect("won't happened");
 
-                    data
+                    Either::Left(data)
                 }
 
                 ReplyXAttr::Data(xattr_data) => {
@@ -2448,15 +2462,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + xattr_data.len());
+                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
                     get_bincode_config()
                         .serialize_into(&mut data, &out_header)
                         .expect("won't happened");
 
-                    data.extend_from_slice(&xattr_data);
-
-                    data
+                    Either::Right((data, xattr_data))
                 }
             };
 
@@ -2528,7 +2540,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &getxattr_out)
                         .expect("won't happened");
 
-                    data
+                    Either::Left(data)
                 }
 
                 ReplyXAttr::Data(xattr_data) => {
@@ -2540,15 +2552,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + xattr_data.len());
+                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
                     get_bincode_config()
                         .serialize_into(&mut data, &out_header)
                         .expect("won't happened");
 
-                    data.extend_from_slice(&xattr_data);
-
-                    data
+                    Either::Right((data, xattr_data))
                 }
             };
 
@@ -2605,7 +2615,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2660,7 +2670,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2723,7 +2733,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &open_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2832,15 +2842,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + entry_data.len());
+            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
             get_bincode_config()
                 .serialize_into(&mut data, &out_header)
                 .expect("won't happened");
 
-            data.extend_from_slice(&entry_data);
-
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender
+                .send(Either::Right((data, entry_data.into())))
+                .await;
         });
     }
 
@@ -2895,7 +2905,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2952,7 +2962,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3028,7 +3038,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &getlk_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3101,7 +3111,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("can't serialize into vec");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3156,7 +3166,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3249,7 +3259,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &open_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3295,7 +3305,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3361,7 +3371,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &bmap_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3443,7 +3453,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &poll_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3628,7 +3638,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3750,15 +3760,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + entry_data.len());
+            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
             get_bincode_config()
                 .serialize_into(&mut data, &out_header)
                 .expect("won't happened");
 
-            data.extend_from_slice(&entry_data);
-
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender
+                .send(Either::Right((data, entry_data.into())))
+                .await;
         });
     }
 
@@ -3859,7 +3869,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3932,7 +3942,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &lseek_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -4010,14 +4020,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &write_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 }
 
 async fn reply_error_in_place<S>(err: Errno, request: Request, sender: S)
 where
-    S: Sink<Vec<u8>>,
+    S: Sink<Either<Vec<u8>, (Vec<u8>, Bytes)>>,
 {
     let out_header = fuse_out_header {
         len: FUSE_OUT_HEADER_SIZE as u32,
@@ -4029,7 +4039,7 @@ where
         .serialize(&out_header)
         .expect("won't happened");
 
-    let _ = pin!(sender).send(data).await;
+    let _ = pin!(sender).send(Either::Left(data)).await;
 }
 
 #[inline]

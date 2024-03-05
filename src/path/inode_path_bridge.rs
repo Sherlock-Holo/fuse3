@@ -81,7 +81,7 @@ impl InodeNameManager {
     }
 
     fn contains_name(&self, name: &Name) -> bool {
-        self.name_to_inode.get(name).is_some()
+        self.name_to_inode.contains_key(name)
     }
 
     fn insert_name(&mut self, name: Name) -> Inode {
