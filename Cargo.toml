@@ -35,7 +35,7 @@ cstr = "0.2"
 futures-channel = { version = "0.3.30", features = ["sink"] }
 futures-util = { version = "0.3.30", features = ["sink"] }
 libc = "0.2.153"
-nix = { version = "0.27", default-features = false, features = ["fs", "mount"] }
+nix = { version = "0.28.0", default-features = false, features = ["fs", "mount"] }
 serde = { version = "1.0.196", features = ["derive"] }
 slab = "0.4.9"
 tracing = "0.1.40"
@@ -43,7 +43,7 @@ trait-make = "0.1"
 which = { version = "6", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nix = { version = "0.27", default-features = false, features = ["user"] }
+nix = { version = "0.28.0", default-features = false, features = ["user"] }
 
 [dependencies.tokio]
 version = "1.36"
