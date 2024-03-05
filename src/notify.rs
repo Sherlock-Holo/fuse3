@@ -6,6 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use bincode::Options;
 use bytes::{Buf, Bytes};
 use futures_channel::mpsc::UnboundedSender;
+use futures_util::future::Either;
 use futures_util::sink::SinkExt;
 
 use crate::helper::get_bincode_config;
@@ -17,21 +18,22 @@ use crate::raw::abi::{
     FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE, FUSE_NOTIFY_RETRIEVE_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE,
     FUSE_OUT_HEADER_SIZE,
 };
+use crate::raw::FuseData;
 
 #[derive(Debug, Clone)]
 /// notify kernel there are something need to handle.
 pub struct Notify {
-    sender: UnboundedSender<Vec<u8>>,
+    sender: UnboundedSender<FuseData>,
 }
 
 impl Notify {
-    pub(crate) fn new(sender: UnboundedSender<Vec<u8>>) -> Self {
+    pub(crate) fn new(sender: UnboundedSender<FuseData>) -> Self {
         Self { sender }
     }
 
     /// notify kernel there are something need to handle. If notify failed, the `kind` will be
     /// return in `Err`.
-    async fn notify(&mut self, kind: NotifyKind) -> std::result::Result<(), NotifyKind> {
+    async fn notify(&mut self, kind: NotifyKind) -> Result<(), NotifyKind> {
         let data = match &kind {
             NotifyKind::Wakeup { kh } => {
                 let out_header = fuse_out_header {
@@ -52,7 +54,7 @@ impl Notify {
                     .serialize_into(&mut data, &wakeup_out)
                     .expect("vec size is not enough");
 
-                data
+                Either::Left(data)
             }
 
             NotifyKind::InvalidInode { inode, offset, len } => {
@@ -78,7 +80,7 @@ impl Notify {
                     .serialize_into(&mut data, &invalid_inode_out)
                     .expect("vec size is not enough");
 
-                data
+                Either::Left(data)
             }
 
             NotifyKind::InvalidEntry { parent, name } => {
@@ -94,9 +96,8 @@ impl Notify {
                     padding: 0,
                 };
 
-                let mut data = Vec::with_capacity(
-                    FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE + name.len(),
-                );
+                let mut data =
+                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE);
 
                 get_bincode_config()
                     .serialize_into(&mut data, &out_header)
@@ -105,11 +106,9 @@ impl Notify {
                     .serialize_into(&mut data, &invalid_entry_out)
                     .expect("vec size is not enough");
 
-                data.extend_from_slice(name.as_bytes());
-
                 // TODO should I add null at the end?
 
-                data
+                Either::Right((data, Bytes::copy_from_slice(name.as_bytes())))
             }
 
             NotifyKind::Delete {
@@ -130,9 +129,8 @@ impl Notify {
                     padding: 0,
                 };
 
-                let mut data = Vec::with_capacity(
-                    FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_DELETE_OUT_SIZE + name.len(),
-                );
+                let mut data =
+                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_DELETE_OUT_SIZE);
 
                 get_bincode_config()
                     .serialize_into(&mut data, &out_header)
@@ -141,11 +139,9 @@ impl Notify {
                     .serialize_into(&mut data, &delete_out)
                     .expect("vec size is not enough");
 
-                data.extend_from_slice(name.as_bytes());
-
                 // TODO should I add null at the end?
 
-                data
+                Either::Right((data, Bytes::copy_from_slice(name.as_bytes())))
             }
 
             NotifyKind::Store {
@@ -166,9 +162,8 @@ impl Notify {
                     padding: 0,
                 };
 
-                let mut data_buf = Vec::with_capacity(
-                    FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_STORE_OUT_SIZE + data.len(),
-                );
+                let mut data_buf =
+                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_STORE_OUT_SIZE);
 
                 get_bincode_config()
                     .serialize_into(&mut data_buf, &out_header)
@@ -177,9 +172,7 @@ impl Notify {
                     .serialize_into(&mut data_buf, &store_out)
                     .expect("vec size is not enough");
 
-                data_buf.extend_from_slice(data);
-
-                data_buf
+                Either::Right((data_buf, data.clone()))
             }
 
             NotifyKind::Retrieve {
@@ -212,7 +205,7 @@ impl Notify {
                     .serialize_into(&mut data, &retrieve_out)
                     .expect("vec size is not enough");
 
-                data
+                Either::Left(data)
             }
         };
 

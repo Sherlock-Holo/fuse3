@@ -4,21 +4,22 @@ use std::fs::OpenOptions;
 use std::io;
 #[cfg(target_os = "linux")]
 use std::io::Write;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use std::os::fd::FromRawFd;
+use std::io::{IoSlice, IoSliceMut, Read};
+use std::mem::ManuallyDrop;
+use std::ops::{Deref, DerefMut};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd"
 ))]
 use std::os::fd::OwnedFd;
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, BorrowedFd, FromRawFd};
 use std::os::unix::io::AsRawFd;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::os::unix::io::RawFd;
 use std::pin::pin;
 use std::sync::Arc;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use std::{ffi::OsString, io::IoSliceMut, path::Path};
+use std::{ffi::OsString, path::Path};
 
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
@@ -29,10 +30,14 @@ use async_lock::Mutex;
 use async_notify::Notify;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use async_process::Command;
-use futures_util::{select, FutureExt, TryFutureExt};
+use futures_util::{select, FutureExt};
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use nix::sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
-use nix::unistd;
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "freebsd"
+))]
+use nix::sys::uio;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use tracing::debug;
 #[cfg(target_os = "freebsd")]
@@ -40,6 +45,7 @@ use tracing::warn;
 
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::find_fusermount3;
+use crate::raw::connection::CompleteIoResult;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::MountOptions;
 
@@ -87,37 +93,57 @@ impl FuseConnection {
         })
     }
 
-    pub async fn read(&self, buf: &mut [u8]) -> io::Result<Option<usize>> {
+    pub async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
+        &self,
+        header_buf: Vec<u8>,
+        data_buf: T,
+    ) -> Option<CompleteIoResult<(Vec<u8>, T), usize>> {
         let mut unmount_fut = pin!(self.unmount_notify.notified().fuse());
-        let mut read_fut = pin!(self.inner_read(buf).map_ok(Some).fuse());
+        let mut read_fut = pin!(self.inner_read_vectored(header_buf, data_buf).fuse());
 
         select! {
-            _ = unmount_fut => Ok(None),
-            res = read_fut => res
+            _ = unmount_fut => None,
+            res = read_fut => Some(res)
         }
     }
 
-    async fn inner_read(&self, buf: &mut [u8]) -> io::Result<usize> {
+    async fn inner_read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
+        &self,
+        header_buf: Vec<u8>,
+        data_buf: T,
+    ) -> CompleteIoResult<(Vec<u8>, T), usize> {
         match &self.mode {
             #[cfg(target_os = "linux")]
-            ConnectionMode::Block(connection) => connection.read(buf).await,
+            ConnectionMode::Block(connection) => {
+                connection.read_vectored(header_buf, data_buf).await
+            }
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
                 target_os = "freebsd"
             ))]
-            ConnectionMode::NonBlock(connection) => connection.read(buf).await,
+            ConnectionMode::NonBlock(connection) => {
+                connection.read_vectored(header_buf, data_buf).await
+            }
         }
     }
 
-    pub async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {
+    pub async fn write_vectored<T: Deref<Target = [u8]> + Send, U: Deref<Target = [u8]> + Send>(
+        &self,
+        data: T,
+        body_extend_data: Option<U>,
+    ) -> CompleteIoResult<(T, Option<U>), usize> {
         match &self.mode {
             #[cfg(target_os = "linux")]
-            ConnectionMode::Block(connection) => connection.write(buf).await,
+            ConnectionMode::Block(connection) => {
+                connection.write_vectored(data, body_extend_data).await
+            }
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
                 target_os = "freebsd"
             ))]
-            ConnectionMode::NonBlock(connection) => connection.write(buf).await,
+            ConnectionMode::NonBlock(connection) => {
+                connection.write_vectored(data, body_extend_data).await
+            }
         }
     }
 }
@@ -137,7 +163,7 @@ enum ConnectionMode {
 #[derive(Debug)]
 struct BlockFuseConnection {
     file: File,
-    read: Mutex<Option<Vec<u8>>>,
+    read: Mutex<()>,
     write: Mutex<()>,
 }
 
@@ -150,46 +176,60 @@ impl BlockFuseConnection {
 
         Ok(Self {
             file,
-            read: Mutex::new(Some(vec![0; 4096])),
+            read: Mutex::new(()),
             write: Mutex::new(()),
         })
     }
 
-    async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut inner_buf_guard = self.read.lock().await;
-        let mut inner_buf = inner_buf_guard.take().expect("read inner buf should exist");
-        if inner_buf.len() < buf.len() {
-            inner_buf.resize(buf.len(), 0);
-        }
+    async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
+        &self,
+        mut header_buf: Vec<u8>,
+        mut data_buf: T,
+    ) -> CompleteIoResult<(Vec<u8>, T), usize> {
+        let _guard = self.read.lock().await;
         let fd = self.file.as_raw_fd();
 
-        let (inner_buf, res) = async_global_executor::spawn_blocking(move || {
-            let res = unistd::read(fd, &mut inner_buf).map_err(io::Error::from);
+        let ((header_buf, data_buf), res) = async_global_executor::spawn_blocking(move || {
+            // Safety: when we call read, the fd is still valid, when fd is closed and file is
+            // dropped, the read operation will return error
+            let file = unsafe { File::from_raw_fd(fd) };
+            // avoid close the file
+            let mut file = ManuallyDrop::new(file);
 
-            (inner_buf, res)
+            let res = file.read_vectored(&mut [
+                IoSliceMut::new(&mut header_buf),
+                IoSliceMut::new(&mut data_buf),
+            ]);
+
+            ((header_buf, data_buf), res)
         })
         .await;
 
-        match res {
-            Err(err) => {
-                inner_buf_guard.replace(inner_buf);
-
-                Err(err)
-            }
-
-            Ok(n) => {
-                buf[..n].copy_from_slice(&inner_buf[..n]);
-                inner_buf_guard.replace(inner_buf);
-
-                Ok(n)
-            }
-        }
+        ((header_buf, data_buf), res)
     }
 
-    async fn write(&self, buf: &[u8]) -> Result<usize, io::Error> {
+    async fn write_vectored<T: Deref<Target = [u8]> + Send, U: Deref<Target = [u8]> + Send>(
+        &self,
+        data: T,
+        body_extend_data: Option<U>,
+    ) -> CompleteIoResult<(T, Option<U>), usize> {
         let _guard = self.write.lock().await;
 
-        (&self.file).write(buf)
+        let res = {
+            let body_extend_data = body_extend_data.as_deref();
+
+            match body_extend_data {
+                None => (&self.file).write_vectored(&[IoSlice::new(data.deref())]),
+
+                Some(body_extend_data) => (&self.file)
+                    .write_vectored(&[IoSlice::new(data.deref()), IoSlice::new(body_extend_data)]),
+            }
+        };
+
+        match res {
+            Err(err) => ((data, body_extend_data), Err(err)),
+            Ok(n) => ((data, body_extend_data), Ok(n)),
+        }
     }
 }
 
@@ -305,18 +345,54 @@ impl NonBlockFuseConnection {
         })
     }
 
-    async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+    async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
+        &self,
+        mut header_buf: Vec<u8>,
+        mut data_buf: T,
+    ) -> CompleteIoResult<(Vec<u8>, T), usize> {
         let _guard = self.read.lock().await;
 
-        self.fd
-            .read_with(|fd| unistd::read(fd.as_raw_fd(), buf).map_err(Into::into))
-            .await
+        let res = self
+            .fd
+            .read_with(|fd| {
+                uio::readv(
+                    fd,
+                    &mut [
+                        IoSliceMut::new(&mut header_buf),
+                        IoSliceMut::new(&mut data_buf),
+                    ],
+                )
+                .map_err(Into::into)
+            })
+            .await;
+
+        ((header_buf, data_buf), res)
     }
 
-    async fn write(&self, buf: &[u8]) -> io::Result<usize> {
+    async fn write_vectored<T: Deref<Target = [u8]> + Send, U: Deref<Target = [u8]> + Send>(
+        &self,
+        data: T,
+        body_extend_data: Option<U>,
+    ) -> CompleteIoResult<(T, Option<U>), usize> {
         let _guard = self.write.lock().await;
 
-        unistd::write(self.fd.as_raw_fd(), buf).map_err(Into::into)
+        let res = {
+            let body_extend_data = body_extend_data.as_deref();
+
+            match body_extend_data {
+                None => uio::writev(&self.fd, &[IoSlice::new(data.deref())]),
+
+                Some(body_extend_data) => uio::writev(
+                    &self.fd,
+                    &[IoSlice::new(data.deref()), IoSlice::new(body_extend_data)],
+                ),
+            }
+        };
+
+        match res {
+            Err(err) => ((data, body_extend_data), Err(err.into())),
+            Ok(n) => ((data, body_extend_data), Ok(n)),
+        }
     }
 }
 

@@ -46,7 +46,7 @@ impl From<NixError> for Errno {
 
 impl From<Errno> for NixError {
     fn from(errno: Errno) -> Self {
-        nix::errno::from_i32(errno.0)
+        NixError::from_raw(errno.0)
     }
 }
 

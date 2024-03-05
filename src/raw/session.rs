@@ -27,8 +27,9 @@ use async_global_executor::{self as task, Task as JoinHandle};
 ))]
 use async_process::Command;
 use bincode::Options;
+use bytes::Bytes;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures_util::future::FutureExt;
+use futures_util::future::{Either, FutureExt};
 use futures_util::select;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
@@ -58,6 +59,7 @@ use crate::raw::connection::FuseConnection;
 use crate::raw::filesystem::Filesystem;
 use crate::raw::reply::ReplyXAttr;
 use crate::raw::request::Request;
+use crate::raw::FuseData;
 use crate::MountOptions;
 use crate::{Errno, SetAttr};
 
@@ -212,8 +214,8 @@ impl Future for MountHandle {
 pub struct Session<FS> {
     fuse_connection: Option<Arc<FuseConnection>>,
     filesystem: Option<Arc<FS>>,
-    response_sender: UnboundedSender<Vec<u8>>,
-    response_receiver: Option<UnboundedReceiver<Vec<u8>>>,
+    response_sender: UnboundedSender<FuseData>,
+    response_receiver: Option<UnboundedReceiver<FuseData>>,
     mount_options: MountOptions,
 }
 
@@ -423,8 +425,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .fuse();
         #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
         let reply_task = task::spawn(Self::reply_fuse(fuse_write_connection, receiver))
-            .fuse()
-            .map(Result::unwrap);
+            .map(Result::unwrap)
+            .fuse();
 
         let mut reply_task = pin!(reply_task);
 
@@ -443,10 +445,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
     async fn reply_fuse(
         fuse_connection: Arc<FuseConnection>,
-        mut response_receiver: UnboundedReceiver<Vec<u8>>,
+        mut response_receiver: UnboundedReceiver<FuseData>,
     ) -> IoResult<()> {
         while let Some(response) = response_receiver.next().await {
-            if let Err(err) = fuse_connection.write(&response).await {
+            let (data, extend_data) = match response {
+                Either::Left(data) => (data, None),
+                Either::Right((data, extend_data)) => (data, Some(extend_data)),
+            };
+            if let Err(err) = fuse_connection.write_vectored(data, extend_data).await.1 {
                 if err.kind() == ErrorKind::NotFound {
                     warn!(
                         "may reply interrupted fuse request, ignore this error {}",
@@ -466,14 +472,37 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     async fn dispatch(&mut self) -> IoResult<()> {
-        let mut buffer = vec![0; BUFFER_SIZE];
+        let mut header_buffer = vec![0; FUSE_IN_HEADER_SIZE];
+        let mut data_buffer = vec![0; BUFFER_SIZE];
 
         let fuse_connection = self.fuse_connection.take().unwrap();
-
         let fs = self.filesystem.take().expect("filesystem not init");
 
         loop {
-            let mut data = match fuse_connection.read(&mut buffer).await {
+            let res = match fuse_connection
+                .read_vectored(header_buffer, data_buffer)
+                .await
+            {
+                None => {
+                    fs.destroy(Request {
+                        unique: 0,
+                        uid: 0,
+                        gid: 0,
+                        pid: 0,
+                    })
+                    .await;
+
+                    return Ok(());
+                }
+
+                Some(((header_buf, data_buf), res)) => {
+                    header_buffer = header_buf;
+                    data_buffer = data_buf;
+
+                    res
+                }
+            };
+            let n = match res {
                 Err(err) => {
                     if let Some(errno) = err.raw_os_error() {
                         if errno == libc::ENODEV {
@@ -496,22 +525,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     return Err(err);
                 }
 
-                Ok(None) => {
-                    fs.destroy(Request {
-                        unique: 0,
-                        uid: 0,
-                        gid: 0,
-                        pid: 0,
-                    })
-                    .await;
-
-                    return Ok(());
-                }
-
-                Ok(Some(n)) => &buffer[..n],
+                Ok(n) => n,
             };
 
-            let in_header = match get_bincode_config().deserialize::<fuse_in_header>(data) {
+            if n < FUSE_IN_HEADER_SIZE {
+                error!(
+                    n,
+                    FUSE_IN_HEADER_SIZE, "read_vectored n is less then FUSE_IN_HEADER_SIZE"
+                );
+
+                continue;
+            }
+
+            let in_header = match get_bincode_config().deserialize::<fuse_in_header>(&header_buffer)
+            {
                 Err(err) => {
                     error!("deserialize fuse_in_header failed {}", err);
 
@@ -531,18 +558,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     continue;
                 }
+
                 Ok(opcode) => opcode,
             };
 
             debug!("receive opcode {}", opcode);
 
-            // data = &data[FUSE_IN_HEADER_SIZE..in_header.len as usize - FUSE_IN_HEADER_SIZE];
-            data = &data[FUSE_IN_HEADER_SIZE..];
-            data = &data[..in_header.len as usize - FUSE_IN_HEADER_SIZE];
+            let data_size = in_header.len as usize - FUSE_IN_HEADER_SIZE;
+            let data_ref = &data_buffer[..data_size];
 
             match opcode {
                 fuse_opcode::FUSE_INIT => {
-                    self.handle_init(request, data, &fuse_connection, &fs)
+                    self.handle_init(request, data_ref, &fuse_connection, &fs)
                         .await?;
                 }
 
@@ -557,19 +584,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_LOOKUP => {
-                    self.handle_lookup(request, in_header, data, &fs).await;
+                    self.handle_lookup(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_FORGET => {
-                    self.handle_forget(request, in_header, data, &fs).await;
+                    self.handle_forget(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_GETATTR => {
-                    self.handle_getattr(request, in_header, data, &fs).await;
+                    self.handle_getattr(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_SETATTR => {
-                    self.handle_setattr(request, in_header, data, &fs).await;
+                    self.handle_setattr(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_READLINK => {
@@ -577,43 +604,43 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_SYMLINK => {
-                    self.handle_symlink(request, in_header, data, &fs).await;
+                    self.handle_symlink(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_MKNOD => {
-                    self.handle_mknod(request, in_header, data, &fs).await;
+                    self.handle_mknod(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_MKDIR => {
-                    self.handle_mkdir(request, in_header, data, &fs).await;
+                    self.handle_mkdir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_UNLINK => {
-                    self.handle_unlink(request, in_header, data, &fs).await;
+                    self.handle_unlink(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_RMDIR => {
-                    self.handle_rmdir(request, in_header, data, &fs).await;
+                    self.handle_rmdir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_RENAME => {
-                    self.handle_rename(request, in_header, data, &fs).await;
+                    self.handle_rename(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_LINK => {
-                    self.handle_link(request, in_header, data, &fs).await;
+                    self.handle_link(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_OPEN => {
-                    self.handle_open(request, in_header, data, &fs).await;
+                    self.handle_open(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_READ => {
-                    self.handle_read(request, in_header, data, &fs).await;
+                    self.handle_read(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_WRITE => {
-                    self.handle_write(request, in_header, data, &fs).await;
+                    self.handle_write(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_STATFS => {
@@ -621,52 +648,58 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_RELEASE => {
-                    self.handle_release(request, in_header, data, &fs).await;
+                    self.handle_release(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_FSYNC => {
-                    self.handle_fsync(request, in_header, data, &fs).await;
+                    self.handle_fsync(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_SETXATTR => {
-                    self.handle_setxattr(request, in_header, data, &fs).await;
+                    self.handle_setxattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_GETXATTR => {
-                    self.handle_getxattr(request, in_header, data, &fs).await;
+                    self.handle_getxattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_LISTXATTR => {
-                    self.handle_listxattr(request, in_header, data, &fs).await;
+                    self.handle_listxattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_REMOVEXATTR => {
-                    self.handle_removexattr(request, in_header, data, &fs).await;
+                    self.handle_removexattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_FLUSH => {
-                    self.handle_flush(request, in_header, data, &fs).await;
+                    self.handle_flush(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_OPENDIR => {
-                    self.handle_opendir(request, in_header, data, &fs).await;
+                    self.handle_opendir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_READDIR => {
-                    self.handle_readdir(request, in_header, data, &fs).await;
+                    self.handle_readdir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_RELEASEDIR => {
-                    self.handle_releasedir(request, in_header, data, &fs).await;
+                    self.handle_releasedir(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_FSYNCDIR => {
-                    self.handle_fsyncdir(request, in_header, data, &fs).await;
+                    self.handle_fsyncdir(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 #[cfg(feature = "file-lock")]
                 fuse_opcode::FUSE_GETLK => {
-                    self.handle_getlk(request, in_header, data, &fs).await;
+                    self.handle_getlk(request, in_header, data_ref, &fs).await;
                 }
 
                 #[cfg(feature = "file-lock")]
@@ -674,7 +707,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     self.handle_setlk(
                         request,
                         in_header,
-                        data,
+                        data_ref,
                         opcode == fuse_opcode::FUSE_SETLKW,
                         &fs,
                     )
@@ -682,19 +715,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_ACCESS => {
-                    self.handle_access(request, in_header, data, &fs).await;
+                    self.handle_access(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_CREATE => {
-                    self.handle_create(request, in_header, data, &fs).await;
+                    self.handle_create(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_INTERRUPT => {
-                    self.handle_interrupt(request, data, &fs).await;
+                    self.handle_interrupt(request, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_BMAP => {
-                    self.handle_bmap(request, in_header, data, &fs).await;
+                    self.handle_bmap(request, in_header, data_ref, &fs).await;
                 }
 
                 /*fuse_opcode::FUSE_IOCTL => {
@@ -717,37 +750,39 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = fs.clone();
                 }*/
                 fuse_opcode::FUSE_POLL => {
-                    self.handle_poll(request, in_header, data, &fs).await;
+                    self.handle_poll(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_NOTIFY_REPLY => {
-                    self.handle_notify_reply(request, in_header, data, &fs)
+                    self.handle_notify_reply(request, in_header, data_ref, &fs)
                         .await;
                 }
 
                 fuse_opcode::FUSE_BATCH_FORGET => {
-                    self.handle_batch_forget(request, in_header, data, &fs)
+                    self.handle_batch_forget(request, in_header, data_ref, &fs)
                         .await;
                 }
 
                 fuse_opcode::FUSE_FALLOCATE => {
-                    self.handle_fallocate(request, in_header, data, &fs).await;
+                    self.handle_fallocate(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_READDIRPLUS => {
-                    self.handle_readdirplus(request, in_header, data, &fs).await;
+                    self.handle_readdirplus(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_RENAME2 => {
-                    self.handle_rename2(request, in_header, data, &fs).await;
+                    self.handle_rename2(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_LSEEK => {
-                    self.handle_lseek(request, in_header, data, &fs).await;
+                    self.handle_lseek(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_COPY_FILE_RANGE => {
-                    self.handle_copy_file_range(request, in_header, data, &fs)
+                    self.handle_copy_file_range(request, in_header, data_ref, &fs)
                         .await;
                 }
 
@@ -788,7 +823,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     .serialize(&init_out_header)
                     .expect("won't happened");
 
-                if let Err(err) = fuse_connection.write(&init_out_header_data).await {
+                if let Err(err) = fuse_connection
+                    .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
+                    .await
+                    .1
+                {
                     error!("write error init out data to /dev/fuse failed {}", err);
                 }
 
@@ -962,7 +1001,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&init_out_header)
                 .expect("won't happened");
 
-            if let Err(err) = fuse_connection.write(&init_out_header_data).await {
+            if let Err(err) = fuse_connection
+                .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
+                .await
+                .1
+            {
                 error!("write error init out data to /dev/fuse failed {}", err);
             }
 
@@ -1000,7 +1043,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             .serialize_into(&mut data, &init_out)
             .expect("won't happened");
 
-        if let Err(err) = fuse_connection.write(&data).await {
+        if let Err(err) = fuse_connection
+            .write_vectored::<_, Vec<u8>>(data, None)
+            .await
+            .1
+        {
             error!("write init out data to /dev/fuse failed {}", err);
 
             return Err(err);
@@ -1077,7 +1124,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1198,7 +1245,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1277,7 +1324,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1300,29 +1347,27 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    get_bincode_config()
-                        .serialize(&out_header)
-                        .expect("won't happened")
+                    Either::Left(
+                        get_bincode_config()
+                            .serialize(&out_header)
+                            .expect("won't happened"),
+                    )
                 }
 
                 Ok(data) => {
-                    let content = data.data.as_ref();
-
                     let out_header = fuse_out_header {
-                        len: (FUSE_OUT_HEADER_SIZE + content.len()) as u32,
+                        len: (FUSE_OUT_HEADER_SIZE + data.data.len()) as u32,
                         error: 0,
                         unique: request.unique,
                     };
 
-                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + content.len());
+                    let mut data_buf = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
                     get_bincode_config()
-                        .serialize_into(&mut data, &out_header)
+                        .serialize_into(&mut data_buf, &out_header)
                         .expect("won't happened");
 
-                    data.extend_from_slice(content);
-
-                    data
+                    Either::Right((data_buf, data.data))
                 }
             };
 
@@ -1414,7 +1459,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
             };
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1499,7 +1544,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &entry_out)
                         .expect("won't happened");
 
-                    let _ = resp_sender.send(data).await;
+                    let _ = resp_sender.send(Either::Left(data)).await;
                 }
             }
         });
@@ -1586,7 +1631,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &entry_out)
                         .expect("won't happened");
 
-                    let _ = resp_sender.send(data).await;
+                    let _ = resp_sender.send(Either::Left(data)).await;
                 }
             }
         });
@@ -1640,7 +1685,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1692,7 +1737,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1787,7 +1832,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1866,7 +1911,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &entry_out)
                         .expect("won't happened");
 
-                    let _ = resp_sender.send(data).await;
+                    let _ = resp_sender.send(Either::Left(data)).await;
                 }
             }
         });
@@ -1931,7 +1976,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &open_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -1967,7 +2012,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 request.unique, in_header.nodeid, read_in
             );
 
-            let reply_data = match fs
+            let mut reply_data = match fs
                 .read(
                     request,
                     in_header.nodeid,
@@ -1986,10 +2031,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 Ok(reply_data) => reply_data.data,
             };
 
-            let mut reply_data = reply_data.as_ref();
-
             if reply_data.len() > read_in.size as _ {
-                reply_data = &reply_data[..read_in.size as _];
+                reply_data.truncate(read_in.size as _);
             }
 
             let out_header = fuse_out_header {
@@ -1998,15 +2041,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + reply_data.len());
+            let mut data_buf = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
             get_bincode_config()
-                .serialize_into(&mut data, &out_header)
+                .serialize_into(&mut data_buf, &out_header)
                 .expect("won't happened");
 
-            data.extend_from_slice(reply_data);
-
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender
+                .send(Either::Right((data_buf, reply_data)))
+                .await;
         });
     }
 
@@ -2092,7 +2135,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &write_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2134,7 +2177,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &statfs_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2203,7 +2246,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2260,7 +2303,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2354,7 +2397,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2436,7 +2479,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &getxattr_out)
                         .expect("won't happened");
 
-                    data
+                    Either::Left(data)
                 }
 
                 ReplyXAttr::Data(xattr_data) => {
@@ -2448,15 +2491,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + xattr_data.len());
+                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
                     get_bincode_config()
                         .serialize_into(&mut data, &out_header)
                         .expect("won't happened");
 
-                    data.extend_from_slice(&xattr_data);
-
-                    data
+                    Either::Right((data, xattr_data))
                 }
             };
 
@@ -2528,7 +2569,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         .serialize_into(&mut data, &getxattr_out)
                         .expect("won't happened");
 
-                    data
+                    Either::Left(data)
                 }
 
                 ReplyXAttr::Data(xattr_data) => {
@@ -2540,15 +2581,13 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + xattr_data.len());
+                    let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
                     get_bincode_config()
                         .serialize_into(&mut data, &out_header)
                         .expect("won't happened");
 
-                    data.extend_from_slice(&xattr_data);
-
-                    data
+                    Either::Right((data, xattr_data))
                 }
             };
 
@@ -2605,7 +2644,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2660,7 +2699,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2723,7 +2762,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &open_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2832,15 +2871,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + entry_data.len());
+            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
             get_bincode_config()
                 .serialize_into(&mut data, &out_header)
                 .expect("won't happened");
 
-            data.extend_from_slice(&entry_data);
-
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender
+                .send(Either::Right((data, entry_data.into())))
+                .await;
         });
     }
 
@@ -2895,7 +2934,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -2952,7 +2991,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3028,7 +3067,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &getlk_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3101,7 +3140,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("can't serialize into vec");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3156,7 +3195,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3249,7 +3288,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &open_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3295,7 +3334,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3361,7 +3400,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &bmap_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3443,7 +3482,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &poll_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3628,7 +3667,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3750,15 +3789,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + entry_data.len());
+            let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
             get_bincode_config()
                 .serialize_into(&mut data, &out_header)
                 .expect("won't happened");
 
-            data.extend_from_slice(&entry_data);
-
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender
+                .send(Either::Right((data, entry_data.into())))
+                .await;
         });
     }
 
@@ -3859,7 +3898,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize(&out_header)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -3932,7 +3971,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &lseek_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 
@@ -4010,14 +4049,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .serialize_into(&mut data, &write_out)
                 .expect("won't happened");
 
-            let _ = resp_sender.send(data).await;
+            let _ = resp_sender.send(Either::Left(data)).await;
         });
     }
 }
 
 async fn reply_error_in_place<S>(err: Errno, request: Request, sender: S)
 where
-    S: Sink<Vec<u8>>,
+    S: Sink<Either<Vec<u8>, (Vec<u8>, Bytes)>>,
 {
     let out_header = fuse_out_header {
         len: FUSE_OUT_HEADER_SIZE as u32,
@@ -4029,7 +4068,7 @@ where
         .serialize(&out_header)
         .expect("won't happened");
 
-    let _ = pin!(sender).send(data).await;
+    let _ = pin!(sender).send(Either::Left(data)).await;
 }
 
 #[inline]

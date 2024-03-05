@@ -6,10 +6,14 @@
 //! want to control the inode or do the path<->inode map on yourself, [`Filesystem`] is the only one
 //! choose.
 
+use bytes::Bytes;
 pub use filesystem::Filesystem;
+use futures_util::future::Either;
 pub use request::Request;
 #[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 pub use session::{MountHandle, Session};
+
+pub(crate) type FuseData = Either<Vec<u8>, (Vec<u8>, Bytes)>;
 
 pub(crate) mod abi;
 mod connection;
