@@ -7,18 +7,17 @@ use std::io;
     target_os = "freebsd"
 ))]
 use std::io::ErrorKind;
-use std::io::IoSlice;
 #[cfg(target_os = "linux")]
 use std::io::Write;
-use std::ops::Deref;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use std::os::fd::FromRawFd;
+use std::io::{IoSlice, IoSliceMut, Read};
+use std::mem::ManuallyDrop;
+use std::ops::{Deref, DerefMut};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd"
 ))]
 use std::os::fd::OwnedFd;
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, BorrowedFd, FromRawFd};
 #[cfg(target_os = "freebsd")]
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::AsRawFd;
@@ -27,17 +26,16 @@ use std::os::unix::io::RawFd;
 use std::pin::pin;
 use std::sync::Arc;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use std::{ffi::OsString, io::IoSliceMut, path::Path};
+use std::{ffi::OsString, path::Path};
 
 use async_notify::Notify;
 use futures_util::lock::Mutex;
-use futures_util::{select, FutureExt, TryFutureExt};
+use futures_util::{select, FutureExt};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd"
 ))]
 use nix::sys::uio;
-use nix::unistd;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use nix::{
     fcntl::{FcntlArg, OFlag},
@@ -107,25 +105,37 @@ impl FuseConnection {
         })
     }
 
-    pub async fn read(&self, buf: &mut [u8]) -> Result<Option<usize>, io::Error> {
+    pub async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
+        &self,
+        header_buf: Vec<u8>,
+        data_buf: T,
+    ) -> Option<CompleteIoResult<(Vec<u8>, T), usize>> {
         let mut unmount_fut = pin!(self.unmount_notify.notified().fuse());
-        let mut read_fut = pin!(self.inner_read(buf).map_ok(Some).fuse());
+        let mut read_fut = pin!(self.inner_read_vectored(header_buf, data_buf).fuse());
 
         select! {
-            _ = unmount_fut => Ok(None),
-            res = read_fut => res
+            _ = unmount_fut => None,
+            res = read_fut => Some(res)
         }
     }
 
-    async fn inner_read(&self, buf: &mut [u8]) -> io::Result<usize> {
+    async fn inner_read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
+        &self,
+        header_buf: Vec<u8>,
+        data_buf: T,
+    ) -> CompleteIoResult<(Vec<u8>, T), usize> {
         match &self.mode {
             #[cfg(target_os = "linux")]
-            ConnectionMode::Block(connection) => connection.read(buf).await,
+            ConnectionMode::Block(connection) => {
+                connection.read_vectored(header_buf, data_buf).await
+            }
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
                 target_os = "freebsd"
             ))]
-            ConnectionMode::NonBlock(connection) => connection.read(buf).await,
+            ConnectionMode::NonBlock(connection) => {
+                connection.read_vectored(header_buf, data_buf).await
+            }
         }
     }
 
@@ -165,7 +175,7 @@ enum ConnectionMode {
 #[derive(Debug)]
 struct BlockFuseConnection {
     file: File,
-    read: Mutex<Option<Vec<u8>>>,
+    read: Mutex<()>,
     write: Mutex<()>,
 }
 
@@ -178,41 +188,37 @@ impl BlockFuseConnection {
 
         Ok(Self {
             file,
-            read: Mutex::new(Some(vec![0; 4096])),
+            read: Mutex::new(()),
             write: Mutex::new(()),
         })
     }
 
-    async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut inner_buf_guard = self.read.lock().await;
-        let mut inner_buf = inner_buf_guard.take().expect("read inner buf should exist");
-        if inner_buf.len() < buf.len() {
-            inner_buf.resize(buf.len(), 0);
-        }
+    async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
+        &self,
+        mut header_buf: Vec<u8>,
+        mut data_buf: T,
+    ) -> CompleteIoResult<(Vec<u8>, T), usize> {
+        let _guard = self.read.lock().await;
         let fd = self.file.as_raw_fd();
 
-        let (inner_buf, res) = task::spawn_blocking(move || {
-            let res = unistd::read(fd, &mut inner_buf).map_err(io::Error::from);
+        let ((header_buf, data_buf), res) = task::spawn_blocking(move || {
+            // Safety: when we call read, the fd is still valid, when fd is closed and file is
+            // dropped, the read operation will return error
+            let file = unsafe { File::from_raw_fd(fd) };
+            // avoid close the file
+            let mut file = ManuallyDrop::new(file);
 
-            (inner_buf, res)
+            let res = file.read_vectored(&mut [
+                IoSliceMut::new(&mut header_buf),
+                IoSliceMut::new(&mut data_buf),
+            ]);
+
+            ((header_buf, data_buf), res)
         })
         .await
         .unwrap();
 
-        match res {
-            Err(err) => {
-                inner_buf_guard.replace(inner_buf);
-
-                Err(err)
-            }
-
-            Ok(n) => {
-                buf[..n].copy_from_slice(&inner_buf[..n]);
-                inner_buf_guard.replace(inner_buf);
-
-                Ok(n)
-            }
-        }
+        ((header_buf, data_buf), res)
     }
 
     async fn write_vectored<T: Deref<Target = [u8]> + Send, U: Deref<Target = [u8]> + Send>(
@@ -377,17 +383,30 @@ impl NonBlockFuseConnection {
         Ok(())
     }
 
-    #[allow(clippy::needless_pass_by_ref_mut)] // Clippy false alarm
-    pub async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+    async fn read_vectored<T: DerefMut<Target = [u8]> + Send>(
+        &self,
+        mut header_buf: Vec<u8>,
+        mut data_buf: T,
+    ) -> CompleteIoResult<(Vec<u8>, T), usize> {
         let _guard = self.read.lock().await;
 
         loop {
-            let mut read_guard = self.fd.readable().await?;
+            let mut read_guard = match self.fd.readable().await {
+                Err(err) => return ((header_buf, data_buf), Err(err)),
+                Ok(read_guard) => read_guard,
+            };
 
-            if let Ok(result) =
-                read_guard.try_io(|fd| unistd::read(fd.as_raw_fd(), buf).map_err(io::Error::from))
-            {
-                return result;
+            if let Ok(result) = read_guard.try_io(|fd| {
+                uio::readv(
+                    fd,
+                    &mut [
+                        IoSliceMut::new(&mut header_buf),
+                        IoSliceMut::new(&mut data_buf),
+                    ],
+                )
+                .map_err(io::Error::from)
+            }) {
+                return ((header_buf, data_buf), result);
             } else {
                 continue;
             }

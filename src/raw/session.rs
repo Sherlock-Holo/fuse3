@@ -425,8 +425,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 .fuse();
         #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
         let reply_task = task::spawn(Self::reply_fuse(fuse_write_connection, receiver))
-            .fuse()
-            .map(Result::unwrap);
+            .map(Result::unwrap)
+            .fuse();
 
         let mut reply_task = pin!(reply_task);
 
@@ -472,14 +472,37 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     async fn dispatch(&mut self) -> IoResult<()> {
-        let mut buffer = vec![0; BUFFER_SIZE];
+        let mut header_buffer = vec![0; FUSE_IN_HEADER_SIZE];
+        let mut data_buffer = vec![0; BUFFER_SIZE];
 
         let fuse_connection = self.fuse_connection.take().unwrap();
-
         let fs = self.filesystem.take().expect("filesystem not init");
 
         loop {
-            let mut data = match fuse_connection.read(&mut buffer).await {
+            let res = match fuse_connection
+                .read_vectored(header_buffer, data_buffer)
+                .await
+            {
+                None => {
+                    fs.destroy(Request {
+                        unique: 0,
+                        uid: 0,
+                        gid: 0,
+                        pid: 0,
+                    })
+                    .await;
+
+                    return Ok(());
+                }
+
+                Some(((header_buf, data_buf), res)) => {
+                    header_buffer = header_buf;
+                    data_buffer = data_buf;
+
+                    res
+                }
+            };
+            let n = match res {
                 Err(err) => {
                     if let Some(errno) = err.raw_os_error() {
                         if errno == libc::ENODEV {
@@ -502,22 +525,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     return Err(err);
                 }
 
-                Ok(None) => {
-                    fs.destroy(Request {
-                        unique: 0,
-                        uid: 0,
-                        gid: 0,
-                        pid: 0,
-                    })
-                    .await;
-
-                    return Ok(());
-                }
-
-                Ok(Some(n)) => &buffer[..n],
+                Ok(n) => n,
             };
 
-            let in_header = match get_bincode_config().deserialize::<fuse_in_header>(data) {
+            if n < FUSE_IN_HEADER_SIZE {
+                error!(
+                    n,
+                    FUSE_IN_HEADER_SIZE, "read_vectored n is less then FUSE_IN_HEADER_SIZE"
+                );
+
+                continue;
+            }
+
+            let in_header = match get_bincode_config().deserialize::<fuse_in_header>(&header_buffer)
+            {
                 Err(err) => {
                     error!("deserialize fuse_in_header failed {}", err);
 
@@ -537,18 +558,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     continue;
                 }
+
                 Ok(opcode) => opcode,
             };
 
             debug!("receive opcode {}", opcode);
 
-            // data = &data[FUSE_IN_HEADER_SIZE..in_header.len as usize - FUSE_IN_HEADER_SIZE];
-            data = &data[FUSE_IN_HEADER_SIZE..];
-            data = &data[..in_header.len as usize - FUSE_IN_HEADER_SIZE];
+            let data_size = in_header.len as usize - FUSE_IN_HEADER_SIZE;
+            let data_ref = &data_buffer[..data_size];
 
             match opcode {
                 fuse_opcode::FUSE_INIT => {
-                    self.handle_init(request, data, &fuse_connection, &fs)
+                    self.handle_init(request, data_ref, &fuse_connection, &fs)
                         .await?;
                 }
 
@@ -563,19 +584,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_LOOKUP => {
-                    self.handle_lookup(request, in_header, data, &fs).await;
+                    self.handle_lookup(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_FORGET => {
-                    self.handle_forget(request, in_header, data, &fs).await;
+                    self.handle_forget(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_GETATTR => {
-                    self.handle_getattr(request, in_header, data, &fs).await;
+                    self.handle_getattr(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_SETATTR => {
-                    self.handle_setattr(request, in_header, data, &fs).await;
+                    self.handle_setattr(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_READLINK => {
@@ -583,43 +604,43 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_SYMLINK => {
-                    self.handle_symlink(request, in_header, data, &fs).await;
+                    self.handle_symlink(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_MKNOD => {
-                    self.handle_mknod(request, in_header, data, &fs).await;
+                    self.handle_mknod(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_MKDIR => {
-                    self.handle_mkdir(request, in_header, data, &fs).await;
+                    self.handle_mkdir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_UNLINK => {
-                    self.handle_unlink(request, in_header, data, &fs).await;
+                    self.handle_unlink(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_RMDIR => {
-                    self.handle_rmdir(request, in_header, data, &fs).await;
+                    self.handle_rmdir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_RENAME => {
-                    self.handle_rename(request, in_header, data, &fs).await;
+                    self.handle_rename(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_LINK => {
-                    self.handle_link(request, in_header, data, &fs).await;
+                    self.handle_link(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_OPEN => {
-                    self.handle_open(request, in_header, data, &fs).await;
+                    self.handle_open(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_READ => {
-                    self.handle_read(request, in_header, data, &fs).await;
+                    self.handle_read(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_WRITE => {
-                    self.handle_write(request, in_header, data, &fs).await;
+                    self.handle_write(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_STATFS => {
@@ -627,52 +648,58 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_RELEASE => {
-                    self.handle_release(request, in_header, data, &fs).await;
+                    self.handle_release(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_FSYNC => {
-                    self.handle_fsync(request, in_header, data, &fs).await;
+                    self.handle_fsync(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_SETXATTR => {
-                    self.handle_setxattr(request, in_header, data, &fs).await;
+                    self.handle_setxattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_GETXATTR => {
-                    self.handle_getxattr(request, in_header, data, &fs).await;
+                    self.handle_getxattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_LISTXATTR => {
-                    self.handle_listxattr(request, in_header, data, &fs).await;
+                    self.handle_listxattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_REMOVEXATTR => {
-                    self.handle_removexattr(request, in_header, data, &fs).await;
+                    self.handle_removexattr(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_FLUSH => {
-                    self.handle_flush(request, in_header, data, &fs).await;
+                    self.handle_flush(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_OPENDIR => {
-                    self.handle_opendir(request, in_header, data, &fs).await;
+                    self.handle_opendir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_READDIR => {
-                    self.handle_readdir(request, in_header, data, &fs).await;
+                    self.handle_readdir(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_RELEASEDIR => {
-                    self.handle_releasedir(request, in_header, data, &fs).await;
+                    self.handle_releasedir(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_FSYNCDIR => {
-                    self.handle_fsyncdir(request, in_header, data, &fs).await;
+                    self.handle_fsyncdir(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 #[cfg(feature = "file-lock")]
                 fuse_opcode::FUSE_GETLK => {
-                    self.handle_getlk(request, in_header, data, &fs).await;
+                    self.handle_getlk(request, in_header, data_ref, &fs).await;
                 }
 
                 #[cfg(feature = "file-lock")]
@@ -680,7 +707,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     self.handle_setlk(
                         request,
                         in_header,
-                        data,
+                        data_ref,
                         opcode == fuse_opcode::FUSE_SETLKW,
                         &fs,
                     )
@@ -688,19 +715,19 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 }
 
                 fuse_opcode::FUSE_ACCESS => {
-                    self.handle_access(request, in_header, data, &fs).await;
+                    self.handle_access(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_CREATE => {
-                    self.handle_create(request, in_header, data, &fs).await;
+                    self.handle_create(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_INTERRUPT => {
-                    self.handle_interrupt(request, data, &fs).await;
+                    self.handle_interrupt(request, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_BMAP => {
-                    self.handle_bmap(request, in_header, data, &fs).await;
+                    self.handle_bmap(request, in_header, data_ref, &fs).await;
                 }
 
                 /*fuse_opcode::FUSE_IOCTL => {
@@ -723,37 +750,39 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     let fs = fs.clone();
                 }*/
                 fuse_opcode::FUSE_POLL => {
-                    self.handle_poll(request, in_header, data, &fs).await;
+                    self.handle_poll(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_NOTIFY_REPLY => {
-                    self.handle_notify_reply(request, in_header, data, &fs)
+                    self.handle_notify_reply(request, in_header, data_ref, &fs)
                         .await;
                 }
 
                 fuse_opcode::FUSE_BATCH_FORGET => {
-                    self.handle_batch_forget(request, in_header, data, &fs)
+                    self.handle_batch_forget(request, in_header, data_ref, &fs)
                         .await;
                 }
 
                 fuse_opcode::FUSE_FALLOCATE => {
-                    self.handle_fallocate(request, in_header, data, &fs).await;
+                    self.handle_fallocate(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_READDIRPLUS => {
-                    self.handle_readdirplus(request, in_header, data, &fs).await;
+                    self.handle_readdirplus(request, in_header, data_ref, &fs)
+                        .await;
                 }
 
                 fuse_opcode::FUSE_RENAME2 => {
-                    self.handle_rename2(request, in_header, data, &fs).await;
+                    self.handle_rename2(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_LSEEK => {
-                    self.handle_lseek(request, in_header, data, &fs).await;
+                    self.handle_lseek(request, in_header, data_ref, &fs).await;
                 }
 
                 fuse_opcode::FUSE_COPY_FILE_RANGE => {
-                    self.handle_copy_file_range(request, in_header, data, &fs)
+                    self.handle_copy_file_range(request, in_header, data_ref, &fs)
                         .await;
                 }
 
