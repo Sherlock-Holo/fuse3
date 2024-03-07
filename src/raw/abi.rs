@@ -24,14 +24,13 @@ use std::mem;
 
 use serde::{Deserialize, Serialize};
 
-/// The max size of write requests from the kernel. The absolute minimum is 4k,
-/// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on macOS
-/// and 128k on other systems.
-pub const MAX_WRITE_SIZE: usize = 16 * 1024 * 1024;
-
-/// Size of the buffer for reading a request from the kernel. Since the kernel may send
-/// up to MAX_WRITE_SIZE bytes in a write request, we use that value plus some extra space.
-pub const BUFFER_SIZE: usize = MAX_WRITE_SIZE + 4096;
+/// The min size of read buffer. In Linux kernel the `FUSE_MIN_READ_BUFFER` is
+///
+/// ```c
+/// /* The read buffer is required to be at least 8k, but may be much larger */
+/// #define FUSE_MIN_READ_BUFFER 8192
+/// ```
+pub const FUSE_MIN_READ_BUFFER_SIZE: usize = 8 * 1024;
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 

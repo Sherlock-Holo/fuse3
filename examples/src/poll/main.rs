@@ -1,5 +1,6 @@
 use std::ffi::{OsStr, OsString};
 use std::iter::Skip;
+use std::num::NonZeroU32;
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,8 +33,10 @@ struct Poll {
 }
 
 impl Filesystem for Poll {
-    async fn init(&self, _req: Request) -> Result<()> {
-        Ok(())
+    async fn init(&self, _req: Request) -> Result<ReplyInit> {
+        Ok(ReplyInit {
+            max_write: NonZeroU32::new(16 * 1024).unwrap(),
+        })
     }
 
     async fn destroy(&self, _req: Request) {}

@@ -1,6 +1,7 @@
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::iter::Skip;
+use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
@@ -33,8 +34,10 @@ const STATFS: ReplyStatFs = ReplyStatFs {
 struct HelloWorld;
 
 impl Filesystem for HelloWorld {
-    async fn init(&self, _req: Request) -> Result<()> {
-        Ok(())
+    async fn init(&self, _req: Request) -> Result<ReplyInit> {
+        Ok(ReplyInit {
+            max_write: NonZeroU32::new(16 * 1024).unwrap(),
+        })
     }
 
     async fn destroy(&self, _req: Request) {}

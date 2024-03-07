@@ -1,5 +1,6 @@
 //! reply structures.
 use std::ffi::OsString;
+use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime};
 
 use futures_util::stream::Stream;
@@ -13,7 +14,7 @@ pub use crate::raw::reply::{
 use crate::{FileType, Inode, Result};
 
 /// file attributes
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct FileAttr {
     /// Size in bytes
     pub size: u64,
@@ -66,7 +67,14 @@ impl From<(Inode, FileAttr)> for crate::raw::reply::FileAttr {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+/// init reply
+pub struct ReplyInit {
+    /// the max write size
+    pub max_write: NonZeroU32,
+}
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 /// entry reply.
 pub struct ReplyEntry {
     /// the attribute TTL.
@@ -75,7 +83,7 @@ pub struct ReplyEntry {
     pub attr: FileAttr,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 /// reply attr.
 pub struct ReplyAttr {
     /// the attribute TTL.
@@ -84,7 +92,7 @@ pub struct ReplyAttr {
     pub attr: FileAttr,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 /// crate reply.
 pub struct ReplyCreated {
     /// the attribute TTL.
@@ -99,7 +107,7 @@ pub struct ReplyCreated {
     pub flags: u32,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 /// directory entry.
 pub struct DirectoryEntry {
     /// entry kind.
@@ -123,7 +131,7 @@ pub struct ReplyIoctl {
     pub out_iovs: u32,
 }*/
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 /// directory entry with attribute
 pub struct DirectoryEntryPlus {
     /// the entry kind.

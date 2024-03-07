@@ -1,10 +1,12 @@
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::ffi::OsStr;
 use std::ffi::OsString;
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
+use std::num::NonZeroU32;
 use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
@@ -217,6 +219,27 @@ pub struct Session<FS> {
     response_sender: UnboundedSender<FuseData>,
     response_receiver: Option<UnboundedReceiver<FuseData>>,
     mount_options: MountOptions,
+}
+
+enum ReadResult {
+    Destroy,
+    Request {
+        in_header: IoResult<fuse_in_header>,
+        header_buffer: Vec<u8>,
+        data_buffer: Vec<u8>,
+    },
+}
+
+impl Debug for ReadResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadResult::Destroy => f.debug_struct("ReadResult::Destroy").finish(),
+            ReadResult::Request { in_header, .. } => f
+                .debug_struct("ReadResult::Request")
+                .field("in_header", in_header)
+                .finish_non_exhaustive(),
+        }
+    }
 }
 
 #[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
@@ -471,19 +494,168 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         Ok(())
     }
 
-    async fn dispatch(&mut self) -> IoResult<()> {
-        let mut header_buffer = vec![0; FUSE_IN_HEADER_SIZE];
-        let mut data_buffer = vec![0; BUFFER_SIZE];
+    #[instrument(level = "debug", skip(self, fs), ret, err)]
+    async fn init_filesystem(
+        &mut self,
+        fs: &FS,
+        fuse_connection: &FuseConnection,
+    ) -> IoResult<NonZeroU32> {
+        let header_buffer = vec![0; FUSE_IN_HEADER_SIZE];
+        let data_buffer = vec![0; FUSE_MIN_READ_BUFFER_SIZE];
 
+        let (data_buffer, in_header) = match self
+            .read_fuse_request(fuse_connection, header_buffer, data_buffer)
+            .await
+        {
+            ReadResult::Destroy => {
+                return Err(IoError::new(
+                    ErrorKind::UnexpectedEof,
+                    "init stage get destroy result",
+                ));
+            }
+
+            ReadResult::Request {
+                in_header,
+                data_buffer,
+                ..
+            } => {
+                let in_header = in_header?;
+                (data_buffer, in_header)
+            }
+        };
+
+        let request = Request::from(&in_header);
+
+        let opcode = match fuse_opcode::try_from(in_header.opcode) {
+            Err(err) => {
+                debug!("receive unknown opcode {}", err.0);
+
+                reply_error_in_place(libc::ENOSYS.into(), request, &self.response_sender).await;
+
+                return Err(IoError::new(
+                    ErrorKind::Other,
+                    format!("receive unknown opcode {}", err.0),
+                ));
+            }
+
+            Ok(opcode) => opcode,
+        };
+
+        debug!("receive opcode {}", opcode);
+
+        if opcode != fuse_opcode::FUSE_INIT {
+            error!(?opcode, "received unexpected opcode");
+
+            return Err(IoError::new(
+                ErrorKind::Other,
+                format!("unexpected opcode {opcode:?}"),
+            ));
+        }
+
+        let data_size = in_header.len as usize - FUSE_IN_HEADER_SIZE;
+        let data_ref = &data_buffer[..data_size];
+
+        self.handle_init(request, data_ref, fuse_connection, fs)
+            .await
+    }
+
+    #[instrument(level = "debug", skip(self, header_buffer, data_buffer), ret)]
+    async fn read_fuse_request(
+        &mut self,
+        fuse_connection: &FuseConnection,
+        mut header_buffer: Vec<u8>,
+        mut data_buffer: Vec<u8>,
+    ) -> ReadResult {
+        let res = match fuse_connection
+            .read_vectored(header_buffer, data_buffer)
+            .await
+        {
+            None => return ReadResult::Destroy,
+
+            Some(((header_buf, data_buf), res)) => {
+                header_buffer = header_buf;
+                data_buffer = data_buf;
+
+                res
+            }
+        };
+        let n = match res {
+            Err(err) => {
+                if let Some(errno) = err.raw_os_error() {
+                    if errno == libc::ENODEV {
+                        debug!("read from /dev/fuse failed with ENODEV");
+
+                        return ReadResult::Destroy;
+                    }
+                }
+
+                error!("read from /dev/fuse failed {}", err);
+
+                return ReadResult::Request {
+                    in_header: Err(err),
+                    header_buffer,
+                    data_buffer,
+                };
+            }
+
+            Ok(n) => n,
+        };
+
+        debug!(n, "read fuse request done");
+
+        if n < FUSE_IN_HEADER_SIZE {
+            error!(
+                n,
+                FUSE_IN_HEADER_SIZE, "read_vectored n is less then FUSE_IN_HEADER_SIZE"
+            );
+
+            return ReadResult::Request {
+                in_header: Err(IoError::new(
+                    ErrorKind::Other,
+                    "read_vectored n is less then FUSE_IN_HEADER_SIZE",
+                )),
+                header_buffer,
+                data_buffer,
+            };
+        }
+
+        let in_header = match get_bincode_config().deserialize::<fuse_in_header>(&header_buffer) {
+            Err(err) => {
+                error!("deserialize fuse_in_header failed {}", err);
+
+                return ReadResult::Request {
+                    in_header: Err(IoError::new(ErrorKind::Other, err)),
+                    header_buffer,
+                    data_buffer,
+                };
+            }
+
+            Ok(in_header) => in_header,
+        };
+
+        ReadResult::Request {
+            in_header: Ok(in_header),
+            header_buffer,
+            data_buffer,
+        }
+    }
+
+    async fn dispatch(&mut self) -> IoResult<()> {
         let fuse_connection = self.fuse_connection.take().unwrap();
         let fs = self.filesystem.take().expect("filesystem not init");
 
+        let max_write = self.init_filesystem(&fs, &fuse_connection).await?.get() as usize;
+        let buffer_size = (max_write + FUSE_WRITE_IN_SIZE).max(FUSE_MIN_READ_BUFFER_SIZE);
+
+        let mut header_buffer = vec![0; FUSE_IN_HEADER_SIZE];
+        let mut data_buffer = vec![0; buffer_size];
+
         loop {
-            let res = match fuse_connection
-                .read_vectored(header_buffer, data_buffer)
+            let in_header = match self
+                .read_fuse_request(&fuse_connection, header_buffer, data_buffer)
                 .await
             {
-                None => {
+                ReadResult::Destroy => {
                     fs.destroy(Request {
                         unique: 0,
                         uid: 0,
@@ -495,57 +667,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     return Ok(());
                 }
 
-                Some(((header_buf, data_buf), res)) => {
+                ReadResult::Request {
+                    in_header,
+                    header_buffer: header_buf,
+                    data_buffer: data_buf,
+                } => {
                     header_buffer = header_buf;
                     data_buffer = data_buf;
 
-                    res
-                }
-            };
-            let n = match res {
-                Err(err) => {
-                    if let Some(errno) = err.raw_os_error() {
-                        if errno == libc::ENODEV {
-                            debug!("read from /dev/fuse failed with ENODEV, call destroy now");
+                    match in_header {
+                        Err(_) => continue,
 
-                            fs.destroy(Request {
-                                unique: 0,
-                                uid: 0,
-                                gid: 0,
-                                pid: 0,
-                            })
-                            .await;
-
-                            return Ok(());
-                        }
+                        Ok(in_header) => in_header,
                     }
-
-                    error!("read from /dev/fuse failed {}", err);
-
-                    return Err(err);
                 }
-
-                Ok(n) => n,
-            };
-
-            if n < FUSE_IN_HEADER_SIZE {
-                error!(
-                    n,
-                    FUSE_IN_HEADER_SIZE, "read_vectored n is less then FUSE_IN_HEADER_SIZE"
-                );
-
-                continue;
-            }
-
-            let in_header = match get_bincode_config().deserialize::<fuse_in_header>(&header_buffer)
-            {
-                Err(err) => {
-                    error!("deserialize fuse_in_header failed {}", err);
-
-                    continue;
-                }
-
-                Ok(in_header) => in_header,
             };
 
             let request = Request::from(&in_header);
@@ -569,6 +704,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             match opcode {
                 fuse_opcode::FUSE_INIT => {
+                    warn!("duplicated fuse init request");
+
                     self.handle_init(request, data_ref, &fuse_connection, &fs)
                         .await?;
                 }
@@ -805,7 +942,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fuse_connection: &FuseConnection,
         fs: &FS,
-    ) -> IoResult<()> {
+    ) -> IoResult<NonZeroU32> {
         let init_in = match get_bincode_config().deserialize::<fuse_init_in>(data) {
             Err(err) => {
                 error!(
@@ -990,27 +1127,31 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         }
 
         // TODO: pass init_in to init, so the file system will know which flags are in use.
-        if let Err(err) = fs.init(request).await {
-            let init_out_header = fuse_out_header {
-                len: FUSE_OUT_HEADER_SIZE as u32,
-                error: err.into(),
-                unique: request.unique,
-            };
+        let reply = match fs.init(request).await {
+            Err(err) => {
+                let init_out_header = fuse_out_header {
+                    len: FUSE_OUT_HEADER_SIZE as u32,
+                    error: err.into(),
+                    unique: request.unique,
+                };
 
-            let init_out_header_data = get_bincode_config()
-                .serialize(&init_out_header)
-                .expect("won't happened");
+                let init_out_header_data = get_bincode_config()
+                    .serialize(&init_out_header)
+                    .expect("won't happened");
 
-            if let Err(err) = fuse_connection
-                .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
-                .await
-                .1
-            {
-                error!("write error init out data to /dev/fuse failed {}", err);
+                if let Err(err) = fuse_connection
+                    .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
+                    .await
+                    .1
+                {
+                    error!("write error init out data to /dev/fuse failed {}", err);
+                }
+
+                return Err(err.into());
             }
 
-            return Err(err.into());
-        }
+            Ok(reply) => reply,
+        };
 
         let init_out = fuse_init_out {
             major: FUSE_KERNEL_VERSION,
@@ -1019,7 +1160,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             flags: reply_flags,
             max_background: DEFAULT_MAX_BACKGROUND,
             congestion_threshold: DEFAULT_CONGESTION_THRESHOLD,
-            max_write: MAX_WRITE_SIZE as u32,
+            max_write: reply.max_write.get(),
             time_gran: DEFAULT_TIME_GRAN,
             max_pages: DEFAULT_MAX_PAGES,
             map_alignment: DEFAULT_MAP_ALIGNMENT,
@@ -1055,7 +1196,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         debug!("fuse init done");
 
-        Ok(())
+        Ok(reply.max_write)
     }
 
     #[instrument(skip(self, data, fs))]

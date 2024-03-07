@@ -28,7 +28,7 @@ fuse3 = { path = "../", features = ["tokio-runtime", "unprivileged"] }
 libc = "0.2.153"
 tokio = { version = "1.36", features = ["macros", "rt", "time", "signal"] }
 futures-util = "0.3.30"
-mio = { version = "0.8.10", features = ["os-poll"] }
+mio = { version = "0.8.11", features = ["os-poll"] }
 tempfile = "3.10"
 bytes = "1.5"
 tracing = "0.1.40"

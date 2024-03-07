@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::io::{Cursor, Read, Write};
+use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime};
 use std::vec::IntoIter;
 
@@ -140,8 +141,10 @@ impl Default for Fs {
 impl PathFilesystem for Fs {
     type DirEntryStream<'a> = Empty<Result<DirectoryEntry>> where Self: 'a;
 
-    async fn init(&self, _req: Request) -> Result<()> {
-        Ok(())
+    async fn init(&self, _req: Request) -> Result<ReplyInit> {
+        Ok(ReplyInit {
+            max_write: NonZeroU32::new(16 * 1024).unwrap(),
+        })
     }
 
     async fn destroy(&self, _req: Request) {}
