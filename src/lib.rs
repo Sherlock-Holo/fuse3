@@ -49,7 +49,7 @@ pub type Inode = u64;
 pub type Result<T> = std::result::Result<T, Errno>;
 
 /// File types
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum FileType {
     /// Named pipe (S_IFIFO)
     NamedPipe,
@@ -178,7 +178,7 @@ impl From<&fuse_setattr_in> for SetAttr {
 /// Nearly the same as a `libc::timespec`, except for the width of the nsec
 /// field.
 // Could implement From for Duration, and/or libc::timespec, if desired
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Timestamp {
     pub sec: i64,
     pub nsec: u32,

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Cursor, Read};
+use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -191,8 +192,10 @@ impl Default for Fs {
 impl Filesystem for Fs {
     type DirEntryStream<'a> = Empty<Result<DirectoryEntry>> where Self: 'a;
 
-    async fn init(&self, _req: Request) -> Result<()> {
-        Ok(())
+    async fn init(&self, _req: Request) -> Result<ReplyInit> {
+        Ok(ReplyInit {
+            max_write: NonZeroU32::new(16 * 1024).unwrap(),
+        })
     }
 
     async fn destroy(&self, _req: Request) {

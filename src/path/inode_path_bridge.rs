@@ -138,7 +138,7 @@ impl<FS> InodePathBridge<FS> {
 
 impl<FS> Debug for InodePathBridge<FS> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InodePathBridge").finish()
+        f.debug_struct("InodePathBridge").finish_non_exhaustive()
     }
 }
 
@@ -146,9 +146,14 @@ impl<FS> Filesystem for InodePathBridge<FS>
 where
     FS: PathFilesystem + Send + Sync + 'static,
 {
-    async fn init(&self, req: Request) -> Result<()> {
-        self.path_filesystem.init(req).await
+    async fn init(&self, req: Request) -> Result<ReplyInit> {
+        let reply_init = self.path_filesystem.init(req).await?;
+
+        Ok(ReplyInit {
+            max_write: reply_init.max_write,
+        })
     }
+
     async fn destroy(&self, req: Request) {
         self.path_filesystem.destroy(req).await
     }

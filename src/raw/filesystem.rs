@@ -11,14 +11,9 @@ use crate::{Inode, Result, SetAttr};
 #[allow(unused_variables)]
 #[trait_make::make(Send)]
 /// Inode based filesystem trait.
-///
-/// # Notes:
-///
-/// this trait is defined with async_trait, you can use
-/// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
 pub trait Filesystem {
     /// initialize filesystem. Called before any other filesystem method.
-    async fn init(&self, req: Request) -> Result<()>;
+    async fn init(&self, req: Request) -> Result<ReplyInit>;
 
     /// clean up filesystem. Called on filesystem exit which is fuseblk, in normal fuse filesystem,
     /// kernel may call forget for root. There is some discuss for this

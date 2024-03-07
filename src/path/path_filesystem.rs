@@ -3,13 +3,7 @@ use std::ffi::OsStr;
 use bytes::Bytes;
 use futures_util::stream::Stream;
 
-#[cfg(feature = "file-lock")]
-use super::reply::ReplyLock;
-use super::reply::{
-    DirectoryEntry, DirectoryEntryPlus, ReplyAttr, ReplyBmap, ReplyCopyFileRange, ReplyCreated,
-    ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEntry, ReplyLSeek, ReplyOpen, ReplyPoll,
-    ReplyStatFs, ReplyWrite, ReplyXAttr,
-};
+use super::reply::*;
 use super::Request;
 use crate::notify::Notify;
 use crate::{Result, SetAttr};
@@ -17,14 +11,9 @@ use crate::{Result, SetAttr};
 #[allow(unused_variables)]
 #[trait_make::make(Send)]
 /// Path based filesystem trait.
-///
-/// # Notes:
-///
-/// this trait is defined with async_trait, you can use
-/// [`async_trait`](https://docs.rs/async-trait) to implement it, or just implement it directly.
 pub trait PathFilesystem {
     /// initialize filesystem. Called before any other filesystem method.
-    async fn init(&self, req: Request) -> Result<()>;
+    async fn init(&self, req: Request) -> Result<ReplyInit>;
 
     /// clean up filesystem. Called on filesystem exit which is fuseblk, in normal fuse filesystem,
     /// kernel may call forget for root. There is some discuss for this
