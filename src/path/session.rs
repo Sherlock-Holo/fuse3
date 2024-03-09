@@ -21,8 +21,8 @@ impl Session {
     }
 
     #[cfg(feature = "unprivileged")]
-    /// mount the filesystem without root permission. This function will block until the filesystem
-    /// is unmounted.
+    /// mount the filesystem without root permission.
+    /// This function will block until [`raw::MountHandle::unmount`] is called.
     pub async fn mount_with_unprivileged<P, FS>(
         self,
         fs: FS,
@@ -39,6 +39,8 @@ impl Session {
             .await
     }
 
+    /// mount the filesystem with root permission. This function will block until the filesystem
+    /// is unmounted.
     pub async fn mount<P, FS>(self, fs: FS, mount_path: P) -> io::Result<raw::MountHandle>
     where
         P: AsRef<Path>,

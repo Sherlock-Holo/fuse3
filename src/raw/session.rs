@@ -303,9 +303,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         self.mount(fs, mount_path).await
     }
 
+    /// mount the filesystem without root permission.
+    /// This function will block until [`MountHandle::unmount`] is called.
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-    /// mount the filesystem without root permission. This function will block
-    /// until the filesystem is unmounted.
     pub async fn mount_with_unprivileged<P: AsRef<Path>>(
         mut self,
         fs: FS,
@@ -339,7 +339,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         })
     }
 
-    /// mount the filesystem. This function will block until the filesystem is unmounted.
+    /// mount the filesystem with root permission. This function will block until the filesystem
+    /// is unmounted.
     #[cfg(target_os = "linux")]
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
         let mount_path = mount_path.as_ref();
