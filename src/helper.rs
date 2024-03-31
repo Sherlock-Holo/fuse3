@@ -33,7 +33,10 @@ pub const fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {
 
 // Some platforms like Linux x86_64 have mode_t = u32, and lint warns of a trivial_numeric_casts.
 // But others like macOS x86_64 have mode_t = u16, requiring a typecast. So, just silence lint.
-#[cfg(all(not(target_os = "linux"), any(target_os = "freebsd", target_os = "macos")))]
+#[cfg(all(
+    not(target_os = "linux"),
+    any(target_os = "freebsd", target_os = "macos")
+))]
 #[allow(trivial_numeric_casts)]
 /// returns the mode for a given file kind and permission
 pub const fn mode_from_kind_and_perm(kind: FileType, perm: u16) -> u32 {

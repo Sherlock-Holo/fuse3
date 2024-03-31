@@ -9,10 +9,10 @@ use std::io;
 ))]
 use std::io::ErrorKind;
 #[cfg(target_os = "linux")]
+use std::io::Read;
+#[cfg(target_os = "linux")]
 use std::io::Write;
 use std::io::{IoSlice, IoSliceMut};
-#[cfg(target_os = "linux")]
-use std::io::Read;
 #[cfg(target_os = "linux")]
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
@@ -23,12 +23,12 @@ use std::ops::{Deref, DerefMut};
 ))]
 use std::os::fd::OwnedFd;
 use std::os::fd::{AsFd, BorrowedFd};
-#[cfg(target_os = "linux")]
-use std::os::unix::io::{AsRawFd, FromRawFd};
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::os::unix::io::RawFd;
+#[cfg(target_os = "linux")]
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::pin::pin;
 use std::sync::Arc;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -277,7 +277,10 @@ struct NonBlockFuseConnection {
 impl NonBlockFuseConnection {
     #[cfg(any(target_os = "freebsd", target_os = "macos"))]
     fn new() -> io::Result<Self> {
+        #[cfg(target_os = "freebsd")]
         const DEV_FUSE: &str = "/dev/fuse";
+        #[cfg(target_os = "macos")]
+        const DEV_FUSE: &str = "/dev/macfuse";
 
         match OpenOptions::new()
             .write(true)
@@ -287,7 +290,7 @@ impl NonBlockFuseConnection {
         {
             Err(e) => {
                 if e.kind() == ErrorKind::NotFound {
-                    warn!("Cannot open /dev/fuse.  Is the module loaded?");
+                    warn!("Cannot open {}.  Is the module loaded?", DEV_FUSE);
                 }
                 Err(e)
             }

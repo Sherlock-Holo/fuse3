@@ -2,9 +2,9 @@
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
-#[cfg(target_os = "linux")]
-use std::io::{Write, Read};
 use std::io::{IoSlice, IoSliceMut};
+#[cfg(target_os = "linux")]
+use std::io::{Read, Write};
 #[cfg(target_os = "linux")]
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};

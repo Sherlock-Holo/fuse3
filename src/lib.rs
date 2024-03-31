@@ -36,7 +36,7 @@ use raw::abi::{
 };
 
 #[cfg(target_os = "macos")]
-use raw::abi::{FATTR_CHGTIME, FATTR_CRTIME, FATTR_BKUPTIME, FATTR_FLAGS};
+use raw::abi::{FATTR_BKUPTIME, FATTR_CHGTIME, FATTR_CRTIME, FATTR_FLAGS};
 
 mod errno;
 mod helper;
