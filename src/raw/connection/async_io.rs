@@ -9,7 +9,8 @@ use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "macos",
 ))]
 use std::os::fd::OwnedFd;
 use std::os::fd::{AsFd, BorrowedFd, FromRawFd};
@@ -23,7 +24,8 @@ use std::{ffi::OsString, path::Path};
 
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "macos",
 ))]
 use async_io::Async;
 use async_lock::Mutex;
@@ -35,7 +37,8 @@ use futures_util::{select, FutureExt};
 use nix::sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "macos",
 ))]
 use nix::sys::uio;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -57,7 +60,7 @@ pub struct FuseConnection {
 
 impl FuseConnection {
     pub fn new(unmount_notify: Arc<Notify>) -> io::Result<Self> {
-        #[cfg(target_os = "freebsd")]
+        #[cfg(any(target_os = "freebsd", target_os = "macos"))]
         {
             let connection = NonBlockFuseConnection::new()?;
 
@@ -119,7 +122,8 @@ impl FuseConnection {
             }
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
-                target_os = "freebsd"
+                target_os = "freebsd",
+                target_os = "macos",
             ))]
             ConnectionMode::NonBlock(connection) => {
                 connection.read_vectored(header_buf, data_buf).await
@@ -139,7 +143,8 @@ impl FuseConnection {
             }
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
-                target_os = "freebsd"
+                target_os = "freebsd",
+                target_os = "macos",
             ))]
             ConnectionMode::NonBlock(connection) => {
                 connection.write_vectored(data, body_extend_data).await
@@ -154,7 +159,8 @@ enum ConnectionMode {
     Block(BlockFuseConnection),
     #[cfg(any(
         all(target_os = "linux", feature = "unprivileged"),
-        target_os = "freebsd"
+        target_os = "freebsd",
+        target_os = "macos",
     ))]
     NonBlock(NonBlockFuseConnection),
 }
@@ -235,7 +241,8 @@ impl BlockFuseConnection {
 
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "macos",
 ))]
 #[derive(Debug)]
 struct NonBlockFuseConnection {
@@ -246,10 +253,11 @@ struct NonBlockFuseConnection {
 
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd"
+    target_os = "freebsd",
+    target_os = "macos",
 ))]
 impl NonBlockFuseConnection {
-    #[cfg(target_os = "freebsd")]
+    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
     fn new() -> io::Result<Self> {
         const DEV_FUSE: &str = "/dev/fuse";
 
@@ -407,7 +415,8 @@ impl AsFd for FuseConnection {
 
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
-                target_os = "freebsd"
+                target_os = "freebsd",
+                target_os = "macos",
             ))]
             ConnectionMode::NonBlock(connection) => connection.fd.as_fd(),
         }

@@ -17,6 +17,7 @@ rust-version = "1.75"
 members = [".", "examples"]
 
 [features]
+default = ["async-io-runtime"]
 tokio-runtime = ["dep:tokio"]
 async-io-runtime = ["dep:async-fs", "dep:async-global-executor", "dep:async-lock", "dep:async-io", "dep:async-process", "futures-util/io"]
 file-lock = []
@@ -35,15 +36,12 @@ cstr = "0.2"
 futures-channel = { version = "0.3.30", features = ["sink"] }
 futures-util = { version = "0.3.30", features = ["sink"] }
 libc = "0.2.153"
-nix = { version = "0.28.0", default-features = false, features = ["fs", "mount"] }
+nix = {default-features = false, features = ["fs", "mount", "user"] , git = "https://github.com/oowl/nix", branch = "owl/apple-mount" }
 serde = { version = "1.0.196", features = ["derive"] }
 slab = "0.4.9"
 tracing = "0.1.40"
 trait-make = "0.1"
 which = { version = "6", optional = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-nix = { version = "0.28.0", default-features = false, features = ["user"] }
 
 [dependencies.tokio]
 version = "1.36"

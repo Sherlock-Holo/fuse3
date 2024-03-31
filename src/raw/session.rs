@@ -303,6 +303,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         self.mount(fs, mount_path).await
     }
 
+    #[cfg(all(target_os = "macos", feature = "unprivileged"))]
+    pub async fn mount_with_unprivileged<P: AsRef<Path>>(
+        self,
+        fs: FS,
+        mount_path: P,
+    ) -> IoResult<MountHandle> {
+        self.mount(fs, mount_path).await
+    }
+
     /// mount the filesystem without root permission.
     /// This function will block until [`MountHandle::unmount`] is called.
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -431,6 +440,55 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 task: task::spawn(self.inner_mount()),
                 mount_path: mount_path.to_path_buf(),
                 destroy_notify: notify,
+            }),
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
+        let mount_path = mount_path.as_ref();
+
+        self.mount_empty_check(mount_path).await?;
+
+        let notify = Arc::new(async_notify::Notify::new());
+        let fuse_connection = FuseConnection::new(notify.clone())?;
+
+        let fd = fuse_connection.as_fd().as_raw_fd();
+
+        let options = self.mount_options.build(fd);
+
+        let fs_name = if let Some(fs_name) = self.mount_options.fs_name.as_ref() {
+            fs_name.as_str()
+        } else {
+            "fuse"
+        };
+
+        debug!("mount options {:?}", options);
+
+        if let Err(err) = mount::mount(
+            fs_name,
+            mount_path,
+            self.mount_options.flags(),
+            Some(options.as_os_str()),
+        ) {
+            error!("mount {:?} failed", mount_path);
+
+            return Err(err.into());
+        }
+
+        self.fuse_connection.replace(Arc::new(fuse_connection));
+
+        self.filesystem.replace(Arc::new(fs));
+
+        debug!("mount {:?} success", mount_path);
+
+        Ok(MountHandle {
+            inner: Some(MountHandleInner {
+                task: task::spawn(self.inner_mount()),
+                mount_path: mount_path.to_path_buf(),
+                destroy_notify: notify,
+                #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+                unprivileged: false,
             }),
         })
     }
