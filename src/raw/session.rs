@@ -476,7 +476,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let fs_name = if let Some(fs_name) = self.mount_options.fs_name.as_ref() {
             fs_name.as_str()
         } else {
-            "fuse"
+            "/dev/macfuse0"
         };
 
         debug!("mount options {:?}", options);
