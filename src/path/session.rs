@@ -5,7 +5,7 @@ use crate::path::inode_path_bridge::InodePathBridge;
 use crate::path::path_filesystem::PathFilesystem;
 use crate::raw;
 use crate::MountOptions;
-
+use tracing::log;
 #[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 #[derive(Debug)]
 /// fuse filesystem session, path based.
