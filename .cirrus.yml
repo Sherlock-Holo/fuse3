@@ -29,7 +29,7 @@ task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sonoma-base:latest
   setup_script:
-    - fetch https://sh.rustup.rs -o rustup.sh
+    - curl https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y --profile=minimal
     - . $HOME/.cargo/env
   << : *BUILD
