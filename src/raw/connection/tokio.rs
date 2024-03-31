@@ -280,7 +280,7 @@ impl NonBlockFuseConnection {
         #[cfg(target_os = "freebsd")]
         const DEV_FUSE: &str = "/dev/fuse";
         #[cfg(target_os = "macos")]
-        const DEV_FUSE: &str = "/dev/macfuse";
+        const DEV_FUSE: &str = "/dev/macfuse0";
 
         match OpenOptions::new()
             .write(true)
