@@ -127,6 +127,14 @@ impl MountHandleInner {
                 .await?;
             }
 
+            #[cfg(target_os = "macos")]
+            {
+                task::spawn_blocking(move || {
+                    mount::umount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
+                })
+                .await?;
+            }
+
             #[cfg(target_os = "linux")]
             {
                 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
