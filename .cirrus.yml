@@ -26,7 +26,7 @@ task:
 
 task:
   name: MacOS
-  freebsd_instance:
+  macos_instance:
     image: ghcr.io/cirruslabs/macos-sonoma-base:latest
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
