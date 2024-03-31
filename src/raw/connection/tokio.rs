@@ -292,7 +292,6 @@ impl NonBlockFuseConnection {
                 if e.kind() == ErrorKind::NotFound {
                     warn!("Cannot open {}.  Is the module loaded?", DEV_FUSE);
                 }
-                warn!("Failed to open {}: {}", DEV_FUSE, e);
                 Err(e)
             }
             Ok(file) => Ok(Self {

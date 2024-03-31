@@ -325,6 +325,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         fs: FS,
         mount_path: P,
     ) -> IoResult<MountHandle> {
+        warn!("unprivileged mount is not supported on macOS, use root permission mount");
         self.mount(fs, mount_path).await
     }
 

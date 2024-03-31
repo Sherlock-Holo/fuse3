@@ -34,6 +34,7 @@ impl Session {
     {
         let bridge = InodePathBridge::new(fs);
 
+        log::info!("Mounting filesystem at {:?}", mount_path.as_ref());
         raw::Session::new(self.mount_options)
             .mount_with_unprivileged(bridge, mount_path)
             .await
