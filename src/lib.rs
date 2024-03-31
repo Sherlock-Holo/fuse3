@@ -35,6 +35,9 @@ use raw::abi::{
     FATTR_MODE, FATTR_MTIME, FATTR_MTIME_NOW, FATTR_SIZE, FATTR_UID,
 };
 
+#[cfg(target_os = "macos")]
+use raw::abi::{FATTR_CHGTIME, FATTR_CRTIME, FATTR_BKUPTIME, FATTR_FLAGS};
+
 mod errno;
 mod helper;
 mod mount_options;
@@ -167,6 +170,26 @@ impl From<&fuse_setattr_in> for SetAttr {
 
         if setattr_in.valid & FATTR_CTIME > 0 {
             set_attr.ctime = fsai2ts!(setattr_in.ctime, setattr_in.ctimensec);
+        }
+
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_CRTIME > 0 {
+            set_attr.ctime = fsai2ts!(setattr_in.crtime, setattr_in.crtimensec);
+        }
+
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_CHGTIME > 0 {
+            set_attr.ctime = fsai2ts!(setattr_in.chgtime, setattr_in.chgtimensec);
+        }
+
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_BKUPTIME > 0 {
+            set_attr.ctime = fsai2ts!(setattr_in.bkuptime, setattr_in.bkuptimensec);
+        }
+
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_FLAGS > 0 {
+            set_attr.flags = Some(setattr_in.flags);
         }
 
         set_attr

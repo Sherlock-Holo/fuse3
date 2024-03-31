@@ -4,8 +4,6 @@ use std::os::unix::io::RawFd;
 
 #[cfg(target_os = "freebsd")]
 use nix::mount::Nmount;
-#[cfg(target_os = "macos")]
-use nix::mount::mount;
 use nix::unistd;
 
 /// mount options.

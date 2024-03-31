@@ -36,7 +36,7 @@ use futures_util::select;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
 use nix::mount;
-#[cfg(target_os = "freebsd")]
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use nix::mount::MntFlags;
 #[cfg(all(
     target_os = "linux",
@@ -159,6 +159,14 @@ impl MountHandleInner {
             {
                 task::spawn_blocking(move || {
                     mount::unmount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
+                })
+                .await
+                .unwrap()?;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                task::spawn_blocking(move || {
+                    mount::umount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
                 })
                 .await
                 .unwrap()?;
@@ -1183,6 +1191,41 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             debug!("enable FUSE_NO_OPENDIR_SUPPORT");
 
             reply_flags |= FUSE_NO_OPENDIR_SUPPORT;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_ALLOCATE > 0 {
+            debug!("enable FUSE_ALLOCATE");
+
+            reply_flags |= FUSE_ALLOCATE;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_EXCHANGE_DATA > 0 {
+            debug!("enable FUSE_EXCHANGE_DATA");
+
+            reply_flags |= FUSE_EXCHANGE_DATA;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_CASE_INSENSITIVE > 0 {
+            debug!("enable FUSE_CASE_INSENSITIVE");
+
+            reply_flags |= FUSE_CASE_INSENSITIVE;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_VOL_RENAME > 0 {
+            debug!("enable FUSE_VOL_RENAME");
+
+            reply_flags |= FUSE_VOL_RENAME;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_XTIMES > 0 {
+            debug!("enable FUSE_XTIMES");
+
+            reply_flags |= FUSE_XTIMES;
         }
 
         // TODO: pass init_in to init, so the file system will know which flags are in use.

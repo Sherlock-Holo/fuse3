@@ -5,6 +5,7 @@ use std::io;
 #[cfg(target_os = "linux")]
 use std::io::Write;
 use std::io::{IoSlice, IoSliceMut, Read};
+#[cfg(target_os = "linux")]
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 #[cfg(any(
@@ -13,8 +14,10 @@ use std::ops::{Deref, DerefMut};
     target_os = "macos",
 ))]
 use std::os::fd::OwnedFd;
-use std::os::fd::{AsFd, BorrowedFd, FromRawFd};
-use std::os::unix::io::AsRawFd;
+use std::os::fd::{AsFd, BorrowedFd};
+#[cfg(target_os = "linux")]
+use std::os::unix::io::{AsRawFd, FromRawFd};
+
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::os::unix::io::RawFd;
 use std::pin::pin;
