@@ -44,7 +44,7 @@ which = { version = "6", optional = true }
 
 [dependencies.tokio]
 version = "1.36"
-features = ["fs", "rt", "sync", "net", "macros", "process"]
+features = ["fs", "rt", "sync", "net", "macros", "process", "time"]
 optional = true
 
 [package.metadata.docs.rs]
