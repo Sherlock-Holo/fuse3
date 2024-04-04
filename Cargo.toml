@@ -35,7 +35,7 @@ cstr = "0.2"
 futures-channel = { version = "0.3.30", features = ["sink"] }
 futures-util = { version = "0.3.30", features = ["sink"] }
 libc = "0.2.153"
-nix = {default-features = false, features = ["fs", "mount", "user"] , git = "https://github.com/oowl/nix", branch = "owl/apple-mount" }
+nix = { git = "https://github.com/nix-rust/nix.git",rev = "bc374af3b978fa485dad04bcbae3c27b40ca6359", default-features = false, features = ["fs", "mount", "user"] }
 serde = { version = "1.0.196", features = ["derive"] }
 slab = "0.4.9"
 tracing = "0.1.40"

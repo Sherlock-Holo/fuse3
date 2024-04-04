@@ -545,7 +545,7 @@ dependencies = [
 [[package]]
 name = "nix"
 version = "0.28.0"
-source = "git+https://github.com/oowl/nix?branch=owl/apple-mount#6bc2472e9eea0a4580a28feabdeb7562d1716760"
+source = "git+https://github.com/nix-rust/nix.git?rev=bc374af3b978fa485dad04bcbae3c27b40ca6359#bc374af3b978fa485dad04bcbae3c27b40ca6359"
 dependencies = [
  "bitflags",
  "cfg-if",
