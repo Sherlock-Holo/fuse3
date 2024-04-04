@@ -1,50 +1,46 @@
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
-use std::io::{IoSlice, IoSliceMut};
-#[cfg(target_os = "linux")]
-use std::io::{Read, Write};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::io::Write;
+use std::io::{IoSlice, IoSliceMut, Read};
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
-    target_os = "macos",
+    target_os = "macos"
 ))]
 use std::os::fd::OwnedFd;
-use std::os::fd::{AsFd, BorrowedFd};
-#[cfg(target_os = "linux")]
-use std::os::unix::io::{AsRawFd, FromRawFd};
-
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+use std::os::fd::{AsFd, BorrowedFd, FromRawFd};
+use std::os::unix::io::AsRawFd;
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use std::os::unix::io::RawFd;
 use std::pin::pin;
 use std::sync::Arc;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use std::{ffi::OsString, path::Path};
 
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd",
-    target_os = "macos",
+    target_os = "freebsd"
 ))]
 use async_io::Async;
 use async_lock::Mutex;
 use async_notify::Notify;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use async_process::Command;
 use futures_util::{select, FutureExt};
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use nix::sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
-    target_os = "macos",
+    target_os = "macos"
 ))]
 use nix::sys::uio;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use tracing::debug;
 #[cfg(target_os = "freebsd")]
 use tracing::warn;
@@ -52,7 +48,7 @@ use tracing::warn;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::find_fusermount3;
 use crate::raw::connection::CompleteIoResult;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use crate::MountOptions;
 
 #[derive(Debug)]
@@ -62,8 +58,9 @@ pub struct FuseConnection {
 }
 
 impl FuseConnection {
+    #[cfg(any(target_os = "linux",target_os = "freebsd"))]
     pub fn new(unmount_notify: Arc<Notify>) -> io::Result<Self> {
-        #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+        #[cfg(target_os = "freebsd")]
         {
             let connection = NonBlockFuseConnection::new()?;
 
@@ -99,6 +96,21 @@ impl FuseConnection {
         })
     }
 
+    #[cfg(target_os = "macos")]
+    pub async fn new_with_unprivileged(
+        mount_options: MountOptions,
+        mount_path: impl AsRef<Path>,
+        unmount_notify: Arc<Notify>,
+    ) -> io::Result<Self> {
+        let connection =
+            BlockFuseConnection::new_with_unprivileged(mount_options, mount_path).await?;
+
+        Ok(Self {
+            unmount_notify,
+            mode: ConnectionMode::Block(connection),
+        })
+    }
+
     pub async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
         &self,
         header_buf: Vec<u8>,
@@ -119,14 +131,13 @@ impl FuseConnection {
         data_buf: T,
     ) -> CompleteIoResult<(Vec<u8>, T), usize> {
         match &self.mode {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             ConnectionMode::Block(connection) => {
                 connection.read_vectored(header_buf, data_buf).await
             }
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
-                target_os = "freebsd",
-                target_os = "macos",
+                target_os = "freebsd"
             ))]
             ConnectionMode::NonBlock(connection) => {
                 connection.read_vectored(header_buf, data_buf).await
@@ -140,14 +151,13 @@ impl FuseConnection {
         body_extend_data: Option<U>,
     ) -> CompleteIoResult<(T, Option<U>), usize> {
         match &self.mode {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             ConnectionMode::Block(connection) => {
                 connection.write_vectored(data, body_extend_data).await
             }
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
-                target_os = "freebsd",
-                target_os = "macos",
+                target_os = "freebsd"
             ))]
             ConnectionMode::NonBlock(connection) => {
                 connection.write_vectored(data, body_extend_data).await
@@ -158,17 +168,16 @@ impl FuseConnection {
 
 #[derive(Debug)]
 enum ConnectionMode {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     Block(BlockFuseConnection),
     #[cfg(any(
         all(target_os = "linux", feature = "unprivileged"),
-        target_os = "freebsd",
-        target_os = "macos",
+        target_os = "freebsd"
     ))]
     NonBlock(NonBlockFuseConnection),
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[derive(Debug)]
 struct BlockFuseConnection {
     file: File,
@@ -176,8 +185,9 @@ struct BlockFuseConnection {
     write: Mutex<()>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl BlockFuseConnection {
+    #[cfg(target_os = "linux")]
     pub fn new() -> io::Result<Self> {
         const DEV_FUSE: &str = "/dev/fuse";
 
@@ -185,6 +195,96 @@ impl BlockFuseConnection {
 
         Ok(Self {
             file,
+            read: Mutex::new(()),
+            write: Mutex::new(()),
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn new_with_unprivileged(
+        mount_options: MountOptions,
+        mount_path: impl AsRef<Path>,
+    ) -> io::Result<Self> {
+        use crate::find_macfuse_mount;
+        
+        let (sock0, sock1) = match socket::socketpair(
+            AddressFamily::Unix,
+            SockType::Stream,
+            None,
+            SockFlag::empty(),
+        ) {
+            Err(err) => return Err(err.into()),
+
+            Ok((sock0, sock1)) => (sock0, sock1),
+        };
+
+        let binary_path = find_macfuse_mount()?;
+
+        const ENV: &str = "_FUSE_COMMFD";
+
+        let options = mount_options.build();
+
+        debug!("mount options {:?}", options);
+
+        let mount_path = mount_path.as_ref().as_os_str().to_os_string();
+        async_global_executor::spawn(async move {
+            let fd0 = sock0.as_raw_fd();
+            let mut binding = Command::new(binary_path);
+            let mut child = binding
+                .env(ENV, fd0.to_string())
+                .env("_FUSE_CALL_BY_LIB", "1")
+                .env("_FUSE_COMMVERS", "2")
+                .env("_FUSE_DAEMON_PATH", "/Users/ouyangjun/code/opendal/bin/ofs/target/debug/ofs")
+                .args(vec![ options, mount_path])
+                .spawn()?;
+            if !child.status().await?.success() {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "fusermount run failed",
+                ));
+            }
+            Ok(())
+        });
+
+        let fd1 = sock1.as_raw_fd();
+        let fd = async_global_executor::spawn_blocking(move || {
+            // let mut buf = vec![0; 10000]; // buf should large enough
+            let mut buf = vec![]; // it seems 0 len still works well
+
+            let mut cmsg_buf = nix::cmsg_space!([RawFd; 1]);
+
+            let mut bufs = [IoSliceMut::new(&mut buf)];
+
+            let msg = match socket::recvmsg::<()>(
+                fd1,
+                &mut bufs[..],
+                Some(&mut cmsg_buf),
+                MsgFlags::empty(),
+            ) {
+                Err(err) => return Err(err.into()),
+
+                Ok(msg) => msg,
+            };
+
+            let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
+                if fds.is_empty() {
+                    return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
+                }
+
+                fds[0]
+            } else {
+                return Err(io::Error::new(io::ErrorKind::Other, "get fuse fd failed"));
+            };
+
+            Ok(fd)
+        })
+        .await?;
+
+        // Safety: fd is valid
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+
+        Ok(Self {
+            file: fd.into(),
             read: Mutex::new(()),
             write: Mutex::new(()),
         })
@@ -244,8 +344,7 @@ impl BlockFuseConnection {
 
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd",
-    target_os = "macos",
+    target_os = "freebsd"
 ))]
 #[derive(Debug)]
 struct NonBlockFuseConnection {
@@ -256,11 +355,10 @@ struct NonBlockFuseConnection {
 
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd",
-    target_os = "macos",
+    target_os = "freebsd"
 ))]
 impl NonBlockFuseConnection {
-    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+    #[cfg(target_os = "freebsd")]
     fn new() -> io::Result<Self> {
         const DEV_FUSE: &str = "/dev/fuse";
 
@@ -410,16 +508,15 @@ impl NonBlockFuseConnection {
 impl AsFd for FuseConnection {
     fn as_fd(&self) -> BorrowedFd<'_> {
         match &self.mode {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             ConnectionMode::Block(connection) => {
                 // Safety: we own the File
                 connection.file.as_fd()
-            }
+            },
 
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
-                target_os = "freebsd",
-                target_os = "macos",
+                target_os = "freebsd"
             ))]
             ConnectionMode::NonBlock(connection) => connection.fd.as_fd(),
         }

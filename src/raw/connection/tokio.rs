@@ -76,7 +76,7 @@ pub struct FuseConnection {
 }
 
 impl FuseConnection {
-    #[cfg(any(target_os = "linux",target_os = "freebsd", target_os="macos"))]
+    #[cfg(any(target_os = "linux",target_os = "freebsd"))]
     pub fn new(unmount_notify: Arc<Notify>) -> io::Result<Self> {
         #[cfg(target_os = "freebsd")]
         {
@@ -89,15 +89,6 @@ impl FuseConnection {
         }
 
         #[cfg(target_os = "linux")]
-        {
-            let connection = BlockFuseConnection::new()?;
-
-            Ok(Self {
-                unmount_notify,
-                mode: ConnectionMode::Block(connection),
-            })
-        }
-        #[cfg(target_os = "macos")]
         {
             let connection = BlockFuseConnection::new()?;
 
@@ -214,6 +205,7 @@ struct BlockFuseConnection {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 impl BlockFuseConnection {
+    #[cfg(target_os = "linux")]
     pub fn new() -> io::Result<Self> {
         const DEV_FUSE: &str = "/dev/fuse";
 
@@ -234,7 +226,6 @@ impl BlockFuseConnection {
         use tokio::time::sleep;
         use crate::find_macfuse_mount;
 
-        debug!("try to find macfuse mount");
         let (sock0, sock1) = match socket::socketpair(
             AddressFamily::Unix,
             SockType::Stream,
@@ -277,9 +268,8 @@ impl BlockFuseConnection {
             Ok(())
         });
         let fd1 = sock1.as_raw_fd();
-        debug!("wait for 1 second");
+        // wait for macfuse mount
         sleep(tokio::time::Duration::from_secs(1)).await;
-        debug!("wait for 1 second done");
         let fd = task::spawn_blocking(move || {
             // let mut buf = vec![0; 10000]; // buf should large enough
             let mut buf = vec![]; // it seems 0 len still works well
@@ -299,12 +289,6 @@ impl BlockFuseConnection {
                 Ok(msg) => msg,
             };
 
-            debug!("recvmsg {:?}", msg);
-
-            for cmsg in msg.cmsgs().next() {
-                debug!("cmsg {:?}", cmsg);
-            }
-
             let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
                 if fds.is_empty() {
                     return Err(io::Error::new(ErrorKind::Other, "no fuse fd"));
@@ -320,11 +304,6 @@ impl BlockFuseConnection {
         .await
         .unwrap()?;
 
-        debug!("fuse fd: {}", fd);
-
-        // Self::set_fd_non_blocking(fd)?;
-        debug!("set fd: {}", fd);
-        // Safety: fd is valid
         let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
         Ok(Self {
@@ -390,7 +369,6 @@ impl BlockFuseConnection {
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
-    target_os = "macos",
 ))]
 #[derive(Debug)]
 struct NonBlockFuseConnection {
@@ -402,17 +380,13 @@ struct NonBlockFuseConnection {
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
-    target_os = "macos",
 ))]
 impl NonBlockFuseConnection {
     #[cfg(any(target_os = "freebsd", target_os = "macos"))]
     fn new() -> io::Result<Self> {
         #[cfg(target_os = "freebsd")]
         const DEV_FUSE: &str = "/dev/fuse";
-        #[cfg(target_os = "macos")]
-        const DEV_FUSE: &str = "/dev/macfuse0";
 
-        warn!("try to open {}", DEV_FUSE);
         match OpenOptions::new()
             .write(true)
             .read(true)
@@ -432,115 +406,6 @@ impl NonBlockFuseConnection {
                 write: Mutex::new(()),
             }),
         }
-    }
-
-    #[cfg(all(target_os = "macos", feature = "unprivileged"))]
-    async fn new_with_unprivileged(
-        mount_options: MountOptions,
-        mount_path: impl AsRef<Path>,
-    ) -> io::Result<Self> {
-        use tokio::time::sleep;
-
-        use crate::find_macfuse_mount;
-
-        debug!("try to find macfuse mount");
-        let (sock0, sock1) = match socket::socketpair(
-            AddressFamily::Unix,
-            SockType::Stream,
-            None,
-            SockFlag::empty(),
-        ) {
-            Err(err) => return Err(err.into()),
-
-            Ok((sock0, sock1)) => (sock0, sock1),
-        };
-
-        let binary_path = find_macfuse_mount()?;
-
-        const ENV: &str = "_FUSE_COMMFD";
-
-        let options = mount_options.build();
-
-        debug!("mount options {:?}", options);
-
-        let mount_path = mount_path.as_ref().as_os_str().to_os_string();
-        tokio::spawn(async move {
-            let fd0 = sock0.as_raw_fd();
-            let mut binding = Command::new(binary_path);
-            let child = binding
-                .env(ENV, fd0.to_string())
-                .env("_FUSE_CALL_BY_LIB", "1")
-                .env("_FUSE_COMMVERS", "2")
-                .env("_FUSE_DAEMON_PATH", "/Users/ouyangjun/code/opendal/bin/ofs/target/debug/ofs")
-                .args(vec![ options, mount_path]);
-            debug!("macfuse mount: {:?}", &child);
-                let child = child.spawn()?.wait_with_output().await?;
-            debug!("macfuse mount child exit status: {:?}", child);
-    
-            if !child.status.success() {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "fusermount run failed",
-                ));
-            };
-            Ok(())
-        });
-        let fd1 = sock1.as_raw_fd();
-        debug!("wait for 1 second");
-        sleep(tokio::time::Duration::from_secs(1)).await;
-        debug!("wait for 1 second done");
-        let fd = task::spawn_blocking(move || {
-            // let mut buf = vec![0; 10000]; // buf should large enough
-            let mut buf = vec![]; // it seems 0 len still works well
-
-            let mut cmsg_buf = nix::cmsg_space!([RawFd; 1]);
-
-            let mut bufs = [IoSliceMut::new(&mut buf)];
-
-            let msg = match socket::recvmsg::<()>(
-                fd1,
-                &mut bufs[..],
-                Some(&mut cmsg_buf),
-                MsgFlags::empty(),
-            ) {
-                Err(err) => return Err(err.into()),
-
-                Ok(msg) => msg,
-            };
-
-            debug!("recvmsg {:?}", msg);
-
-            for cmsg in msg.cmsgs().next() {
-                debug!("cmsg {:?}", cmsg);
-            }
-
-            let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
-                if fds.is_empty() {
-                    return Err(io::Error::new(ErrorKind::Other, "no fuse fd"));
-                }
-
-                fds[0]
-            } else {
-                return Err(io::Error::new(ErrorKind::Other, "get fuse fd failed"));
-            };
-
-            Ok(fd)
-        })
-        .await
-        .unwrap()?;
-
-        debug!("fuse fd: {}", fd);
-
-        // Self::set_fd_non_blocking(fd)?;
-        debug!("set fd: {}", fd);
-        // Safety: fd is valid
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-
-        Ok(Self {
-            fd: AsyncFd::new(fd)?,
-            read: Mutex::new(()),
-            write: Mutex::new(()),
-        })
     }
 
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
