@@ -5,7 +5,7 @@ use crate::path::inode_path_bridge::InodePathBridge;
 use crate::path::path_filesystem::PathFilesystem;
 use crate::raw;
 use crate::MountOptions;
-use tracing::log;
+
 #[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 #[derive(Debug)]
 /// fuse filesystem session, path based.
@@ -34,7 +34,6 @@ impl Session {
     {
         let bridge = InodePathBridge::new(fs);
 
-        log::info!("Mounting filesystem at {:?}", mount_path.as_ref());
         raw::Session::new(self.mount_options)
             .mount_with_unprivileged(bridge, mount_path)
             .await

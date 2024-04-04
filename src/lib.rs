@@ -20,10 +20,10 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use std::io::{self, ErrorKind};
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use std::path::PathBuf;
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+use std::path::{PathBuf, Path};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use errno::Errno;
@@ -236,4 +236,16 @@ fn find_fusermount3() -> io::Result<PathBuf> {
             format!("find fusermount3 binary failed {err:?}"),
         )
     })
+}
+
+#[cfg(target_os = "macos")]
+fn find_macfuse_mount() -> io::Result<PathBuf> {
+    if Path::new("/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse").exists() {
+        Ok(PathBuf::from("/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse"))
+    } else {
+        Err(io::Error::new(
+            ErrorKind::Other,
+            "macfuse mount binary not found, Please install macfuse first.",
+        ))
+    }
 }

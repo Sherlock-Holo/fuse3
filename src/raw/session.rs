@@ -105,7 +105,7 @@ struct MountHandleInner {
     task: JoinHandle<IoResult<()>>,
     mount_path: PathBuf,
     destroy_notify: Arc<async_notify::Notify>,
-    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+    #[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
     unprivileged: bool,
 }
 
@@ -130,7 +130,7 @@ impl MountHandleInner {
             #[cfg(target_os = "macos")]
             {
                 task::spawn_blocking(move || {
-                    mount::umount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
+                    mount::unmount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
                 })
                 .await?;
             }
@@ -174,7 +174,7 @@ impl MountHandleInner {
             #[cfg(target_os = "macos")]
             {
                 task::spawn_blocking(move || {
-                    mount::umount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
+                    mount::unmount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
                 })
                 .await
                 .unwrap()?;
@@ -319,14 +319,38 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         self.mount(fs, mount_path).await
     }
 
-    #[cfg(all(target_os = "macos", feature = "unprivileged"))]
+    #[cfg(target_os = "macos")]
     pub async fn mount_with_unprivileged<P: AsRef<Path>>(
-        self,
+        mut self,
         fs: FS,
         mount_path: P,
     ) -> IoResult<MountHandle> {
-        warn!("unprivileged mount is not supported on macOS, use root permission mount");
-        self.mount(fs, mount_path).await
+        let mount_path = mount_path.as_ref();
+
+        self.mount_empty_check(mount_path).await?;
+
+        let notify = Arc::new(async_notify::Notify::new());
+        let fuse_connection = FuseConnection::new_with_unprivileged(
+            self.mount_options.clone(),
+            mount_path,
+            notify.clone(),
+        )
+        .await?;
+
+        self.fuse_connection.replace(Arc::new(fuse_connection));
+
+        self.filesystem.replace(Arc::new(fs));
+
+        debug!("mount {:?} success", mount_path);
+
+        Ok(MountHandle {
+            inner: Some(MountHandleInner {
+                task: task::spawn(self.inner_mount()),
+                mount_path: mount_path.to_path_buf(),
+                destroy_notify: notify,
+                unprivileged: true,
+            }),
+        })
     }
 
     /// mount the filesystem without root permission.
@@ -463,51 +487,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
     #[cfg(target_os = "macos")]
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
-        let mount_path = mount_path.as_ref();
-
-        self.mount_empty_check(mount_path).await?;
-
-        let notify = Arc::new(async_notify::Notify::new());
-        let fuse_connection = FuseConnection::new(notify.clone())?;
-
-        let fd = fuse_connection.as_fd().as_raw_fd();
-
-        let options = self.mount_options.build(fd);
-
-        let fs_name = if let Some(fs_name) = self.mount_options.fs_name.as_ref() {
-            fs_name.as_str()
-        } else {
-            "/dev/macfuse0"
-        };
-
-        debug!("mount options {:?}", options);
-
-        if let Err(err) = mount::mount(
-            fs_name,
-            mount_path,
-            self.mount_options.flags(),
-            Some(options.as_os_str()),
-        ) {
-            error!("mount {:?} failed", mount_path);
-
-            return Err(err.into());
-        }
-
-        self.fuse_connection.replace(Arc::new(fuse_connection));
-
-        self.filesystem.replace(Arc::new(fs));
-
-        debug!("mount {:?} success", mount_path);
-
-        Ok(MountHandle {
-            inner: Some(MountHandleInner {
-                task: task::spawn(self.inner_mount()),
-                mount_path: mount_path.to_path_buf(),
-                destroy_notify: notify,
-                #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-                unprivileged: false,
-            }),
-        })
+        self.mount_with_unprivileged(fs, mount_path).await
     }
 
     async fn inner_mount(mut self) -> IoResult<()> {

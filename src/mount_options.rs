@@ -246,36 +246,23 @@ impl MountOptions {
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn build(&self, fd: RawFd) -> OsString {
+    pub(crate) fn build(&self) -> OsString {
         let mut opts = vec![
-            format!("fd={fd}"),
-            format!(
-                "user_id={}",
-                self.uid.unwrap_or_else(|| unistd::getuid().as_raw())
-            ),
-            format!(
-                "group_id={}",
-                self.gid.unwrap_or_else(|| unistd::getgid().as_raw())
-            ),
-            format!("rootmode={}", self.rootmode.unwrap_or(40000)),
+            format!("-o fsname=ofs"),
         ];
 
         if self.allow_root {
-            opts.push("allow_root".to_string());
+            opts.push("-o allow_root".to_string());
         }
 
         if self.allow_other {
-            opts.push("allow_other".to_string());
+            opts.push("-o allow_other".to_string());
         }
 
-        if self.default_permissions {
-            opts.push("default_permissions".to_string());
-        }
-
-        let mut options = OsString::from(opts.join(","));
+        let mut options = OsString::from(opts.join(" "));
 
         if let Some(custom_options) = &self.custom_options {
-            options.push(",");
+            options.push(" ");
             options.push(custom_options);
         }
 
