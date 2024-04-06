@@ -205,6 +205,8 @@ impl BlockFuseConnection {
         mount_options: MountOptions,
         mount_path: impl AsRef<Path>,
     ) -> io::Result<Self> {
+        use std::{thread, time::Duration};
+
         use crate::find_macfuse_mount;
         
         let (sock0, sock1) = match socket::socketpair(
@@ -232,7 +234,8 @@ impl BlockFuseConnection {
         };
 
         let mount_path = mount_path.as_ref().as_os_str().to_os_string();
-        let mount_thread = async_global_executor::spawn(async move {
+        async_global_executor::spawn(async move {
+            debug!("mount_thread start");
             let fd0 = sock0.as_raw_fd();
             let mut binding = Command::new(binary_path);
             let mut child = binding
@@ -252,7 +255,12 @@ impl BlockFuseConnection {
         });
 
         let fd1 = sock1.as_raw_fd();
-        let wait_thread = async_global_executor::spawn_blocking(move || {
+        let fd = async_global_executor::spawn_blocking(move || {
+            debug!("wait_thread start");
+            // wait for macfuse mount command start
+            // it seems that socket::recvmsg will not block to wait for the message
+            // so we need to sleep for a while
+            thread::sleep(Duration::from_secs(1));
             // let mut buf = vec![0; 10000]; // buf should large enough
             let mut buf = vec![]; // it seems 0 len still works well
 
@@ -282,18 +290,9 @@ impl BlockFuseConnection {
             };
 
             Ok(fd)
-        });
-
-        let (mount_thread_res, wait_thread_res) = join!(mount_thread, wait_thread);
-        if mount_thread_res.is_err() || wait_thread_res.is_err() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "mount_macfuse run failed",
-            ));
-        };
+        }).await.unwrap();
 
         // Safety: fd is valid
-        let fd = wait_thread_res.unwrap();
         let file = unsafe { File::from_raw_fd(fd) };
 
         Ok(Self {
