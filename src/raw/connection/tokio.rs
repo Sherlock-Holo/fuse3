@@ -62,6 +62,7 @@ use tokio::task;
 use tracing::debug;
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use tracing::warn;
+use std::env;
 
 use super::CompleteIoResult;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -245,6 +246,11 @@ impl BlockFuseConnection {
 
         debug!("mount options {:?}", options);
 
+        let exec_path = match env::current_exe() {
+            Ok(path) => path,
+            Err(err) => return Err(err)
+        };
+
         let mount_path = mount_path.as_ref().as_os_str().to_os_string();
         tokio::spawn(async move {
             let fd0 = sock0.as_raw_fd();
@@ -253,11 +259,9 @@ impl BlockFuseConnection {
                 .env(ENV, fd0.to_string())
                 .env("_FUSE_CALL_BY_LIB", "1")
                 .env("_FUSE_COMMVERS", "2")
-                .env("_FUSE_DAEMON_PATH", "/Users/ouyangjun/code/opendal/bin/ofs/target/debug/ofs")
+                .env("_FUSE_DAEMON_PATH", exec_path)
                 .args(vec![ options, mount_path]);
-            debug!("macfuse mount: {:?}", &child);
-                let child = child.spawn()?.wait_with_output().await?;
-            debug!("macfuse mount child exit status: {:?}", child);
+            let child = child.spawn()?.wait_with_output().await?;
     
             if !child.status.success() {
                 return Err(io::Error::new(

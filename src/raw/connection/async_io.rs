@@ -50,7 +50,7 @@ use crate::find_fusermount3;
 use crate::raw::connection::CompleteIoResult;
 #[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use crate::MountOptions;
-
+use std::env;
 #[derive(Debug)]
 pub struct FuseConnection {
     unmount_notify: Arc<Notify>,
@@ -226,6 +226,11 @@ impl BlockFuseConnection {
 
         debug!("mount options {:?}", options);
 
+        let exec_path = match env::current_exe() {
+            Ok(path) => path,
+            Err(err) => return Err(err)
+        };
+
         let mount_path = mount_path.as_ref().as_os_str().to_os_string();
         async_global_executor::spawn(async move {
             let fd0 = sock0.as_raw_fd();
@@ -234,7 +239,7 @@ impl BlockFuseConnection {
                 .env(ENV, fd0.to_string())
                 .env("_FUSE_CALL_BY_LIB", "1")
                 .env("_FUSE_COMMVERS", "2")
-                .env("_FUSE_DAEMON_PATH", "/Users/ouyangjun/code/opendal/bin/ofs/target/debug/ofs")
+                .env("_FUSE_DAEMON_PATH", exec_path)
                 .args(vec![ options, mount_path])
                 .spawn()?;
             if !child.status().await?.success() {
