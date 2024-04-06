@@ -27,11 +27,11 @@ use std::{ffi::OsString, path::Path};
     target_os = "freebsd"
 ))]
 use async_io::Async;
-use async_lock::Mutex;
+use async_lock::{futures, Mutex};
 use async_notify::Notify;
 #[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use async_process::Command;
-use futures_util::{select, FutureExt};
+use futures_util::{select, FutureExt, try_join, join};
 #[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use nix::sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType};
 #[cfg(any(
@@ -232,7 +232,7 @@ impl BlockFuseConnection {
         };
 
         let mount_path = mount_path.as_ref().as_os_str().to_os_string();
-        async_global_executor::spawn(async move {
+        let mount_thread = async_global_executor::spawn(async move {
             let fd0 = sock0.as_raw_fd();
             let mut binding = Command::new(binary_path);
             let mut child = binding
@@ -252,7 +252,7 @@ impl BlockFuseConnection {
         });
 
         let fd1 = sock1.as_raw_fd();
-        let fd = async_global_executor::spawn_blocking(move || {
+        let wait_thread = async_global_executor::spawn_blocking(move || {
             // let mut buf = vec![0; 10000]; // buf should large enough
             let mut buf = vec![]; // it seems 0 len still works well
 
@@ -282,14 +282,22 @@ impl BlockFuseConnection {
             };
 
             Ok(fd)
-        })
-        .await?;
+        });
+
+        let (mount_thread_res, wait_thread_res) = join!(mount_thread, wait_thread);
+        if mount_thread_res.is_err() || wait_thread_res.is_err() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "mount_macfuse run failed",
+            ));
+        };
 
         // Safety: fd is valid
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let fd = wait_thread_res.unwrap();
+        let file = unsafe { File::from_raw_fd(fd) };
 
         Ok(Self {
-            file: fd.into(),
+            file,
             read: Mutex::new(()),
             write: Mutex::new(()),
         })

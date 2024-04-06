@@ -252,7 +252,7 @@ impl BlockFuseConnection {
         };
 
         let mount_path = mount_path.as_ref().as_os_str().to_os_string();
-        tokio::spawn(async move {
+        let mount_thread = tokio::spawn(async move {
             let fd0 = sock0.as_raw_fd();
             let mut binding = Command::new(binary_path);
             let child = binding
@@ -273,8 +273,7 @@ impl BlockFuseConnection {
         });
         let fd1 = sock1.as_raw_fd();
         // wait for macfuse mount
-        sleep(tokio::time::Duration::from_secs(1)).await;
-        let fd = task::spawn_blocking(move || {
+        let wait_thread = task::spawn_blocking(move || {
             // let mut buf = vec![0; 10000]; // buf should large enough
             let mut buf = vec![]; // it seems 0 len still works well
 
@@ -304,14 +303,20 @@ impl BlockFuseConnection {
             };
 
             Ok(fd)
-        })
-        .await
-        .unwrap()?;
+        });
 
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let (mount_thread_res, wait_thread_res) = tokio::try_join!(mount_thread, wait_thread)?;
+        if mount_thread_res.is_err() || wait_thread_res.is_err() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "mount_macfuse run failed",
+            ));
+        };
 
+        let fd = wait_thread_res.unwrap();
+        let file = unsafe { File::from_raw_fd(fd) };
         Ok(Self {
-            file: fd.into(),
+            file,
             read: Mutex::new(()),
             write: Mutex::new(()),
         })
