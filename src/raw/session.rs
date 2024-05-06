@@ -87,6 +87,10 @@ impl MountHandle {
 impl Drop for MountHandle {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.take() {
+            if inner.task.is_finished() {
+                return;
+            }
+
             #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
             {
                 task::spawn(inner.inner_unmount()).detach();
