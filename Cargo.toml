@@ -1,6 +1,6 @@
 [package]
 name = "fuse3"
-version = "0.7.1"
+version = "0.7.2"
 authors = ["Sherlock Holo <sherlockya@gmail.com>"]
 edition = "2021"
 readme = "README.md"
