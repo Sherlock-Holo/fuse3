@@ -393,7 +393,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         })
     }
 
-    /// mount the filesystem with root permission.
+    /// mount the filesystem without root permission.
     #[cfg(target_os = "freebsd")]
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
         use cstr::cstr;
