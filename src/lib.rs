@@ -20,10 +20,10 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
 use std::io::{self, ErrorKind};
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use std::path::PathBuf;
+#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+use std::path::{PathBuf, Path};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use errno::Errno;
@@ -34,6 +34,9 @@ use raw::abi::{
     fuse_setattr_in, FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_GID, FATTR_LOCKOWNER,
     FATTR_MODE, FATTR_MTIME, FATTR_MTIME_NOW, FATTR_SIZE, FATTR_UID,
 };
+
+#[cfg(target_os = "macos")]
+use raw::abi::{FATTR_BKUPTIME, FATTR_CHGTIME, FATTR_CRTIME, FATTR_FLAGS};
 
 mod errno;
 mod helper;
@@ -169,6 +172,26 @@ impl From<&fuse_setattr_in> for SetAttr {
             set_attr.ctime = fsai2ts!(setattr_in.ctime, setattr_in.ctimensec);
         }
 
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_CRTIME > 0 {
+            set_attr.ctime = fsai2ts!(setattr_in.crtime, setattr_in.crtimensec);
+        }
+
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_CHGTIME > 0 {
+            set_attr.ctime = fsai2ts!(setattr_in.chgtime, setattr_in.chgtimensec);
+        }
+
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_BKUPTIME > 0 {
+            set_attr.ctime = fsai2ts!(setattr_in.bkuptime, setattr_in.bkuptimensec);
+        }
+
+        #[cfg(target_os = "macos")]
+        if setattr_in.valid & FATTR_FLAGS > 0 {
+            set_attr.flags = Some(setattr_in.flags);
+        }
+
         set_attr
     }
 }
@@ -213,4 +236,16 @@ fn find_fusermount3() -> io::Result<PathBuf> {
             format!("find fusermount3 binary failed {err:?}"),
         )
     })
+}
+
+#[cfg(target_os = "macos")]
+fn find_macfuse_mount() -> io::Result<PathBuf> {
+    if Path::new("/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse").exists() {
+        Ok(PathBuf::from("/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse"))
+    } else {
+        Err(io::Error::new(
+            ErrorKind::Other,
+            "macfuse mount binary not found, Please install macfuse first.",
+        ))
+    }
 }
