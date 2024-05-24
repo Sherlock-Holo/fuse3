@@ -256,7 +256,7 @@ pub struct fuse_attr {
     // see chflags(2)
     pub flags: u32,
     pub blksize: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -278,7 +278,7 @@ pub struct fuse_kstatfs {
     pub namelen: u32,
     // Fundamental file system block size
     pub frsize: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
     pub spare: [u32; 6],
 }
 
@@ -435,11 +435,11 @@ impl TryFrom<u32> for fuse_opcode {
 
 /// Invalid notify code error.
 #[derive(Debug)]
-pub struct InvalidNotifyCodeError(pub u32);
+pub struct InvalidNotifyCodeError(u32);
 
 impl Display for InvalidNotifyCodeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Debug::fmt(self, f)
+        write!(f, "InvalidNotifyCodeError({})", self.0)
     }
 }
 
@@ -515,7 +515,7 @@ pub const FUSE_FORGET_ONE_SIZE: usize = mem::size_of::<fuse_forget_one>();
 #[allow(non_camel_case_types)]
 pub struct fuse_forget_one {
     pub nodeid: u64,
-    pub nlookup: u64,
+    pub (crate) _nlookup: u64,
 }
 
 pub const FUSE_BATCH_FORGET_IN_SIZE: usize = mem::size_of::<fuse_batch_forget_in>();
@@ -524,7 +524,7 @@ pub const FUSE_BATCH_FORGET_IN_SIZE: usize = mem::size_of::<fuse_batch_forget_in
 #[allow(non_camel_case_types)]
 pub struct fuse_batch_forget_in {
     pub count: u32,
-    pub dummy: u32,
+    pub(crate) _dummy: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -563,8 +563,8 @@ pub const FUSE_MKNOD_IN_SIZE: usize = mem::size_of::<fuse_mknod_in>();
 pub struct fuse_mknod_in {
     pub mode: u32,
     pub rdev: u32,
-    pub umask: u32,
-    pub padding: u32,
+    pub(crate) _umask: u32,
+    _padding: u32,
 }
 
 pub const FUSE_MKDIR_IN_SIZE: usize = mem::size_of::<fuse_mkdir_in>();
@@ -591,7 +591,7 @@ pub const FUSE_RENAME2_IN_SIZE: usize = mem::size_of::<fuse_rename2_in>();
 pub struct fuse_rename2_in {
     pub newdir: u64,
     pub flags: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 #[cfg(target_os = "macos")]
@@ -615,7 +615,7 @@ pub struct fuse_link_in {
 #[allow(non_camel_case_types)]
 pub struct fuse_setattr_in {
     pub valid: u32,
-    pub padding: u32,
+    _padding: u32,
     pub fh: u64,
     pub size: u64,
     pub lock_owner: u64,
@@ -650,7 +650,7 @@ pub struct fuse_setattr_in {
 #[allow(non_camel_case_types)]
 pub struct fuse_open_in {
     pub flags: u32,
-    pub unused: u32,
+    pub(crate) _unused: u32,
 }
 
 pub const FUSE_CREATE_IN_SIZE: usize = mem::size_of::<fuse_create_in>();
@@ -660,8 +660,8 @@ pub const FUSE_CREATE_IN_SIZE: usize = mem::size_of::<fuse_create_in>();
 pub struct fuse_create_in {
     pub flags: u32,
     pub mode: u32,
-    pub umask: u32,
-    pub padding: u32,
+    pub(crate) _umask: u32,
+    _padding: u32,
 }
 
 pub const FUSE_OPEN_OUT_SIZE: usize = mem::size_of::<fuse_open_out>();
@@ -671,7 +671,7 @@ pub const FUSE_OPEN_OUT_SIZE: usize = mem::size_of::<fuse_open_out>();
 pub struct fuse_open_out {
     pub fh: u64,
     pub open_flags: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -687,8 +687,8 @@ pub struct fuse_release_in {
 #[allow(non_camel_case_types)]
 pub struct fuse_flush_in {
     pub fh: u64,
-    pub unused: u32,
-    pub padding: u32,
+    pub(crate) _unused: u32,
+    _padding: u32,
     pub lock_owner: u64,
 }
 
@@ -698,10 +698,10 @@ pub struct fuse_read_in {
     pub fh: u64,
     pub offset: u64,
     pub size: u32,
-    pub read_flags: u32,
+    pub(crate) _read_flags: u32,
     pub lock_owner: u64,
-    pub flags: u32,
-    pub padding: u32,
+    pub(crate) _flags: u32,
+    _padding: u32,
 }
 
 pub const FUSE_WRITE_IN_SIZE: usize = mem::size_of::<fuse_write_in>();
@@ -713,9 +713,9 @@ pub struct fuse_write_in {
     pub offset: u64,
     pub size: u32,
     pub write_flags: u32,
-    pub lock_owner: u64,
+    pub(crate) _lock_owner: u64,
     pub flags: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 pub const FUSE_WRITE_OUT_SIZE: usize = mem::size_of::<fuse_write_out>();
@@ -724,7 +724,7 @@ pub const FUSE_WRITE_OUT_SIZE: usize = mem::size_of::<fuse_write_out>();
 #[allow(non_camel_case_types)]
 pub struct fuse_write_out {
     pub size: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 pub const FUSE_STATFS_OUT_SIZE: usize = mem::size_of::<fuse_statfs_out>();
@@ -740,7 +740,7 @@ pub struct fuse_statfs_out {
 pub struct fuse_fsync_in {
     pub fh: u64,
     pub fsync_flags: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 pub const FUSE_SETXATTR_IN_SIZE: usize = mem::size_of::<fuse_setxattr_in>();
@@ -753,7 +753,7 @@ pub struct fuse_setxattr_in {
     #[cfg(target_os = "macos")]
     pub position: u32,
     #[cfg(target_os = "macos")]
-    pub padding: u32,
+    _padding: u32,
 }
 
 pub const FUSE_GETXATTR_IN_SIZE: usize = mem::size_of::<fuse_getxattr_in>();
@@ -762,11 +762,11 @@ pub const FUSE_GETXATTR_IN_SIZE: usize = mem::size_of::<fuse_getxattr_in>();
 #[allow(non_camel_case_types)]
 pub struct fuse_getxattr_in {
     pub size: u32,
-    pub padding: u32,
+    _padding: u32,
     #[cfg(target_os = "macos")]
     pub position: u32,
     #[cfg(target_os = "macos")]
-    pub padding2: u32,
+    _padding2: u32,
 }
 
 pub const FUSE_GETXATTR_OUT_SIZE: usize = mem::size_of::<fuse_getxattr_out>();
@@ -775,7 +775,7 @@ pub const FUSE_GETXATTR_OUT_SIZE: usize = mem::size_of::<fuse_getxattr_out>();
 #[allow(non_camel_case_types)]
 pub struct fuse_getxattr_out {
     pub size: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 #[cfg(feature = "file-lock")]
@@ -785,8 +785,8 @@ pub struct fuse_lk_in {
     pub fh: u64,
     pub owner: u64,
     pub lk: fuse_file_lock,
-    pub lk_flags: u32,
-    pub padding: u32,
+    pub(crate) _lk_flags: u32,
+    _padding: u32,
 }
 
 #[cfg(feature = "file-lock")]
@@ -803,14 +803,14 @@ pub struct fuse_lk_out {
 #[allow(non_camel_case_types)]
 pub struct fuse_access_in {
     pub mask: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct fuse_init_in {
-    pub major: u32,
-    pub minor: u32,
+    pub(crate) _major: u32,
+    pub(crate) _minor: u32,
     pub max_readahead: u32,
     pub flags: u32,
 }
@@ -869,7 +869,7 @@ pub struct fuse_interrupt_in {
 pub struct fuse_bmap_in {
     pub block: u64,
     pub blocksize: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 pub const FUSE_BMAP_OUT_SIZE: usize = mem::size_of::<fuse_bmap_out>();
@@ -880,32 +880,32 @@ pub struct fuse_bmap_out {
     pub block: u64,
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(non_camel_case_types)]
-pub struct fuse_ioctl_in {
-    pub fh: u64,
-    pub flags: u32,
-    pub cmd: u32,
-    pub arg: u64,
-    pub in_size: u32,
-    pub out_size: u32,
-}
+//#[derive(Debug, Deserialize)]
+//#[allow(non_camel_case_types)]
+//pub struct fuse_ioctl_in {
+    //pub fh: u64,
+    //pub flags: u32,
+    //pub cmd: u32,
+    //pub arg: u64,
+    //pub in_size: u32,
+    //pub out_size: u32,
+//}
 
-#[derive(Debug)]
-#[allow(non_camel_case_types)]
-pub struct fuse_ioctl_iovec {
-    pub base: u64,
-    pub len: u64,
-}
+//#[derive(Debug)]
+//#[allow(non_camel_case_types)]
+//pub struct fuse_ioctl_iovec {
+    //pub base: u64,
+    //pub len: u64,
+//}
 
-#[derive(Debug)]
-#[allow(non_camel_case_types)]
-pub struct fuse_ioctl_out {
-    pub result: i32,
-    pub flags: u32,
-    pub in_iovs: u32,
-    pub out_iovs: u32,
-}
+//#[derive(Debug)]
+//#[allow(non_camel_case_types)]
+//pub struct fuse_ioctl_out {
+    //pub result: i32,
+    //pub flags: u32,
+    //pub in_iovs: u32,
+    //pub out_iovs: u32,
+//}
 
 #[derive(Debug, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -922,7 +922,7 @@ pub const FUSE_POLL_OUT_SIZE: usize = mem::size_of::<fuse_poll_out>();
 #[allow(non_camel_case_types)]
 pub struct fuse_poll_out {
     pub revents: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 pub const FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE: usize = mem::size_of::<fuse_notify_poll_wakeup_out>();
@@ -940,7 +940,7 @@ pub struct fuse_fallocate_in {
     pub offset: u64,
     pub length: u64,
     pub mode: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 pub const FUSE_IN_HEADER_SIZE: usize = mem::size_of::<fuse_in_header>();
@@ -955,7 +955,7 @@ pub struct fuse_in_header {
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 pub const FUSE_OUT_HEADER_SIZE: usize = mem::size_of::<fuse_out_header>();
@@ -1006,7 +1006,7 @@ pub const FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE: usize = mem::size_of::<fuse_notify_i
 pub struct fuse_notify_inval_entry_out {
     pub parent: u64,
     pub namelen: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 pub const FUSE_NOTIFY_DELETE_OUT_SIZE: usize = mem::size_of::<fuse_notify_delete_out>();
@@ -1017,7 +1017,7 @@ pub struct fuse_notify_delete_out {
     pub parent: u64,
     pub child: u64,
     pub namelen: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 pub const FUSE_NOTIFY_STORE_OUT_SIZE: usize = mem::size_of::<fuse_notify_store_out>();
@@ -1028,7 +1028,7 @@ pub struct fuse_notify_store_out {
     pub nodeid: u64,
     pub offset: u64,
     pub size: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 pub const FUSE_NOTIFY_RETRIEVE_OUT_SIZE: usize = mem::size_of::<fuse_notify_retrieve_out>();
@@ -1040,7 +1040,7 @@ pub struct fuse_notify_retrieve_out {
     pub nodeid: u64,
     pub offset: u64,
     pub size: u32,
-    pub padding: u32,
+    pub(crate) _padding: u32,
 }
 
 pub const FUSE_NOTIFY_RETRIEVE_IN_SIZE: usize = mem::size_of::<fuse_notify_retrieve_in>();
@@ -1049,12 +1049,12 @@ pub const FUSE_NOTIFY_RETRIEVE_IN_SIZE: usize = mem::size_of::<fuse_notify_retri
 // matches the size of fuse_write_in
 #[allow(non_camel_case_types)]
 pub struct fuse_notify_retrieve_in {
-    pub dummy1: u64,
+    _dummy1: u64,
     pub offset: u64,
     pub size: u32,
-    pub dummy2: u32,
-    pub dummy3: u64,
-    pub dummy4: u64,
+    _dummy2: u32,
+    _dummy3: u64,
+    _dummy4: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1063,7 +1063,7 @@ pub struct fuse_lseek_in {
     pub fh: u64,
     pub offset: u64,
     pub whence: u32,
-    pub padding: u32,
+    _padding: u32,
 }
 
 pub const FUSE_LSEEK_OUT_SIZE: usize = mem::size_of::<fuse_lseek_out>();

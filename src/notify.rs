@@ -93,7 +93,7 @@ impl Notify {
                 let invalid_entry_out = fuse_notify_inval_entry_out {
                     parent: *parent,
                     namelen: name.len() as _,
-                    padding: 0,
+                    _padding: 0,
                 };
 
                 let mut data =
@@ -126,7 +126,7 @@ impl Notify {
                     parent: *parent,
                     child: *child,
                     namelen: name.len() as _,
-                    padding: 0,
+                    _padding: 0,
                 };
 
                 let mut data =
@@ -159,7 +159,7 @@ impl Notify {
                     nodeid: *inode,
                     offset: *offset,
                     size: data.len() as _,
-                    padding: 0,
+                    _padding: 0,
                 };
 
                 let mut data_buf =
@@ -192,7 +192,7 @@ impl Notify {
                     nodeid: *inode,
                     offset: *offset,
                     size: *size,
-                    padding: 0,
+                    _padding: 0,
                 };
 
                 let mut data =

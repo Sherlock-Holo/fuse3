@@ -9,18 +9,16 @@ use std::io;
 use std::io::ErrorKind;
 #[cfg(target_os = "linux")]
 use std::io::Write;
-use std::io::{IoSlice, IoSliceMut, Read};
-use std::mem::ManuallyDrop;
+use std::io::{IoSlice, IoSliceMut};
 use std::ops::{Deref, DerefMut};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd"
 ))]
 use std::os::fd::OwnedFd;
-use std::os::fd::{AsFd, BorrowedFd, FromRawFd};
+use std::os::fd::{AsFd, BorrowedFd};
 #[cfg(target_os = "freebsd")]
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::io::AsRawFd;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use std::os::unix::io::RawFd;
 use std::pin::pin;
@@ -198,6 +196,10 @@ impl BlockFuseConnection {
         mut header_buf: Vec<u8>,
         mut data_buf: T,
     ) -> CompleteIoResult<(Vec<u8>, T), usize> {
+        use std::io::Read;
+        use std::mem::ManuallyDrop;
+        use std::os::fd::{AsRawFd, FromRawFd};
+
         let _guard = self.read.lock().await;
         let fd = self.file.as_raw_fd();
 
@@ -291,6 +293,8 @@ impl NonBlockFuseConnection {
         mount_options: MountOptions,
         mount_path: impl AsRef<Path>,
     ) -> io::Result<Self> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+
         let (sock0, sock1) = match socket::socketpair(
             AddressFamily::Unix,
             SockType::SeqPacket,
