@@ -181,26 +181,24 @@ impl MountOptions {
 
     #[cfg(target_os = "freebsd")]
     pub(crate) fn build(&self) -> Nmount {
-        use cstr::cstr;
-
         let mut nmount = Nmount::new();
         nmount
-            .str_opt(cstr!("fstype"), cstr!("fusefs"))
-            .str_opt(cstr!("from"), cstr!("/dev/fuse"));
+            .str_opt(c"fstype", c"fusefs")
+            .str_opt(c"from", c"/dev/fuse");
         if self.allow_other {
-            nmount.null_opt(cstr!("allow_other"));
+            nmount.null_opt(c"allow_other");
         }
         if self.allow_root {
-            nmount.null_opt(cstr!("allow_root"));
+            nmount.null_opt(c"allow_root");
         }
         if self.default_permissions {
-            nmount.null_opt(cstr!("default_permissions"));
+            nmount.null_opt(c"default_permissions");
         }
         if let Some(fs_name) = &self.fs_name {
-            nmount.str_opt_owned(cstr!("subtype="), fs_name.as_str());
+            nmount.str_opt_owned(c"subtype=", fs_name.as_str());
         }
         if self.intr {
-            nmount.null_opt(cstr!("intr"));
+            nmount.null_opt(c"intr");
         }
         if let Some(custom_options) = self.custom_options.as_ref() {
             nmount.null_opt_owned(custom_options.as_os_str());

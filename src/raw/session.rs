@@ -396,8 +396,6 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     /// mount the filesystem with root permission.
     #[cfg(target_os = "freebsd")]
     pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
-        use cstr::cstr;
-
         let mount_path = mount_path.as_ref();
 
         self.mount_empty_check(mount_path).await?;
@@ -410,8 +408,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         {
             let mut nmount = self.mount_options.build();
             nmount
-                .str_opt_owned(cstr!("fspath"), mount_path)
-                .str_opt_owned(cstr!("fd"), format!("{}", fd).as_str());
+                .str_opt_owned(c"fspath", mount_path)
+                .str_opt_owned(c"fd", format!("{}", fd).as_str());
             debug!("mount options {:?}", &nmount);
 
             if let Err(err) = nmount.nmount(self.mount_options.flags()) {
