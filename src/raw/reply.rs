@@ -72,7 +72,7 @@ impl From<FileAttr> for fuse_attr {
             gid: attr.gid,
             rdev: attr.rdev,
             blksize: attr.blksize,
-            padding: 0,
+            _padding: 0,
         }
     }
 }
@@ -162,7 +162,7 @@ impl From<ReplyOpen> for fuse_open_out {
         fuse_open_out {
             fh: opened.fh,
             open_flags: opened.flags,
-            padding: 0,
+            _padding: 0,
         }
     }
 }
@@ -178,7 +178,7 @@ impl From<ReplyWrite> for fuse_write_out {
     fn from(written: ReplyWrite) -> Self {
         fuse_write_out {
             size: written.written,
-            padding: 0,
+            _padding: 0,
         }
     }
 }
@@ -216,7 +216,7 @@ impl From<ReplyStatFs> for fuse_statfs_out {
                 bsize: stat_fs.bsize,
                 namelen: stat_fs.namelen,
                 frsize: stat_fs.frsize,
-                padding: 0,
+                _padding: 0,
                 spare: [0; 6],
             },
         }
@@ -312,7 +312,7 @@ impl From<ReplyCreated> for (fuse_entry_out, fuse_open_out) {
         let open_out = fuse_open_out {
             fh: created.fh,
             open_flags: created.flags,
-            padding: 0,
+            _padding: 0,
         };
 
         (entry_out, open_out)
@@ -351,7 +351,7 @@ impl From<ReplyPoll> for fuse_poll_out {
     fn from(poll: ReplyPoll) -> Self {
         fuse_poll_out {
             revents: poll.revents,
-            padding: 0,
+            _padding: 0,
         }
     }
 }
@@ -408,7 +408,7 @@ impl From<ReplyCopyFileRange> for fuse_write_out {
     fn from(copied: ReplyCopyFileRange) -> Self {
         fuse_write_out {
             size: copied.copied as u32,
-            padding: 0,
+            _padding: 0,
         }
     }
 }
