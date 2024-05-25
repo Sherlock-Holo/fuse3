@@ -323,7 +323,7 @@ impl NonBlockFuseConnection {
                 Ok(msg) => msg,
             };
 
-            let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
+            let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs()?.next() {
                 if fds.is_empty() {
                     return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
                 }
