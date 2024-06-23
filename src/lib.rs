@@ -10,7 +10,7 @@
 //!
 //! - `file-lock`: enable POSIX file lock feature.
 //! - `async-io-runtime`: use [async_io](https://docs.rs/async-io) and
-//! [async-global-executor](https://docs.rs/async-global-executor) to drive async io and task.
+//!   [async-global-executor](https://docs.rs/async-global-executor) to drive async io and task.
 //! - `tokio-runtime`: use [tokio](https://docs.rs/tokio) runtime to drive async io and task.
 //! - `unprivileged`: allow mount filesystem without root permission by using `fusermount3`.
 //!
