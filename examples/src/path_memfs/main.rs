@@ -12,6 +12,7 @@ use fuse3::{Errno, MountOptions, Result};
 use futures_util::stream::{Empty, Iter};
 use futures_util::{stream, StreamExt};
 use libc::mode_t;
+use tokio::signal;
 use tokio::sync::RwLock;
 use tracing::{debug, Level};
 
@@ -906,10 +907,26 @@ async fn main() {
     mount_options.force_readdir_plus(true).uid(uid).gid(gid);
 
     let mount_path = mount_path.expect("no mount point specified");
-    Session::new(mount_options)
-        .mount_with_unprivileged(Fs::default(), mount_path)
-        .await
-        .unwrap()
-        .await
-        .unwrap();
+    let not_unprivileged = env::var("NOT_UNPRIVILEGED").ok().as_deref() == Some("1");
+
+    let mut mount_handle = if !not_unprivileged {
+        Session::new(mount_options)
+            .mount_with_unprivileged(Fs::default(), mount_path)
+            .await
+            .unwrap()
+    } else {
+        Session::new(mount_options)
+            .mount(Fs::default(), mount_path)
+            .await
+            .unwrap()
+    };
+
+    let handle = &mut mount_handle;
+
+    tokio::select! {
+        res = handle => res.unwrap(),
+        _ = signal::ctrl_c() => {
+            mount_handle.unmount().await.unwrap()
+        }
+    }
 }
