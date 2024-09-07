@@ -45,7 +45,7 @@ use nix::{
 ))]
 use tokio::io::unix::AsyncFd;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use tokio::process::Command;
+use tokio::{process::Command, io::Interest};
 #[cfg(target_os = "linux")]
 use tokio::task;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -395,7 +395,7 @@ impl NonBlockFuseConnection {
         let _guard = self.read.lock().await;
 
         loop {
-            let mut read_guard = match self.fd.readable().await {
+            let mut read_guard = match self.fd.ready(Interest::READABLE | Interest::ERROR).await {
                 Err(err) => return ((header_buf, data_buf), Err(err)),
                 Ok(read_guard) => read_guard,
             };
