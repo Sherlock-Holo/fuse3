@@ -43,9 +43,9 @@ use nix::{
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd"
 ))]
-use tokio::io::unix::AsyncFd;
+use tokio::io::{unix::AsyncFd, Interest};
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use tokio::{process::Command, io::Interest};
+use tokio::process::Command;
 #[cfg(target_os = "linux")]
 use tokio::task;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
