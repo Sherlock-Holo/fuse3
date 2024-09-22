@@ -278,7 +278,12 @@ impl BlockFuseConnection {
                 Ok(msg) => msg,
             };
 
-            let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
+            let mut cmsgs = match msg.cmsgs() {
+                Err(err) => return Err(err.into()),
+                Ok(cmsgs) => cmsgs,
+            };
+
+            let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = cmsgs.next() {
                 if fds.is_empty() {
                     return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
                 }
