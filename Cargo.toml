@@ -33,7 +33,7 @@ bincode = "1.3.3"
 bytes = "1.5"
 futures-channel = { version = "0.3.30", features = ["sink"] }
 futures-util = { version = "0.3.30", features = ["sink"] }
-libc = "0.2.153"
+libc = "0.2.158"
 nix = { version = "0.29.0", default-features = false, features = ["fs", "mount", "user"] }
 serde = { version = "1.0.196", features = ["derive"] }
 slab = "0.4.9"
