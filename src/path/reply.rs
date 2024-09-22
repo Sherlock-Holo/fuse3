@@ -56,12 +56,16 @@ impl From<(Inode, FileAttr)> for crate::raw::reply::FileAttr {
             atime: attr.atime.into(),
             mtime: attr.mtime.into(),
             ctime: attr.ctime.into(),
+            #[cfg(target_os = "macos")]
+            crtime: attr.crtime.into(),
             kind: attr.kind,
             perm: attr.perm,
             nlink: attr.nlink,
             uid: attr.uid,
             gid: attr.gid,
             rdev: attr.rdev,
+            #[cfg(target_os = "macos")]
+            flags: attr.flags,
             blksize: attr.blksize,
         }
     }
