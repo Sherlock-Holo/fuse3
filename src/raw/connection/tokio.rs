@@ -64,6 +64,7 @@ use tracing::debug;
 use tracing::warn;
 use std::env;
 
+use tokio::io::Interest;
 use super::CompleteIoResult;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::find_fusermount3;
