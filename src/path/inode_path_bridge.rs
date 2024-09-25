@@ -997,7 +997,7 @@ where
             .copied()
             .filter_map(|inode| inode_name_manager.get_absolute_path(inode))
             .collect::<Vec<_>>();
-        let paths = paths.iter().map(|path: &PathBuf| path.as_ref()).collect::<Vec<_>>();
+        let paths = paths.iter().map(|path| path.as_ref()).collect::<Vec<_>>();
 
         self.path_filesystem.batch_forget(req, &paths).await;
 
