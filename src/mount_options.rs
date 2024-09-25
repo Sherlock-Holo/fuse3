@@ -246,7 +246,7 @@ impl MountOptions {
     #[cfg(target_os = "macos")]
     pub(crate) fn build(&self) -> OsString {
         let mut opts = vec![
-            format!("-o fsname=ofs"),
+            String::from("-o fsname=ofs"),
         ];
 
         if self.allow_root {

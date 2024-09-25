@@ -244,7 +244,7 @@ fn find_macfuse_mount() -> io::Result<PathBuf> {
         Ok(PathBuf::from("/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse"))
     } else {
         Err(io::Error::new(
-            ErrorKind::Other,
+            ErrorKind::NotFound,
             "macfuse mount binary not found, Please install macfuse first.",
         ))
     }
