@@ -269,12 +269,12 @@ impl BlockFuseConnection {
             let status = child.spawn()?.wait().await?;
     
             if status.success() {
+                Ok(())
+            } else {
                 Err(io::Error::new(
                     io::ErrorKind::Other,
                     "fusermount run failed",
                 ))
-            } else {
-                Ok(())
             }
         });
 
