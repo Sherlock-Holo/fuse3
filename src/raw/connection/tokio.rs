@@ -266,9 +266,9 @@ impl BlockFuseConnection {
                 .env("_FUSE_COMMVERS", "2")
                 .env("_FUSE_DAEMON_PATH", exec_path)
                 .args(vec![ options, mount_path]);
-            let child = child.spawn()?.wait_with_output().await?;
+            let status = child.spawn()?.wait().await?;
     
-            if !child.status.success() {
+            if status.success() {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     "fusermount run failed",
