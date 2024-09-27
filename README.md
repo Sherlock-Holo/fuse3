@@ -21,7 +21,6 @@ https://github.com/Sherlock-Holo/fuse3)
 
 - `ioctl` implement
 - fuseblk mode
-- macos support
 
 ## unstable
 
