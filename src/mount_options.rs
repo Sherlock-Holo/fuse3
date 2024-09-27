@@ -1,10 +1,10 @@
 use std::ffi::OsString;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::io::RawFd;
 
 #[cfg(target_os = "freebsd")]
 use nix::mount::Nmount;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use nix::unistd;
 
 /// mount options.
@@ -22,7 +22,7 @@ pub struct MountOptions {
     pub(crate) default_permissions: bool,
     pub(crate) fs_name: Option<String>,
     pub(crate) gid: Option<u32>,
-    #[cfg(target_os = "freebsd")]
+    #[cfg(any(target_os = "macos", target_os = "freebsd"))]
     pub(crate) intr: bool,
     #[cfg(target_os = "linux")]
     pub(crate) nodiratime: bool,
@@ -47,7 +47,6 @@ pub struct MountOptions {
 
     // Other FUSE mount options
     // default 40000
-    #[cfg(target_os = "linux")]
     pub(crate) rootmode: Option<u32>,
 }
 
@@ -244,6 +243,30 @@ impl MountOptions {
         options
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn build(&self) -> OsString {
+        let mut opts = vec![
+            String::from("-o fsname=ofs"),
+        ];
+
+        if self.allow_root {
+            opts.push("-o allow_root".to_string());
+        }
+
+        if self.allow_other {
+            opts.push("-o allow_other".to_string());
+        }
+
+        let mut options = OsString::from(opts.join(" "));
+
+        if let Some(custom_options) = &self.custom_options {
+            options.push(" ");
+            options.push(custom_options);
+        }
+
+        options
+    }
+
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     pub(crate) fn build_with_unprivileged(&self) -> OsString {
         let mut opts = vec![
@@ -308,6 +331,30 @@ impl MountOptions {
         if self.suiddir {
             flags.insert(MntFlags::MNT_SUIDDIR);
         }
+        if self.sync {
+            flags.insert(MntFlags::MNT_SYNCHRONOUS);
+        }
+        flags
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn flags(&self) -> nix::mount::MntFlags {
+        use nix::mount::MntFlags;
+
+        let mut flags = MntFlags::empty();
+        if self.noatime {
+            flags.insert(MntFlags::MNT_NOATIME);
+        }
+        if self.noexec {
+            flags.insert(MntFlags::MNT_NOEXEC);
+        }
+        if self.nosuid {
+            flags.insert(MntFlags::MNT_NOSUID);
+        }
+        if self.read_only {
+            flags.insert(MntFlags::MNT_RDONLY);
+        }
+
         if self.sync {
             flags.insert(MntFlags::MNT_SYNCHRONOUS);
         }

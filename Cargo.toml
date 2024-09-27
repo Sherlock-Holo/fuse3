@@ -33,20 +33,17 @@ bincode = "1.3.3"
 bytes = "1.5"
 futures-channel = { version = "0.3.30", features = ["sink"] }
 futures-util = { version = "0.3.30", features = ["sink"] }
-libc = "0.2.155"
-nix = { version = "0.29.0", default-features = false, features = ["fs", "mount"] }
+libc = "0.2.158"
+nix = { version = "0.29.0", default-features = false, features = ["fs", "mount", "user"] }
 serde = { version = "1.0.196", features = ["derive"] }
 slab = "0.4.9"
 tracing = "0.1.40"
 trait-make = "0.1"
 which = { version = "6", optional = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-nix = { version = "0.29.0", default-features = false, features = ["user"] }
-
 [dependencies.tokio]
 version = "1.36"
-features = ["fs", "rt", "sync", "net", "macros", "process"]
+features = ["fs", "rt", "sync", "net", "macros", "process", "time"]
 optional = true
 
 [package.metadata.docs.rs]

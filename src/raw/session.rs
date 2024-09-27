@@ -36,7 +36,7 @@ use futures_util::select;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::StreamExt;
 use nix::mount;
-#[cfg(target_os = "freebsd")]
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use nix::mount::MntFlags;
 #[cfg(all(
     target_os = "linux",
@@ -109,7 +109,7 @@ struct MountHandleInner {
     task: JoinHandle<IoResult<()>>,
     mount_path: PathBuf,
     destroy_notify: Arc<async_notify::Notify>,
-    #[cfg(all(target_os = "linux", feature = "unprivileged"))]
+    #[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
     unprivileged: bool,
 }
 
@@ -124,6 +124,14 @@ impl MountHandleInner {
 
             // TODO: freebsd mount is unprivileged, then unmount is unprivileged too?
             #[cfg(target_os = "freebsd")]
+            {
+                task::spawn_blocking(move || {
+                    mount::unmount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
+                })
+                .await?;
+            }
+
+            #[cfg(target_os = "macos")]
             {
                 task::spawn_blocking(move || {
                     mount::unmount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
@@ -160,6 +168,14 @@ impl MountHandleInner {
 
             // TODO: freebsd mount is unprivileged, then unmount is unprivileged too?
             #[cfg(target_os = "freebsd")]
+            {
+                task::spawn_blocking(move || {
+                    mount::unmount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
+                })
+                .await
+                .unwrap()?;
+            }
+            #[cfg(target_os = "macos")]
             {
                 task::spawn_blocking(move || {
                     mount::unmount(&self.mount_path, MntFlags::MNT_SYNCHRONOUS)
@@ -307,6 +323,40 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         self.mount(fs, mount_path).await
     }
 
+    #[cfg(target_os = "macos")]
+    pub async fn mount_with_unprivileged<P: AsRef<Path>>(
+        mut self,
+        fs: FS,
+        mount_path: P,
+    ) -> IoResult<MountHandle> {
+        let mount_path = mount_path.as_ref();
+
+        self.mount_empty_check(mount_path).await?;
+
+        let notify = Arc::new(async_notify::Notify::new());
+        let fuse_connection = FuseConnection::new_with_unprivileged(
+            self.mount_options.clone(),
+            mount_path,
+            notify.clone(),
+        )
+        .await?;
+
+        self.fuse_connection.replace(Arc::new(fuse_connection));
+
+        self.filesystem.replace(Arc::new(fs));
+
+        debug!("mount {:?} success", mount_path);
+
+        Ok(MountHandle {
+            inner: Some(MountHandleInner {
+                task: task::spawn(self.inner_mount()),
+                mount_path: mount_path.to_path_buf(),
+                destroy_notify: notify,
+                unprivileged: true,
+            }),
+        })
+    }
+
     /// mount the filesystem without root permission.
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
     pub async fn mount_with_unprivileged<P: AsRef<Path>>(
@@ -432,6 +482,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 destroy_notify: notify,
             }),
         })
+    }
+
+    #[cfg(target_os = "macos")]
+    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
+        self.mount_with_unprivileged(fs, mount_path).await
     }
 
     async fn inner_mount(mut self) -> IoResult<()> {
@@ -1124,6 +1179,41 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             debug!("enable FUSE_NO_OPENDIR_SUPPORT");
 
             reply_flags |= FUSE_NO_OPENDIR_SUPPORT;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_ALLOCATE > 0 {
+            debug!("enable FUSE_ALLOCATE");
+
+            reply_flags |= FUSE_ALLOCATE;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_EXCHANGE_DATA > 0 {
+            debug!("enable FUSE_EXCHANGE_DATA");
+
+            reply_flags |= FUSE_EXCHANGE_DATA;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_CASE_INSENSITIVE > 0 {
+            debug!("enable FUSE_CASE_INSENSITIVE");
+
+            reply_flags |= FUSE_CASE_INSENSITIVE;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_VOL_RENAME > 0 {
+            debug!("enable FUSE_VOL_RENAME");
+
+            reply_flags |= FUSE_VOL_RENAME;
+        }
+
+        #[cfg(target_os = "macos")]
+        if init_in.flags & FUSE_XTIMES > 0 {
+            debug!("enable FUSE_XTIMES");
+
+            reply_flags |= FUSE_XTIMES;
         }
 
         // TODO: pass init_in to init, so the file system will know which flags are in use.

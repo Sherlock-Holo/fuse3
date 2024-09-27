@@ -582,6 +582,11 @@ pub const FUSE_RENAME_IN_SIZE: usize = mem::size_of::<fuse_rename_in>();
 #[allow(non_camel_case_types)]
 pub struct fuse_rename_in {
     pub newdir: u64,
+    // https://github.com/osxfuse/fuse/blob/master/include/fuse_kernel.h#L448
+    #[cfg(target_os = "macos")]
+    pub flags: u32,
+    #[cfg(target_os = "macos")]
+    _padding: u32,
 }
 
 pub const FUSE_RENAME2_IN_SIZE: usize = mem::size_of::<fuse_rename2_in>();

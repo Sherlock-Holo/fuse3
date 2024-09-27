@@ -63,15 +63,21 @@ impl From<FileAttr> for fuse_attr {
             atime: attr.atime.sec as u64,
             mtime: attr.mtime.sec as u64,
             ctime: attr.ctime.sec as u64,
+            #[cfg(target_os = "macos")]
+            crtime: attr.crtime.sec as u64,
             atimensec: attr.atime.nsec,
             mtimensec: attr.mtime.nsec,
             ctimensec: attr.ctime.nsec,
+            #[cfg(target_os = "macos")]
+            crtimensec: attr.crtime.nsec,
             mode: mode_from_kind_and_perm(attr.kind, attr.perm),
             nlink: attr.nlink,
             uid: attr.uid,
             gid: attr.gid,
             rdev: attr.rdev,
             blksize: attr.blksize,
+            #[cfg(target_os = "macos")]
+            flags: attr.flags,
             _padding: 0,
         }
     }
