@@ -190,7 +190,10 @@ impl Default for Fs {
 }
 
 impl Filesystem for Fs {
-    type DirEntryStream<'a> = Empty<Result<DirectoryEntry>> where Self: 'a;
+    type DirEntryStream<'a>
+        = Empty<Result<DirectoryEntry>>
+    where
+        Self: 'a;
 
     async fn init(&self, _req: Request) -> Result<ReplyInit> {
         Ok(ReplyInit {
@@ -715,7 +718,10 @@ impl Filesystem for Fs {
         }
     }
 
-    type DirEntryPlusStream<'a> = Iter<IntoIter<Result<DirectoryEntryPlus>>> where Self: 'a;
+    type DirEntryPlusStream<'a>
+        = Iter<IntoIter<Result<DirectoryEntryPlus>>>
+    where
+        Self: 'a;
 
     async fn readdirplus(
         &self,
