@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use std::env;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -8,13 +10,11 @@ use std::io;
     target_os = "macos",
 ))]
 use std::io::ErrorKind;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use std::io::Read;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io::Write;
 use std::io::{IoSlice, IoSliceMut};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
@@ -25,13 +25,19 @@ use std::os::fd::OwnedFd;
 use std::os::fd::{AsFd, BorrowedFd};
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use std::os::unix::fs::OpenOptionsExt;
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
 use std::os::unix::io::RawFd;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(target_os = "macos")]
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::pin::pin;
 use std::sync::Arc;
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
 use std::{ffi::OsString, path::Path};
 
 use async_notify::Notify;
@@ -43,7 +49,10 @@ use futures_util::{select, FutureExt};
     target_os = "macos",
 ))]
 use nix::sys::uio;
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
 use nix::{
     fcntl::{FcntlArg, OFlag},
     sys::socket::{self, AddressFamily, ControlMessageOwned, MsgFlags, SockFlag, SockType},
@@ -54,21 +63,29 @@ use nix::{
     target_os = "macos",
 ))]
 use tokio::io::unix::AsyncFd;
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+use tokio::io::Interest;
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
 use tokio::process::Command;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use tokio::task;
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
 use tracing::debug;
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use tracing::warn;
-use std::env;
 
-use tokio::io::Interest;
 use super::CompleteIoResult;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::find_fusermount3;
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
 use crate::MountOptions;
 
 #[derive(Debug)]
@@ -78,7 +95,7 @@ pub struct FuseConnection {
 }
 
 impl FuseConnection {
-    #[cfg(any(target_os = "linux",target_os = "freebsd"))]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     pub fn new(unmount_notify: Arc<Notify>) -> io::Result<Self> {
         #[cfg(target_os = "freebsd")]
         {
@@ -123,7 +140,7 @@ impl FuseConnection {
         unmount_notify: Arc<Notify>,
     ) -> io::Result<Self> {
         let connection =
-        BlockFuseConnection::new_with_unprivileged(mount_options, mount_path).await?;
+            BlockFuseConnection::new_with_unprivileged(mount_options, mount_path).await?;
 
         Ok(Self {
             unmount_notify,
@@ -228,6 +245,7 @@ impl BlockFuseConnection {
         use std::{thread, time::Duration};
 
         use tokio::time::sleep;
+
         use crate::find_macfuse_mount;
 
         let (sock0, sock1) = match socket::socketpair(
@@ -251,7 +269,7 @@ impl BlockFuseConnection {
 
         let exec_path = match env::current_exe() {
             Ok(path) => path,
-            Err(err) => return Err(err)
+            Err(err) => return Err(err),
         };
 
         let mount_path = mount_path.as_ref().as_os_str().to_os_string();
@@ -265,9 +283,9 @@ impl BlockFuseConnection {
                 .env("_FUSE_CALL_BY_LIB", "1")
                 .env("_FUSE_COMMVERS", "2")
                 .env("_FUSE_DAEMON_PATH", exec_path)
-                .args(vec![ options, mount_path]);
+                .args(vec![options, mount_path]);
             let status = child.spawn()?.wait().await?;
-    
+
             if status.success() {
                 Ok(())
             } else {
@@ -319,7 +337,9 @@ impl BlockFuseConnection {
             };
 
             Ok(fd)
-        }).await.unwrap()?;
+        })
+        .await
+        .unwrap()?;
 
         let file = unsafe { File::from_raw_fd(fd) };
         Ok(Self {
@@ -516,10 +536,16 @@ impl NonBlockFuseConnection {
         })
     }
 
-    #[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+    #[cfg(any(
+        all(target_os = "linux", feature = "unprivileged"),
+        target_os = "macos"
+    ))]
     fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
         let flags = nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
-        debug!("set fd {:?} to non-blocking", OFlag::from_bits_truncate(flags));
+        debug!(
+            "set fd {:?} to non-blocking",
+            OFlag::from_bits_truncate(flags)
+        );
         let flags = OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK;
 
         debug!("set fd {:?} to non-blocking", flags);

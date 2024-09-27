@@ -20,10 +20,18 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
 use std::io::{self, ErrorKind};
-#[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
-use std::path::{PathBuf, Path};
+#[cfg(target_os = "macos")]
+use std::path::Path;
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "macos"
+))]
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use errno::Errno;
@@ -34,7 +42,6 @@ use raw::abi::{
     fuse_setattr_in, FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_GID, FATTR_LOCKOWNER,
     FATTR_MODE, FATTR_MTIME, FATTR_MTIME_NOW, FATTR_SIZE, FATTR_UID,
 };
-
 #[cfg(target_os = "macos")]
 use raw::abi::{FATTR_BKUPTIME, FATTR_CHGTIME, FATTR_CRTIME, FATTR_FLAGS};
 
@@ -241,7 +248,9 @@ fn find_fusermount3() -> io::Result<PathBuf> {
 #[cfg(target_os = "macos")]
 fn find_macfuse_mount() -> io::Result<PathBuf> {
     if Path::new("/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse").exists() {
-        Ok(PathBuf::from("/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse"))
+        Ok(PathBuf::from(
+            "/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse",
+        ))
     } else {
         Err(io::Error::new(
             ErrorKind::NotFound,

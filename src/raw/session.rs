@@ -109,7 +109,10 @@ struct MountHandleInner {
     task: JoinHandle<IoResult<()>>,
     mount_path: PathBuf,
     destroy_notify: Arc<async_notify::Notify>,
-    #[cfg(any(all(target_os = "linux", feature = "unprivileged"), target_os = "macos"))]
+    #[cfg(any(
+        all(target_os = "linux", feature = "unprivileged"),
+        target_os = "macos"
+    ))]
     unprivileged: bool,
 }
 

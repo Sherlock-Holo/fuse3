@@ -723,7 +723,10 @@ where
             .await
     }
 
-    type DirEntryStream<'a> = Iter<IntoIter<Result<DirectoryEntry>>> where Self: 'a;
+    type DirEntryStream<'a>
+        = Iter<IntoIter<Result<DirectoryEntry>>>
+    where
+        Self: 'a;
 
     async fn readdir(
         &self,
@@ -1034,7 +1037,10 @@ where
             .await
     }
 
-    type DirEntryPlusStream<'a> = Iter<IntoIter<Result<DirectoryEntryPlus>>> where Self: 'a;
+    type DirEntryPlusStream<'a>
+        = Iter<IntoIter<Result<DirectoryEntryPlus>>>
+    where
+        Self: 'a;
 
     async fn readdirplus(
         &self,

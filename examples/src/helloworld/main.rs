@@ -157,7 +157,10 @@ impl Filesystem for HelloWorld {
         }
     }
 
-    type DirEntryStream<'a> = Iter<Skip<IntoIter<Result<DirectoryEntry>>>> where Self: 'a;
+    type DirEntryStream<'a>
+        = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>
+    where
+        Self: 'a;
 
     async fn readdir(
         &self,
@@ -208,7 +211,10 @@ impl Filesystem for HelloWorld {
         Ok(())
     }
 
-    type DirEntryPlusStream<'a> = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>> where Self: 'a;
+    type DirEntryPlusStream<'a>
+        = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>
+    where
+        Self: 'a;
 
     async fn readdirplus(
         &self,

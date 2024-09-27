@@ -156,7 +156,10 @@ impl Filesystem for Poll {
         }
     }
 
-    type DirEntryStream<'a> = Iter<Skip<IntoIter<Result<DirectoryEntry>>>> where Self: 'a;
+    type DirEntryStream<'a>
+        = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>
+    where
+        Self: 'a;
 
     async fn readdir(
         &self,
@@ -207,7 +210,10 @@ impl Filesystem for Poll {
         Ok(())
     }
 
-    type DirEntryPlusStream<'a> = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>> where Self: 'a;
+    type DirEntryPlusStream<'a>
+        = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>
+    where
+        Self: 'a;
 
     async fn readdirplus(
         &self,
