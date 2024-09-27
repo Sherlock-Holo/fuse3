@@ -3,8 +3,6 @@ use std::fmt::{self, Display, Formatter};
 use std::io::Error as IoError;
 use std::os::raw::c_int;
 
-use nix::Error as NixError;
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 /// linux errno wrap.
 pub struct Errno(c_int);
@@ -35,18 +33,6 @@ impl From<IoError> for Errno {
 impl From<Errno> for IoError {
     fn from(errno: Errno) -> Self {
         IoError::from_raw_os_error(errno.0)
-    }
-}
-
-impl From<NixError> for Errno {
-    fn from(err: NixError) -> Self {
-        Errno(err as libc::c_int)
-    }
-}
-
-impl From<Errno> for NixError {
-    fn from(errno: Errno) -> Self {
-        NixError::from_raw(errno.0)
     }
 }
 
