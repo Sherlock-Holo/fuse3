@@ -10,8 +10,6 @@ use std::io;
     target_os = "macos",
 ))]
 use std::io::ErrorKind;
-#[cfg(any(target_os = "freebsd", target_os = "macos"))]
-use std::io::Read;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io::Write;
 use std::io::{IoSlice, IoSliceMut};
