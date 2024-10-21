@@ -254,6 +254,16 @@ pub struct ReplyDirectory<S: Stream<Item = Result<DirectoryEntry>>> {
     pub entries: S,
 }
 
+impl<S: Stream<Item = Result<DirectoryEntry>> + std::fmt::Debug> std::fmt::Debug
+    for ReplyDirectory<S>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplyDirectory")
+            .field("entries", &self.entries)
+            .finish()
+    }
+}
+
 #[cfg(feature = "file-lock")]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 /// file lock reply.
@@ -386,6 +396,16 @@ pub struct DirectoryEntryPlus {
 /// the readdirplus reply.
 pub struct ReplyDirectoryPlus<S: Stream<Item = Result<DirectoryEntryPlus>>> {
     pub entries: S,
+}
+
+impl<S: Stream<Item = Result<DirectoryEntryPlus>> + std::fmt::Debug> std::fmt::Debug
+    for ReplyDirectoryPlus<S>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplyDirectoryPlus")
+            .field("entries", &self.entries)
+            .finish()
+    }
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
