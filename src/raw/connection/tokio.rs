@@ -61,6 +61,10 @@ use nix::{
     target_os = "macos",
 ))]
 use tokio::io::unix::AsyncFd;
+#[cfg(any(
+    all(target_os = "linux", feature = "unprivileged"),
+    target_os = "freebsd",
+))]
 use tokio::io::Interest;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
