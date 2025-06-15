@@ -59,12 +59,16 @@ impl Filesystem for Poll {
                 atime: SystemTime::now().into(),
                 mtime: SystemTime::now().into(),
                 ctime: SystemTime::now().into(),
+                #[cfg(target_os = "macos")]
+                crtime: SystemTime::now().into(),
                 kind: FileType::RegularFile,
                 perm: FILE_MODE,
                 nlink: 0,
                 uid: 0,
                 gid: 0,
                 rdev: 0,
+                #[cfg(target_os = "macos")]
+                flags: 0,
                 blksize: 0,
             },
             generation: 0,
@@ -88,12 +92,16 @@ impl Filesystem for Poll {
                     atime: SystemTime::now().into(),
                     mtime: SystemTime::now().into(),
                     ctime: SystemTime::now().into(),
+                    #[cfg(target_os = "macos")]
+                    crtime: SystemTime::now().into(),
                     kind: FileType::Directory,
                     perm: PARENT_MODE,
                     nlink: 0,
                     uid: 0,
                     gid: 0,
                     rdev: 0,
+                    #[cfg(target_os = "macos")]
+                    flags: 0,
                     blksize: 0,
                 },
             })
@@ -107,12 +115,16 @@ impl Filesystem for Poll {
                     atime: SystemTime::now().into(),
                     mtime: SystemTime::now().into(),
                     ctime: SystemTime::now().into(),
+                    #[cfg(target_os = "macos")]
+                    crtime: SystemTime::now().into(),
                     kind: FileType::RegularFile,
                     perm: FILE_MODE,
                     nlink: 0,
                     uid: 0,
                     gid: 0,
                     rdev: 0,
+                    #[cfg(target_os = "macos")]
+                    flags: 0,
                     blksize: 0,
                 },
             })
@@ -245,12 +257,16 @@ impl Filesystem for Poll {
                     atime: SystemTime::now().into(),
                     mtime: SystemTime::now().into(),
                     ctime: SystemTime::now().into(),
+                    #[cfg(target_os = "macos")]
+                    crtime: SystemTime::now().into(),
                     kind: FileType::Directory,
                     perm: PARENT_MODE,
                     nlink: 0,
                     uid: 0,
                     gid: 0,
                     rdev: 0,
+                    #[cfg(target_os = "macos")]
+                    flags: 0,
                     blksize: 0,
                 },
                 entry_ttl: TTL,
@@ -269,12 +285,16 @@ impl Filesystem for Poll {
                     atime: SystemTime::now().into(),
                     mtime: SystemTime::now().into(),
                     ctime: SystemTime::now().into(),
+                    #[cfg(target_os = "macos")]
+                    crtime: SystemTime::now().into(),
                     kind: FileType::Directory,
                     perm: PARENT_MODE,
                     nlink: 0,
                     uid: 0,
                     gid: 0,
                     rdev: 0,
+                    #[cfg(target_os = "macos")]
+                    flags: 0,
                     blksize: 0,
                 },
                 entry_ttl: TTL,
@@ -293,12 +313,16 @@ impl Filesystem for Poll {
                     atime: SystemTime::now().into(),
                     mtime: SystemTime::now().into(),
                     ctime: SystemTime::now().into(),
+                    #[cfg(target_os = "macos")]
+                    crtime: SystemTime::now().into(),
                     kind: FileType::RegularFile,
                     perm: FILE_MODE,
                     nlink: 0,
                     uid: 0,
                     gid: 0,
                     rdev: 0,
+                    #[cfg(target_os = "macos")]
+                    flags: 0,
                     blksize: 0,
                 },
                 entry_ttl: TTL,
