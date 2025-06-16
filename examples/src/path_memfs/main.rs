@@ -34,12 +34,16 @@ impl Entry {
                 atime: SystemTime::UNIX_EPOCH,
                 mtime: SystemTime::UNIX_EPOCH,
                 ctime: SystemTime::UNIX_EPOCH,
+                #[cfg(target_os = "macos")]
+                crtime: SystemTime::UNIX_EPOCH.into(),
                 kind: FileType::Directory,
                 perm: fuse3::perm_from_mode_and_kind(FileType::Directory, dir.mode),
                 nlink: 0,
                 uid: 0,
                 gid: 0,
                 rdev: 0,
+                #[cfg(target_os = "macos")]
+                flags: 0,
                 blksize: 0,
             },
 
@@ -49,12 +53,16 @@ impl Entry {
                 atime: SystemTime::UNIX_EPOCH,
                 mtime: SystemTime::UNIX_EPOCH,
                 ctime: SystemTime::UNIX_EPOCH,
+                #[cfg(target_os = "macos")]
+                crtime: SystemTime::UNIX_EPOCH.into(),
                 kind: FileType::RegularFile,
                 perm: fuse3::perm_from_mode_and_kind(FileType::RegularFile, file.mode),
                 nlink: 0,
                 uid: 0,
                 gid: 0,
                 rdev: 0,
+                #[cfg(target_os = "macos")]
+                flags: 0,
                 blksize: 0,
             },
         }
