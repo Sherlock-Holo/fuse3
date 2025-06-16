@@ -462,7 +462,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             let mut nmount = self.mount_options.build();
             nmount
                 .str_opt_owned(c"fspath", mount_path)
-                .str_opt_owned(c"fd", format!("{}", fd).as_str());
+                .str_opt_owned(c"fd", format!("{fd}").as_str());
             debug!("mount options {:?}", &nmount);
 
             if let Err(err) = nmount.nmount(self.mount_options.flags()) {
@@ -590,8 +590,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 reply_error_in_place(libc::ENOSYS.into(), request, &self.response_sender).await;
 
-                return Err(IoError::new(
-                    ErrorKind::Other,
+                return Err(IoError::other(
                     format!("receive unknown opcode {}", err.0),
                 ));
             }
@@ -604,8 +603,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         if opcode != fuse_opcode::FUSE_INIT {
             error!(?opcode, "received unexpected opcode");
 
-            return Err(IoError::new(
-                ErrorKind::Other,
+            return Err(IoError::other(
                 format!("unexpected opcode {opcode:?}"),
             ));
         }
@@ -668,8 +666,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             );
 
             return ReadResult::Request {
-                in_header: Err(IoError::new(
-                    ErrorKind::Other,
+                in_header: Err(IoError::other(
                     "read_vectored n is less then FUSE_IN_HEADER_SIZE",
                 )),
                 header_buffer,
@@ -682,7 +679,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 error!("deserialize fuse_in_header failed {}", err);
 
                 return ReadResult::Request {
-                    in_header: Err(IoError::new(ErrorKind::Other, err)),
+                    in_header: Err(IoError::other(err)),
                     header_buffer,
                     data_buffer,
                 };
