@@ -179,7 +179,7 @@ impl MountOptions {
     }
 
     #[cfg(target_os = "freebsd")]
-    pub(crate) fn build(&self) -> Nmount {
+    pub(crate) fn build(&self) -> Nmount<'_> {
         let mut nmount = Nmount::new();
         nmount
             .str_opt(c"fstype", c"fusefs")
