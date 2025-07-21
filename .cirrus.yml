@@ -17,7 +17,7 @@ build: &BUILD
 task:
   name: FreeBSD
   freebsd_instance:
-    image: freebsd-13-3-release-amd64
+    image: freebsd-14-3-release-amd64-ufs
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y --profile=minimal
@@ -46,7 +46,7 @@ minver_task:
     - Linux
     - MacOS
   freebsd_instance:
-    image: freebsd-13-2-release-amd64
+    image: freebsd-14-3-release-amd64-ufs
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y --default-toolchain nightly --profile=minimal
