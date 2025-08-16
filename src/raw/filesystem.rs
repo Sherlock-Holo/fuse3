@@ -29,15 +29,16 @@ pub trait Filesystem {
     /// forget an inode. The nlookup parameter indicates the number of lookups previously
     /// performed on this inode. If the filesystem implements inode lifetimes, it is recommended
     /// that inodes acquire a single reference on each lookup, and lose nlookup references on each
-    /// forget. The filesystem may ignore forget calls, if the inodes don't need to have a limited
-    /// lifetime. On unmount it is not guaranteed, that all referenced inodes will receive a forget
-    /// message. When filesystem is normal(not fuseblk) and unmounting, kernel may send forget
-    /// request for root and this library will stop session after call forget. There is some
+    /// forget. The filesystem may ignore forget calls if the inodes don't need to have a limited
+    /// lifetime. On unmount it is not guaranteed that all referenced inodes will receive a forget
+    /// message. When filesystem is normal(not fuseblk) and unmounting, the kernel may send a forget
+    /// request for root and this library will stop session after calling forget. There is some
     /// discussion for this <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
     /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
     async fn forget(&self, req: Request, inode: Inode, nlookup: u64) {}
 
-    /// get file attributes. If `fh` is None, means `fh` is not set.
+    /// get file attributes.
+    /// `fh` contains the value set by the open method, or `None` if the open method didn't set any value.
     async fn getattr(
         &self,
         req: Request,
@@ -48,7 +49,8 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// set file attributes. If `fh` is None, means `fh` is not set.
+    /// set file attributes.
+    /// `fh` contains the value set by the open method, or `None` if the open method didn't set any value.
     async fn setattr(
         &self,
         req: Request,
@@ -134,8 +136,9 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// open a file. Open flags (with the exception of `O_CREAT`, `O_EXCL` and `O_NOCTTY`) are
-    /// available in flags. Filesystem may store an arbitrary file handle (pointer, index, etc) in
+    /// open a file. Open flags (with the exception of [`O_CREAT`](libc::O_CREAT),
+    /// [`O_EXCL`](libc::O_EXCL) and [`O_NOCTTY`](libc::O_NOCTTY)) are available as flags.
+    /// The Filesystem may store an arbitrary file handle (pointer, index, etc) in
     /// fh, and use this in other all other file operations (read, write, flush, release, fsync).
     /// Filesystem may also implement stateless file I/O and not store anything in fh. There are
     /// also some flags (`direct_io`, `keep_cache`) which the filesystem may set, to change the way
@@ -197,7 +200,7 @@ pub trait Filesystem {
     /// release an open file. Release is called when there are no more references to an open file:
     /// all file descriptors are closed and all memory mappings are unmapped. For every open call
     /// there will be exactly one release call. The filesystem may reply with an error, but error
-    /// values are not returned to `close()` or `munmap()` which triggered the release. `fh` will
+    /// values are not returned to the `close()` or `munmap()` which triggered the release. `fh` will
     /// contain the value set by the open method, or will be undefined if the open method didn't
     /// set any value. `flags` will contain the same flags as for open. `flush` means flush the
     /// data or not when closing file.
@@ -259,7 +262,8 @@ pub trait Filesystem {
     }
 
     /// flush method. This is called on each `close()` of the opened file. Since file descriptors
-    /// can be duplicated (`dup`, `dup2`, `fork`), for one open call there may be many flush calls.
+    /// can be duplicated (`dup`, `dup2`, `fork`), there may be many flush calls for each `open()`
+    /// call.
     /// Filesystems shouldn't assume that flush will always be called after some writes, or that if
     /// will be called at all. `fh` will contain the value set by the open method, or will be
     /// undefined if the open method didn't set any value.
@@ -324,7 +328,7 @@ pub trait Filesystem {
     ///
     /// # Notes:
     ///
-    /// this is supported on enable **`file-lock`** feature.
+    /// this is only supported when the **`file-lock`** feature is enabled.
     #[allow(clippy::too_many_arguments)]
     async fn getlk(
         &self,
@@ -343,7 +347,7 @@ pub trait Filesystem {
     ///
     /// # Notes:
     ///
-    /// this is supported on enable **`file-lock`** feature.
+    /// this is only supported when the **`file-lock`** feature is enabled.
     #[allow(clippy::too_many_arguments)]
     async fn setlk(
         &self,
@@ -392,8 +396,8 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// handle interrupt. When a operation is interrupted, an interrupt request will send to fuse
-    /// server with the unique id of the operation.
+    /// handle interrupt. When a operation is interrupted, an interrupt request will be sent
+    /// to the fuse server with the unique id of the operation.
     async fn interrupt(&self, req: Request, unique: u64) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -402,7 +406,7 @@ pub trait Filesystem {
     ///
     /// # Notes:
     ///
-    /// This may not works because currently this crate doesn't support fuseblk mode yet.
+    /// This may not work because currently this crate doesn't support fuseblk mode yet.
     async fn bmap(
         &self,
         req: Request,

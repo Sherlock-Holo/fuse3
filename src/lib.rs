@@ -3,20 +3,22 @@
 //! This is an improved rewrite of the FUSE user-space library to fully take advantage of Rust's
 //! architecture.
 //!
-//! This library doesn't depend on `libfuse`, unless enable `unprivileged` feature, this feature
-//! will support mount the filesystem without root permission by using `fusermount3` binary.
+//! This library doesn't depend on `libfuse`, unless the `unprivileged` feature is enabled.
+//! This feature adds support for mounting the filesystem without root permission by using
+//! `fusermount3` binary.
 //!
 //! # Features:
 //!
 //! - `file-lock`: enable POSIX file lock feature.
-//! - `async-io-runtime`: use [async_io](https://docs.rs/async-io) and
-//!   [async-global-executor](https://docs.rs/async-global-executor) to drive async io and task.
-//! - `tokio-runtime`: use [tokio](https://docs.rs/tokio) runtime to drive async io and task.
-//! - `unprivileged`: allow mount filesystem without root permission by using `fusermount3`.
+//! - `async-io-runtime`: use [async_io](https://docs.rs/async-io) or
+//!   [async-global-executor](https://docs.rs/async-global-executor) to drive async I/O and tasks.
+//! - `tokio-runtime`: use [tokio](https://docs.rs/tokio) runtime to drive async I/O and tasks.
+//! - `unprivileged`: allow mounting filesystems without root permission by using `fusermount3`.
 //!
 //! # Notes:
 //!
-//! You must enable `async-io-runtime` or `tokio-runtime` feature.
+//! You must enable either the `async-io-runtime` or `tokio-runtime` features, but not both
+//! or the crate won't compile.
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
@@ -98,7 +100,7 @@ impl From<FileType> for mode_t {
     }
 }
 
-/// the setattr argument.
+/// the [`setattr`](crate::path::PathFilesystem::setattr) argument
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct SetAttr {
     /// set file or directory mode.
@@ -127,7 +129,7 @@ pub struct SetAttr {
     pub flags: Option<u32>,
 }
 
-/// Helper for constructing Timestamps from fuse_setattr_in, which sign-casts
+/// Helper for constructing [`Timestamp`s](Timestamp) from fuse_setattr_in, which sign-casts
 /// the seconds.
 macro_rules! fsai2ts {
     ( $secs: expr, $nsecs: expr) => {
@@ -205,7 +207,7 @@ impl From<&fuse_setattr_in> for SetAttr {
 
 /// A file's timestamp, according to FUSE.
 ///
-/// Nearly the same as a `libc::timespec`, except for the width of the nsec
+/// Nearly the same as a [`libc::timespec`], except for the width of the nsec
 /// field.
 // Could implement From for Duration, and/or libc::timespec, if desired
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
