@@ -2,12 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Debug, Formatter};
 use std::path::PathBuf;
-use std::vec::IntoIter;
 
 #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
 use async_lock::RwLock;
 use bytes::Bytes;
-use futures_util::stream::{self, Iter, Stream, StreamExt};
+use futures_util::stream::{self, Stream, StreamExt};
 use slab::Slab;
 #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
 use tokio::sync::RwLock;
@@ -723,18 +722,13 @@ where
             .await
     }
 
-    type DirEntryStream<'a>
-        = Iter<IntoIter<Result<DirectoryEntry>>>
-    where
-        Self: 'a;
-
     async fn readdir(
         &self,
         req: Request,
         parent: u64,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory<Self::DirEntryStream<'_>>> {
+    ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + '_>> {
         let mut inode_name_manager = self.inode_name_manager.write().await;
         let parent_path = inode_name_manager
             .get_absolute_path(parent)
@@ -1037,11 +1031,6 @@ where
             .await
     }
 
-    type DirEntryPlusStream<'a>
-        = Iter<IntoIter<Result<DirectoryEntryPlus>>>
-    where
-        Self: 'a;
-
     async fn readdirplus(
         &self,
         req: Request,
@@ -1049,7 +1038,8 @@ where
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
+    ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + '_>>
+    {
         let mut inode_name_manager = self.inode_name_manager.write().await;
         let parent_path = inode_name_manager
             .get_absolute_path(parent)

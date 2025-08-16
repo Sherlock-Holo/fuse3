@@ -6,13 +6,12 @@ use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use std::vec::IntoIter;
 
 use bytes::{Buf, BytesMut};
 use fuse3::raw::prelude::*;
 use fuse3::{Errno, Inode, MountOptions, Result};
 use futures_util::stream;
-use futures_util::stream::{Empty, Iter};
+use futures_util::stream::Stream;
 use futures_util::StreamExt;
 use libc::mode_t;
 use tokio::signal;
@@ -198,11 +197,6 @@ impl Default for Fs {
 }
 
 impl Filesystem for Fs {
-    type DirEntryStream<'a>
-        = Empty<Result<DirectoryEntry>>
-    where
-        Self: 'a;
-
     async fn init(&self, _req: Request) -> Result<ReplyInit> {
         Ok(ReplyInit {
             max_write: NonZeroU32::new(16 * 1024).unwrap(),
@@ -726,11 +720,6 @@ impl Filesystem for Fs {
         }
     }
 
-    type DirEntryPlusStream<'a>
-        = Iter<IntoIter<Result<DirectoryEntryPlus>>>
-    where
-        Self: 'a;
-
     async fn readdirplus(
         &self,
         _req: Request,
@@ -738,7 +727,8 @@ impl Filesystem for Fs {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
+    ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + '_>>
+    {
         let inner = self.0.read().await;
 
         let entry = inner

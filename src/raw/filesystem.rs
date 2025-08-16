@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 
 use bytes::Bytes;
-use futures_util::stream::Stream;
+use futures_util::stream::{Empty, Stream};
 
 use crate::notify::Notify;
 use crate::raw::reply::*;
@@ -285,11 +285,6 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// dir entry stream given by [`readdir`][Filesystem::readdir].
-    type DirEntryStream<'a>: Stream<Item = Result<DirectoryEntry>> + Send + 'a
-    where
-        Self: 'a;
-
     /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
     /// contain the value set by the [`opendir`][Filesystem::opendir] method, or will be
     /// undefined if the [`opendir`][Filesystem::opendir] method didn't set any value.
@@ -299,8 +294,8 @@ pub trait Filesystem {
         parent: Inode,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory<Self::DirEntryStream<'a>>> {
-        Err(libc::ENOSYS.into())
+    ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + 'a>> {
+        Err::<ReplyDirectory<Empty<_>>, _>(libc::ENOSYS.into())
     }
 
     /// release an open directory. For every [`opendir`][Filesystem::opendir] call there will
@@ -474,11 +469,6 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// dir entry plus stream given by [`readdirplus`][Filesystem::readdirplus].
-    type DirEntryPlusStream<'a>: Stream<Item = Result<DirectoryEntryPlus>> + Send + 'a
-    where
-        Self: 'a;
-
     /// read directory entries, but with their attribute, like [`readdir`][Filesystem::readdir]
     /// + [`lookup`][Filesystem::lookup] at the same time.
     async fn readdirplus<'a>(
@@ -488,8 +478,9 @@ pub trait Filesystem {
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
-        Err(libc::ENOSYS.into())
+    ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + 'a>>
+    {
+        Err::<ReplyDirectoryPlus<Empty<_>>, _>(libc::ENOSYS.into())
     }
 
     /// rename a file or directory with flags.
