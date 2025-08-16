@@ -67,8 +67,8 @@ use crate::{Errno, SetAttr};
 
 /// A Future which returns when a file system is unmounted
 ///
-/// when drop the [`MountHandle`], it will unmount Filesystem in background task, if user want to
-/// wait unmount completely, use [`MountHandle::unmount`]
+/// When dropped, the [`MountHandle`] will unmount the Filesystem in a background task.
+/// If you want to wait for the unmount to complete, use [`MountHandle::unmount`].
 #[derive(Debug)]
 pub struct MountHandle {
     inner: Option<MountHandleInner>,
