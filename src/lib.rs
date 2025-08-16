@@ -19,6 +19,12 @@
 //!
 //! You must enable either the `async-io-runtime` or `tokio-runtime` features, but not both
 //! or the crate won't compile.
+//!
+//! If you are writing a library and not an executable, beware of [feature
+//! unification](https://doc.rust-lang.org/cargo/reference/features.html#feature-unification)
+//! which may prevents user from depending on `fuse3` via an other crate
+//! if it requires a different async runtime or it requests `file-lock` and
+//! your crate doesn't (or vice versa).
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
