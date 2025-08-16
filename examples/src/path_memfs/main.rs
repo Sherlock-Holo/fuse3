@@ -4,13 +4,11 @@ use std::ffi::{OsStr, OsString};
 use std::io::{Cursor, Read, Write};
 use std::num::NonZeroU32;
 use std::time::{Duration, SystemTime};
-use std::vec::IntoIter;
 
 use bytes::{Buf, BufMut, BytesMut};
 use fuse3::path::prelude::*;
 use fuse3::{Errno, MountOptions, Result};
-use futures_util::stream::{Empty, Iter};
-use futures_util::{stream, StreamExt};
+use futures_util::{stream, Stream, StreamExt};
 use libc::mode_t;
 use tokio::signal;
 use tokio::sync::RwLock;
@@ -148,11 +146,6 @@ impl Default for Fs {
 }
 
 impl PathFilesystem for Fs {
-    type DirEntryStream<'a>
-        = Empty<Result<DirectoryEntry>>
-    where
-        Self: 'a;
-
     async fn init(&self, _req: Request) -> Result<ReplyInit> {
         Ok(ReplyInit {
             max_write: NonZeroU32::new(16 * 1024).unwrap(),
@@ -729,11 +722,6 @@ impl PathFilesystem for Fs {
         }
     }
 
-    type DirEntryPlusStream<'a>
-        = Iter<IntoIter<Result<DirectoryEntryPlus>>>
-    where
-        Self: 'a;
-
     async fn readdirplus<'a>(
         &'a self,
         _req: Request,
@@ -741,7 +729,8 @@ impl PathFilesystem for Fs {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
+    ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + 'a>>
+    {
         let path = parent.to_string_lossy();
         let paths = split_path(&path);
 

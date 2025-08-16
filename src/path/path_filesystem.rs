@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 
 use bytes::Bytes;
-use futures_util::stream::Stream;
+use futures_util::stream::{Empty, Stream};
 
 use super::reply::*;
 use super::Request;
@@ -300,11 +300,6 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// dir entry stream given by [`readdir`][PathFilesystem::readdir].
-    type DirEntryStream<'a>: Stream<Item = Result<DirectoryEntry>> + Send + 'a
-    where
-        Self: 'a;
-
     /// read directory. `offset` is used to track the offset of the directory entries. `fh` will
     /// contain the value set by the [`opendir`][PathFilesystem::opendir] method, or will be
     /// undefined if the [`opendir`][PathFilesystem::opendir] method didn't set any value.
@@ -314,8 +309,8 @@ pub trait PathFilesystem {
         path: &'a OsStr,
         fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory<Self::DirEntryStream<'a>>> {
-        Err(libc::ENOSYS.into())
+    ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + 'a>> {
+        Err::<ReplyDirectory<Empty<_>>, _>(libc::ENOSYS.into())
     }
 
     /// release an open directory. For every [`opendir`][PathFilesystem::opendir] call there will
@@ -489,11 +484,6 @@ pub trait PathFilesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// dir entry plus stream given by [`readdirplus`][PathFilesystem::readdirplus].
-    type DirEntryPlusStream<'a>: Stream<Item = Result<DirectoryEntryPlus>> + Send + 'a
-    where
-        Self: 'a;
-
     /// read directory entries, but with their attribute, like [`readdir`][PathFilesystem::readdir]
     /// + [`lookup`][PathFilesystem::lookup] at the same time.
     async fn readdirplus<'a>(
@@ -503,8 +493,9 @@ pub trait PathFilesystem {
         fh: u64,
         offset: u64,
         lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'a>>> {
-        Err(libc::ENOSYS.into())
+    ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + 'a>>
+    {
+        Err::<ReplyDirectoryPlus<Empty<_>>, _>(libc::ENOSYS.into())
     }
 
     /// rename a file or directory with flags.

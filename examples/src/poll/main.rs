@@ -1,18 +1,16 @@
 use std::ffi::{OsStr, OsString};
-use std::iter::Skip;
 use std::num::NonZeroU32;
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use std::vec::IntoIter;
 
 use bytes::Bytes;
 use fuse3::raw::prelude::*;
 use fuse3::{MountOptions, Result};
 use futures_util::stream;
-use futures_util::stream::Iter;
+use futures_util::stream::Stream;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Token};
 use tokio::time;
@@ -168,18 +166,13 @@ impl Filesystem for Poll {
         }
     }
 
-    type DirEntryStream<'a>
-        = Iter<Skip<IntoIter<Result<DirectoryEntry>>>>
-    where
-        Self: 'a;
-
     async fn readdir(
         &self,
         _req: Request,
         inode: u64,
         _fh: u64,
         offset: i64,
-    ) -> Result<ReplyDirectory<Self::DirEntryStream<'_>>> {
+    ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + '_>> {
         if inode == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }
@@ -222,11 +215,6 @@ impl Filesystem for Poll {
         Ok(())
     }
 
-    type DirEntryPlusStream<'a>
-        = Iter<Skip<IntoIter<Result<DirectoryEntryPlus>>>>
-    where
-        Self: 'a;
-
     async fn readdirplus(
         &self,
         _req: Request,
@@ -234,7 +222,8 @@ impl Filesystem for Poll {
         _fh: u64,
         offset: u64,
         _lock_owner: u64,
-    ) -> Result<ReplyDirectoryPlus<Self::DirEntryPlusStream<'_>>> {
+    ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + '_>>
+    {
         if parent == FILE_INODE {
             return Err(libc::ENOTDIR.into());
         }
