@@ -3036,7 +3036,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             );
 
             let reply_readdir = match fs
-                .readdir(request, in_header.nodeid, read_in.fh, read_in.offset as i64)
+                .readdir(request, in_header.nodeid, read_in.fh, read_in.offset)
                 .await
             {
                 Err(err) => {
@@ -3078,7 +3078,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 let dir_entry = fuse_dirent {
                     ino: entry.inode,
-                    off: entry.offset as u64,
+                    off: entry.offset,
                     namelen: name.len() as u32,
                     // learn from fuse-rs and golang bazil.org fuse DirentType
                     r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
