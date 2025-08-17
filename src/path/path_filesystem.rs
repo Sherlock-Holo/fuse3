@@ -118,10 +118,10 @@ pub trait PathFilesystem {
     async fn rename(
         &self,
         req: Request,
-        origin_parent: &OsStr,
-        origin_name: &OsStr,
         parent: &OsStr,
         name: &OsStr,
+        new_parent: &OsStr,
+        new_name: &OsStr,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
     }
@@ -417,7 +417,7 @@ pub trait PathFilesystem {
         &self,
         req: Request,
         path: &OsStr,
-        block_size: u32,
+        blocksize: u32,
         idx: u64,
     ) -> Result<ReplyBmap> {
         Err(libc::ENOSYS.into())
@@ -444,9 +444,9 @@ pub trait PathFilesystem {
         req: Request,
         path: Option<&OsStr>,
         fh: u64,
-        kn: Option<u64>,
+        kh: Option<u64>,
         flags: u32,
-        envents: u32,
+        events: u32,
         notify: &Notify,
     ) -> Result<ReplyPoll> {
         Err(libc::ENOSYS.into())
@@ -502,10 +502,10 @@ pub trait PathFilesystem {
     async fn rename2(
         &self,
         req: Request,
-        origin_parent: &OsStr,
-        origin_name: &OsStr,
         parent: &OsStr,
         name: &OsStr,
+        new_parent: &OsStr,
+        new_name: &OsStr,
         flags: u32,
     ) -> Result<()> {
         Err(libc::ENOSYS.into())
@@ -532,10 +532,10 @@ pub trait PathFilesystem {
     async fn copy_file_range(
         &self,
         req: Request,
-        from_path: Option<&OsStr>,
+        path: Option<&OsStr>,
         fh_in: u64,
         offset_in: u64,
-        to_path: Option<&OsStr>,
+        path_out: Option<&OsStr>,
         fh_out: u64,
         offset_out: u64,
         length: u64,

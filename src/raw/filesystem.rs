@@ -291,7 +291,7 @@ pub trait Filesystem {
     async fn readdir<'a>(
         &'a self,
         req: Request,
-        parent: Inode,
+        inode: Inode,
         fh: u64,
         offset: i64,
     ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + 'a>> {
@@ -518,10 +518,10 @@ pub trait Filesystem {
         req: Request,
         inode: Inode,
         fh_in: u64,
-        off_in: u64,
+        offset_in: u64,
         inode_out: Inode,
         fh_out: u64,
-        off_out: u64,
+        offset_out: u64,
         length: u64,
         flags: u64,
     ) -> Result<ReplyCopyFileRange> {
