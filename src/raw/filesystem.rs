@@ -2,13 +2,13 @@ use std::ffi::OsStr;
 
 use bytes::Bytes;
 use futures_util::stream::{Empty, Stream};
+use tracing::{debug, warn};
 
 use crate::notify::Notify;
 use crate::raw::reply::*;
 use crate::raw::request::Request;
 use crate::{Inode, Result, SetAttr};
 
-#[allow(unused_variables)]
 #[trait_make::make(Send)]
 /// Inode based filesystem trait.
 pub trait Filesystem {
@@ -19,10 +19,11 @@ pub trait Filesystem {
     /// kernel may call forget for root. There is some discuss for this
     /// <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
     /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
-    async fn destroy(&self, req: Request);
+    async fn destroy(&self, _req: Request) {}
 
     /// look up a directory entry by name and get its attributes.
     async fn lookup(&self, req: Request, parent: Inode, name: &OsStr) -> Result<ReplyEntry> {
+        warn!("Not implemented: lookup(req: {req:?}, parent: {parent}, name: {name:?})");
         Err(libc::ENOSYS.into())
     }
 
@@ -35,7 +36,9 @@ pub trait Filesystem {
     /// request for root and this library will stop session after call forget. There is some
     /// discussion for this <https://github.com/bazil/fuse/issues/82#issuecomment-88126886>,
     /// <https://sourceforge.net/p/fuse/mailman/message/31995737/>
-    async fn forget(&self, req: Request, inode: Inode, nlookup: u64) {}
+    async fn forget(&self, req: Request, inode: Inode, nlookup: u64) {
+        debug!("Not implemented: forget(req: {req:?}, inode: {inode}, nlookup: {nlookup})");
+    }
 
     /// get file attributes. If `fh` is None, means `fh` is not set.
     async fn getattr(
@@ -45,6 +48,7 @@ pub trait Filesystem {
         fh: Option<u64>,
         flags: u32,
     ) -> Result<ReplyAttr> {
+        warn!("Not implemented: getattr(req: {req:?}, inode: {inode}, fh: {fh:?}, flags: {flags})");
         Err(libc::ENOSYS.into())
     }
 
@@ -56,11 +60,13 @@ pub trait Filesystem {
         fh: Option<u64>,
         set_attr: SetAttr,
     ) -> Result<ReplyAttr> {
+        warn!("Not implemented: setattr(req: {req:?}, inode: {inode}, fh: {fh:?}, set_attr: {set_attr:?})");
         Err(libc::ENOSYS.into())
     }
 
     /// read symbolic link.
     async fn readlink(&self, req: Request, inode: Inode) -> Result<ReplyData> {
+        warn!("Not implemented: readlink(req: {req:?}, inode: {inode})");
         Err(libc::ENOSYS.into())
     }
 
@@ -72,6 +78,7 @@ pub trait Filesystem {
         name: &OsStr,
         link: &OsStr,
     ) -> Result<ReplyEntry> {
+        warn!("Not implemented: symlink(req: {req:?}, parent: {parent}, name: {name:?}, link: {link:?})");
         Err(libc::ENOSYS.into())
     }
 
@@ -86,6 +93,7 @@ pub trait Filesystem {
         mode: u32,
         rdev: u32,
     ) -> Result<ReplyEntry> {
+        warn!("Not implemented: mknod(req: {req:?}, parent: {parent}, name: {name:?}, mode: {mode:#o}, rdev: {rdev})");
         Err(libc::ENOSYS.into())
     }
 
@@ -98,16 +106,19 @@ pub trait Filesystem {
         mode: u32,
         umask: u32,
     ) -> Result<ReplyEntry> {
+        warn!("Not implemented: mkdir(req: {req:?}, parent: {parent}, name: {name:?}, mode: {mode:#o}, umask: {umask:#o})");
         Err(libc::ENOSYS.into())
     }
 
     /// remove a file.
     async fn unlink(&self, req: Request, parent: Inode, name: &OsStr) -> Result<()> {
+        warn!("Not implemented: unlink(req: {req:?}, parent: {parent}, name: {name:?})");
         Err(libc::ENOSYS.into())
     }
 
     /// remove a directory.
     async fn rmdir(&self, req: Request, parent: Inode, name: &OsStr) -> Result<()> {
+        warn!("Not implemented: rmdir(req: {req:?}, parent: {parent}, name: {name:?})");
         Err(libc::ENOSYS.into())
     }
 
@@ -120,6 +131,7 @@ pub trait Filesystem {
         new_parent: Inode,
         new_name: &OsStr,
     ) -> Result<()> {
+        warn!("Not implemented: rename(req: {req:?}, parent: {parent}, name: {name:?}, new_parent: {new_parent}, new_name: {new_name:?})");
         Err(libc::ENOSYS.into())
     }
 
@@ -131,6 +143,7 @@ pub trait Filesystem {
         new_parent: Inode,
         new_name: &OsStr,
     ) -> Result<ReplyEntry> {
+        warn!("Not implemented: link(req: {req:?}, inodet: {inode}, new_parent: {new_parent}, new_name: {new_name:?})");
         Err(libc::ENOSYS.into())
     }
 
@@ -149,6 +162,7 @@ pub trait Filesystem {
     /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
     /// more details.
     async fn open(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
+        warn!("Not implemented: open(req: {req:?}, inode: {inode}, flags: {flags})");
         Err(libc::ENOSYS.into())
     }
 
@@ -165,6 +179,7 @@ pub trait Filesystem {
         offset: u64,
         size: u32,
     ) -> Result<ReplyData> {
+        warn!("Not implemented: read(req: {req:?}, inode: {inode}, fh: {fh}, offset: {offset}, size: {size})");
         Err(libc::ENOSYS.into())
     }
 
@@ -186,11 +201,13 @@ pub trait Filesystem {
         write_flags: u32,
         flags: u32,
     ) -> Result<ReplyWrite> {
+        warn!("Not implemented: write(req: {req:?}, inode: {inode}, fh: {fh}, offset: {offset}, data: {data:?}, write_flags: {write_flags}, flags: {flags})");
         Err(libc::ENOSYS.into())
     }
 
     /// get filesystem statistics.
     async fn statfs(&self, req: Request, inode: Inode) -> Result<ReplyStatFs> {
+        warn!("Not implemented: statfs(req: {req:?}, inode: {inode})");
         Err(libc::ENOSYS.into())
     }
 
@@ -210,12 +227,16 @@ pub trait Filesystem {
         lock_owner: u64,
         flush: bool,
     ) -> Result<()> {
+        warn!("Not implemented: release(req: {req:?}, inode: {inode}, fh: {fh}, flags: {flags}, lock_owner: {lock_owner}, flush: {flush})");
         Err(libc::ENOSYS.into())
     }
 
     /// synchronize file contents. If the `datasync` is true, then only the user data should be
     /// flushed, not the metadata.
     async fn fsync(&self, req: Request, inode: Inode, fh: u64, datasync: bool) -> Result<()> {
+        warn!(
+            "Not implemented: fsync(req: {req:?}, inode: {inode}, fh: {fh}, datasync: {datasync})"
+        );
         Ok(())
     }
 
@@ -229,6 +250,7 @@ pub trait Filesystem {
         flags: u32,
         position: u32,
     ) -> Result<()> {
+        warn!("Not implemented: setxattr(req: {req:?}, inode: {inode}, name: {name:?}, value: {value:?}, flags: {flags}, position: {position})");
         Err(libc::ENOSYS.into())
     }
 
@@ -242,6 +264,9 @@ pub trait Filesystem {
         name: &OsStr,
         size: u32,
     ) -> Result<ReplyXAttr> {
+        warn!(
+            "Not implemented: getxattr(req: {req:?}, inode: {inode}, name: {name:?}, size: {size})"
+        );
         Err(libc::ENOSYS.into())
     }
 
@@ -250,11 +275,13 @@ pub trait Filesystem {
     /// If `size` is too small, return `Err<ERANGE>`.  Otherwise, use
     /// [`ReplyXAttr::Data`] to send the attribute list, or return an error.
     async fn listxattr(&self, req: Request, inode: Inode, size: u32) -> Result<ReplyXAttr> {
+        warn!("Not implemented: listxattr(req: {req:?}, inode: {inode}, size: {size})");
         Err(libc::ENOSYS.into())
     }
 
     /// remove an extended attribute.
     async fn removexattr(&self, req: Request, inode: Inode, name: &OsStr) -> Result<()> {
+        warn!("Not implemented: removexattr(req: {req:?}, inode: {inode}, name: {name:?})");
         Err(libc::ENOSYS.into())
     }
 
@@ -271,6 +298,7 @@ pub trait Filesystem {
     /// errors. If the filesystem supports file locking operations ([`setlk`][Filesystem::setlk],
     /// [`getlk`][Filesystem::getlk]) it should remove all locks belonging to `lock_owner`.
     async fn flush(&self, req: Request, inode: Inode, fh: u64, lock_owner: u64) -> Result<()> {
+        warn!("Not implemented: flush(req: {req:?}, inode: {inode}, fh: {fh}, lock_owner: {lock_owner})");
         Err(libc::ENOSYS.into())
     }
 
@@ -282,6 +310,7 @@ pub trait Filesystem {
     /// sets [`MountOptions::no_open_dir_support`][crate::MountOptions::no_open_dir_support] and
     /// if the kernel supports `FUSE_NO_OPENDIR_SUPPORT`.
     async fn opendir(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
+        warn!("Not implemented: opendir(req: {req:?}, inode: {inode}, flags: {flags})");
         Err(libc::ENOSYS.into())
     }
 
@@ -295,6 +324,9 @@ pub trait Filesystem {
         fh: u64,
         offset: i64,
     ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + 'a>> {
+        warn!(
+            "Not implemented: readdir(req: {req:?}, inode: {inode}, fh: {fh}, offset: {offset})"
+        );
         Err::<ReplyDirectory<Empty<_>>, _>(libc::ENOSYS.into())
     }
 
@@ -303,6 +335,7 @@ pub trait Filesystem {
     /// [`opendir`][Filesystem::opendir] method, or will be undefined if the
     /// [`opendir`][Filesystem::opendir] method didn't set any value.
     async fn releasedir(&self, req: Request, inode: Inode, fh: u64, flags: u32) -> Result<()> {
+        warn!("Not implemented: releasedir(req: {req:?}, inode: {inode}, fh: {fh}, flags: {flags})");
         Ok(())
     }
 
@@ -311,6 +344,7 @@ pub trait Filesystem {
     /// [`opendir`][Filesystem::opendir] method, or will be undefined if the
     /// [`opendir`][Filesystem::opendir] method didn't set any value.
     async fn fsyncdir(&self, req: Request, inode: Inode, fh: u64, datasync: bool) -> Result<()> {
+        warn!("Not implemented: fsyncdir(req: {req:?}, inode: {inode}, fh: {fh}, datasync: {datasync})");
         Err(libc::ENOSYS.into())
     }
 
@@ -357,6 +391,7 @@ pub trait Filesystem {
     /// `default_permissions` mount option is given, this method is not be called. This method is
     /// not called under Linux kernel versions 2.4.x.
     async fn access(&self, req: Request, inode: Inode, mask: u32) -> Result<()> {
+        warn!("Not implemented: access(req: {req:?}, inode: {inode}, mask: {mask:#o})");
         Err(libc::ENOSYS.into())
     }
 
@@ -384,12 +419,14 @@ pub trait Filesystem {
         mode: u32,
         flags: u32,
     ) -> Result<ReplyCreated> {
+        warn!("Not implemented: create(req: {req:?}, parent: {parent}, name: {name:?}, mode: {mode:#x}, flags: {flags:#x})");
         Err(libc::ENOSYS.into())
     }
 
     /// handle interrupt. When a operation is interrupted, an interrupt request will send to fuse
     /// server with the unique id of the operation.
     async fn interrupt(&self, req: Request, unique: u64) -> Result<()> {
+        warn!("Not implemented: create(req: {req:?}, unique: {unique})");
         Err(libc::ENOSYS.into())
     }
 
@@ -405,6 +442,7 @@ pub trait Filesystem {
         blocksize: u32,
         idx: u64,
     ) -> Result<ReplyBmap> {
+        warn!("Not implemented: bmap(req: {req:?}, inode: {inode}, blocksize: {blocksize}, idx: {idx})");
         Err(libc::ENOSYS.into())
     }
 
@@ -434,6 +472,7 @@ pub trait Filesystem {
         events: u32,
         notify: &Notify,
     ) -> Result<ReplyPoll> {
+        warn!("Not implemented: poll(req: {req:?}, inode: {inode}, fh: {fh}, kh: {kh:?}, flags: {flags:#x}, events: {events}, notify: {notify:?})");
         Err(libc::ENOSYS.into())
     }
 
@@ -445,11 +484,14 @@ pub trait Filesystem {
         offset: u64,
         data: Bytes,
     ) -> Result<()> {
+        warn!("Not implemented: notify_reply(req: {req:?}, inode: {inode}, offset: {offset}, data: {data:?})");
         Err(libc::ENOSYS.into())
     }
 
     /// forget more than one inode. This is a batch version [`forget`][Filesystem::forget]
-    async fn batch_forget(&self, req: Request, inodes: &[Inode]) {}
+    async fn batch_forget(&self, req: Request, inodes: &[Inode]) {
+        debug!("Not implemented: batch_forget(req: {req:?}, inodes: {inodes:?})");
+    }
 
     /// allocate space for an open file. This function ensures that required space is allocated for
     /// specified file.
@@ -466,6 +508,7 @@ pub trait Filesystem {
         length: u64,
         mode: u32,
     ) -> Result<()> {
+        warn!("Not implemented: fallocate(req: {req:?}, inode: {inode}, fh: {fh}, offset: {offset}, length: {length}, mode: {mode:#o})");
         Err(libc::ENOSYS.into())
     }
 
@@ -480,6 +523,7 @@ pub trait Filesystem {
         lock_owner: u64,
     ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + 'a>>
     {
+        warn!("Not implemented: readdirplus(req: {req:?}, parent: {parent}, fh: {fh}, offset: {offset}, lock_owner: {lock_owner})");
         Err::<ReplyDirectoryPlus<Empty<_>>, _>(libc::ENOSYS.into())
     }
 
@@ -493,6 +537,7 @@ pub trait Filesystem {
         new_name: &OsStr,
         flags: u32,
     ) -> Result<()> {
+        warn!("Not implemented: rename2(req: {req:?}, parent: {parent}, name: {name:?}, new_parent: {new_parent}, new_name: {new_name:?}, flags: {flags:#o})");
         Err(libc::ENOSYS.into())
     }
 
@@ -505,6 +550,7 @@ pub trait Filesystem {
         offset: u64,
         whence: u32,
     ) -> Result<ReplyLSeek> {
+        warn!("Not implemented: lseek(req: {req:?}, inode: {inode}, fh: {fh}, offset: {offset}, whence: {whence})");
         Err(libc::ENOSYS.into())
     }
 
@@ -525,6 +571,7 @@ pub trait Filesystem {
         length: u64,
         flags: u64,
     ) -> Result<ReplyCopyFileRange> {
+        warn!("Not implemented: copy_file_range(req: {req:?}, inode: {inode}, fh_in: {fh_in}, offset_in: {offset_in}, inode_out: {inode_out}, fh_out: {fh_out}, offset_out: {offset_out}, length: {length}, flags: {flags})");
         Err(libc::ENOSYS.into())
     }
 
