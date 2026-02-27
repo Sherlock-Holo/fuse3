@@ -1253,13 +1253,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             unique: request.unique,
         };
 
-        let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE);
-
-        out_header.write_to_io(&mut data).unwrap();
-        init_out.write_to_io(&mut data).unwrap();
-
         if let Err(err) = fuse_connection
-            .write_vectored::<_, Vec<u8>>(data, None)
+            .write_vectored(out_header.as_bytes(), Some(init_out.as_bytes()))
             .await
             .1
         {
