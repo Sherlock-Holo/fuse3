@@ -3,13 +3,12 @@
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 
-use bincode_next::encode_into_std_write;
 use bytes::{Buf, Bytes};
 use futures_channel::mpsc::UnboundedSender;
 use futures_util::future::Either;
 use futures_util::sink::SinkExt;
+use zerocopy::IntoBytes;
 
-use crate::helper::get_bincode_config;
 use crate::raw::abi::{
     fuse_notify_code, fuse_notify_delete_out, fuse_notify_inval_entry_out,
     fuse_notify_inval_inode_out, fuse_notify_poll_wakeup_out, fuse_notify_retrieve_out,
@@ -47,10 +46,11 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE);
 
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
+                out_header
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
-                encode_into_std_write(&wakeup_out, &mut data, config)
+                wakeup_out
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
 
                 Either::Left(data)
@@ -72,10 +72,11 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_INODE_OUT_SIZE);
 
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
+                out_header
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
-                encode_into_std_write(&invalid_inode_out, &mut data, config)
+                invalid_inode_out
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
 
                 Either::Left(data)
@@ -97,10 +98,11 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE);
 
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
+                out_header
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
-                encode_into_std_write(&invalid_entry_out, &mut data, config)
+                invalid_entry_out
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
 
                 // TODO should I add null at the end?
@@ -129,10 +131,11 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_DELETE_OUT_SIZE);
 
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
+                out_header
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
-                encode_into_std_write(&delete_out, &mut data, config)
+                delete_out
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
 
                 // TODO should I add null at the end?
@@ -161,10 +164,11 @@ impl Notify {
                 let mut data_buf =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_STORE_OUT_SIZE);
 
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data_buf, config)
+                out_header
+                    .write_to_io(&mut data_buf)
                     .expect("vec size is not enough");
-                encode_into_std_write(&store_out, &mut data_buf, config)
+                store_out
+                    .write_to_io(&mut data_buf)
                     .expect("vec size is not enough");
 
                 Either::Right((data_buf, data.clone()))
@@ -193,10 +197,11 @@ impl Notify {
                 let mut data =
                     Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_RETRIEVE_OUT_SIZE);
 
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
+                out_header
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
-                encode_into_std_write(&retrieve_out, &mut data, config)
+                retrieve_out
+                    .write_to_io(&mut data)
                     .expect("vec size is not enough");
 
                 Either::Left(data)

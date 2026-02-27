@@ -55,7 +55,3 @@ pub const fn get_padding_size(dir_entry_size: usize) -> usize {
 
     entry_size - dir_entry_size
 }
-
-pub fn get_bincode_config() -> impl bincode_next::config::Config {
-    bincode_next::config::legacy()
-}

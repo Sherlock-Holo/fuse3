@@ -28,7 +28,6 @@ use async_global_executor::{self as task, Task as JoinHandle};
     feature = "unprivileged"
 ))]
 use async_process::Command;
-use bincode_next::{decode_from_slice, encode_into_std_write, encode_to_vec};
 use bytes::Bytes;
 use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures_util::future::{Either, FutureExt};
@@ -50,6 +49,7 @@ use tokio::task::JoinHandle;
 #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
 use tokio::{fs::read_dir, task};
 use tracing::{debug, debug_span, error, instrument, warn, Instrument, Span};
+use zerocopy::{FromBytes, IntoBytes};
 
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::find_fusermount3;
@@ -590,9 +590,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 reply_error_in_place(libc::ENOSYS.into(), request, &self.response_sender).await;
 
-                return Err(IoError::other(
-                    format!("receive unknown opcode {}", err.0),
-                ));
+                return Err(IoError::other(format!("receive unknown opcode {}", err.0)));
             }
 
             Ok(opcode) => opcode,
@@ -603,9 +601,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         if opcode != fuse_opcode::FUSE_INIT {
             error!(?opcode, "received unexpected opcode");
 
-            return Err(IoError::other(
-                format!("unexpected opcode {opcode:?}"),
-            ));
+            return Err(IoError::other(format!("unexpected opcode {opcode:?}")));
         }
 
         let data_size = in_header.len as usize - FUSE_IN_HEADER_SIZE;
@@ -674,18 +670,18 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             };
         }
 
-        let in_header = match decode_from_slice::<fuse_in_header, _>(&header_buffer, get_bincode_config()) {
+        let in_header = match fuse_in_header::read_from_bytes(&header_buffer) {
             Err(err) => {
                 error!("deserialize fuse_in_header failed {}", err);
 
                 return ReadResult::Request {
-                    in_header: Err(IoError::other(err)),
+                    in_header: Err(IoError::other("deserialize fuse_in_header failed")),
                     header_buffer,
                     data_buffer,
                 };
             }
 
-            Ok((in_header, _)) => in_header,
+            Ok(in_header) => in_header,
         };
 
         ReadResult::Request {
@@ -925,7 +921,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 /*fuse_opcode::FUSE_IOCTL => {
                     let mut resp_sender = self.response_sender.clone();
 
-                    let ioctl_in = decode_from_slice::<fuse_ioctl_in, _>(data, get_bincode_config()) {
+                    let ioctl_in = match fuse_ioctl_in::read_from_prefix(data) {
                         Err(err) => {
                             error!("deserialize fuse_ioctl_in failed {}", err);
 
@@ -998,7 +994,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         fuse_connection: &FuseConnection,
         fs: &FS,
     ) -> IoResult<NonZeroU32> {
-        let init_in = match decode_from_slice::<fuse_init_in, _>(data, get_bincode_config()) {
+        let init_in = match fuse_init_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_init_in failed {}, request unique {}",
@@ -1011,11 +1007,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     unique: request.unique,
                 };
 
-                let init_out_header_data  = encode_to_vec(&init_out_header, get_bincode_config())
-                    .expect("won't happened");
-
                 if let Err(err) = fuse_connection
-                    .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
+                    .write_vectored::<_, &[u8]>(init_out_header.as_bytes(), None)
                     .await
                     .1
                 {
@@ -1224,11 +1217,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     unique: request.unique,
                 };
 
-                let init_out_header_data  = encode_to_vec(&init_out_header, get_bincode_config())
-                    .expect("won't happened");
-
                 if let Err(err) = fuse_connection
-                    .write_vectored::<_, Vec<u8>>(init_out_header_data, None)
+                    .write_vectored::<_, &[u8]>(init_out_header.as_bytes(), None)
                     .await
                     .1
                 {
@@ -1265,9 +1255,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_INIT_OUT_SIZE);
 
-        let config = get_bincode_config();
-        encode_into_std_write(&out_header, &mut data, config).unwrap();
-        encode_into_std_write(&init_out, &mut data, config).unwrap();
+        out_header.write_to_io(&mut data).unwrap();
+        init_out.write_to_io(&mut data).unwrap();
 
         if let Err(err) = fuse_connection
             .write_vectored::<_, Vec<u8>>(data, None)
@@ -1321,8 +1310,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    encode_to_vec(&out_header, get_bincode_config())
-                        .expect("won't happened")
+                    out_header.as_bytes().to_vec()
                 }
 
                 Ok(entry) => {
@@ -1338,9 +1326,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&entry_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    entry_out.write_to_io(&mut data).unwrap();
 
                     data
                 }
@@ -1359,7 +1346,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let forget_in = match decode_from_slice::<fuse_forget_in, _>(data, get_bincode_config()) {
+        let forget_in = match fuse_forget_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_forget_in failed {}, request unique {}",
@@ -1394,7 +1381,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let getattr_in = match decode_from_slice::<fuse_getattr_in, _>(data, get_bincode_config()) {
+        let getattr_in = match fuse_getattr_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_forget_in failed {}, request unique {}",
@@ -1435,8 +1422,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    encode_to_vec(&out_header, get_bincode_config())
-                        .expect("won't happened")
+                    out_header.as_bytes().to_vec()
                 }
 
                 Ok(attr) => {
@@ -1455,9 +1441,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ATTR_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&attr_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    attr_out.write_to_io(&mut data).unwrap();
 
                     data
                 }
@@ -1475,7 +1460,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let setattr_in = match decode_from_slice::<fuse_setattr_in, _>(data, get_bincode_config()) {
+        let setattr_in = match fuse_setattr_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_setattr_in failed {}, request unique {}",
@@ -1515,8 +1500,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    encode_to_vec(&out_header, get_bincode_config())
-                        .expect("won't happened")
+                    out_header.as_bytes().to_vec()
                 }
 
                 Ok(attr) => {
@@ -1530,9 +1514,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ATTR_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&attr_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    attr_out.write_to_io(&mut data).unwrap();
 
                     data
                 }
@@ -1561,10 +1544,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    Either::Left(
-                        encode_to_vec(&out_header, get_bincode_config())
-                            .expect("won't happened"),
-                    )
+                    Either::Left(out_header.as_bytes().to_vec())
                 }
 
                 Ok(data) => {
@@ -1576,8 +1556,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data_buf = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data_buf, config).unwrap();
+                    out_header.write_to_io(&mut data_buf).unwrap();
 
                     Either::Right((data_buf, data.data))
                 }
@@ -1644,8 +1623,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                         unique: request.unique,
                     };
 
-                    encode_to_vec(&out_header, get_bincode_config())
-                        .expect("won't happened")
+                    out_header.as_bytes().to_vec()
                 }
 
                 Ok(entry) => {
@@ -1659,9 +1637,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&entry_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    entry_out.write_to_io(&mut data).unwrap();
 
                     data
                 }
@@ -1676,10 +1653,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let mknod_in = match decode_from_slice::<fuse_mknod_in, _>(data, get_bincode_config()) {
+        let (mknod_in, data) = match fuse_mknod_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_mknod_in failed {}, request unique {}",
@@ -1691,10 +1668,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((mknod_in, _)) => mknod_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_MKNOD_IN_SIZE..];
 
         let name = match get_first_null_position(data) {
             None => {
@@ -1745,9 +1720,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&entry_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    entry_out.write_to_io(&mut data).unwrap();
 
                     let _ = resp_sender.send(Either::Left(data)).await;
                 }
@@ -1760,10 +1734,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let mkdir_in = match decode_from_slice::<fuse_mkdir_in, _>(data, get_bincode_config()) {
+        let (mkdir_in, data) = match fuse_mkdir_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_mknod_in failed {}, request unique {}",
@@ -1775,10 +1749,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((mkdir_in, _)) => mkdir_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_MKDIR_IN_SIZE..];
 
         let name = match get_first_null_position(data) {
             None => {
@@ -1829,9 +1801,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&entry_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    entry_out.write_to_io(&mut data).unwrap();
 
                     let _ = resp_sender.send(Either::Left(data)).await;
                 }
@@ -1883,9 +1854,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-                    
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -1935,8 +1904,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -1947,10 +1915,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let rename_in = match decode_from_slice::<fuse_rename_in, _>(data, get_bincode_config()) {
+        let (rename_in, data) = match fuse_rename_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_rename_in failed {}, request unique {}",
@@ -1962,10 +1930,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((rename_in, _)) => rename_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_RENAME_IN_SIZE..];
 
         let (name, first_null_index) = match get_first_null_position(data) {
             None => {
@@ -1982,7 +1948,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             Some(index) => (OsString::from_vec(data[..index].to_vec()), index),
         };
 
-        data = &data[first_null_index + 1..];
+        let data = &data[first_null_index + 1..];
 
         let new_name = match get_first_null_position(data) {
             None => {
@@ -2029,8 +1995,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2041,10 +2006,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let link_in = match decode_from_slice::<fuse_link_in, _>(data, get_bincode_config()) {
+        let (link_in, data) = match fuse_link_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_link_in failed {}, request unique {}",
@@ -2056,10 +2021,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((link_in, _)) => link_in,
+            Ok((link_in, data)) => (link_in, data),
         };
-
-        data = &data[FUSE_LINK_IN_SIZE..];
 
         let name = match get_first_null_position(data) {
             None => {
@@ -2104,9 +2067,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&entry_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    entry_out.write_to_io(&mut data).unwrap();
 
                     let _ = resp_sender.send(Either::Left(data)).await;
                 }
@@ -2122,7 +2084,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let open_in = match decode_from_slice::<fuse_open_in, _>(data, get_bincode_config()) {
+        let open_in = match fuse_open_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_open_in failed {}, request unique {}",
@@ -2166,9 +2128,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_OPEN_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&open_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            open_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2182,7 +2143,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let read_in = match decode_from_slice::<fuse_read_in, _>(data, get_bincode_config()) {
+        let read_in = match fuse_read_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_read_in failed {}, request unique {}",
@@ -2237,8 +2198,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data_buf = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data_buf, config).unwrap();
+            out_header.write_to_io(&mut data_buf).unwrap();
 
             let _ = resp_sender
                 .send(Either::Right((data_buf, reply_data)))
@@ -2251,10 +2211,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let write_in = match decode_from_slice::<fuse_write_in, _>(data, get_bincode_config()) {
+        let (write_in, data) = match fuse_write_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_write_in failed {}, request unique {}",
@@ -2266,10 +2226,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((write_in, _)) => write_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_WRITE_IN_SIZE..];
 
         if write_in.size as usize != data.len() {
             error!("fuse_write_in body len is invalid");
@@ -2321,9 +2279,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_WRITE_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&write_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            write_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2360,9 +2317,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_STATFS_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&statfs_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            statfs_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2376,7 +2332,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let release_in = match decode_from_slice::<fuse_release_in, _>(data, get_bincode_config()) {
+        let release_in = match fuse_release_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_release_in failed {}, request unique {}",
@@ -2429,8 +2385,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2444,7 +2399,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let fsync_in = match decode_from_slice::<fuse_fsync_in, _>(data, get_bincode_config()) {
+        let fsync_in = match fuse_fsync_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_fsync_in failed {}, request unique {}",
@@ -2485,8 +2440,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2497,10 +2451,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let setxattr_in = match decode_from_slice::<fuse_setxattr_in, _>(data, get_bincode_config()) {
+        let (setxattr_in, data) = match fuse_setxattr_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_setxattr_in failed {}, request unique {}",
@@ -2512,10 +2466,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((setxattr_in, _)) => setxattr_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_SETXATTR_IN_SIZE..];
 
         let (name, first_null_index) = match get_first_null_position(data) {
             None => {
@@ -2532,7 +2484,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             Some(index) => (OsString::from_vec(data[..index].to_vec()), index),
         };
 
-        data = &data[first_null_index + 1..];
+        let data = &data[first_null_index + 1..];
 
         // setxattr "size" field specifies size of only "Value" part of data
         if setxattr_in.size as usize != data.len() {
@@ -2578,8 +2530,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2590,10 +2541,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let getxattr_in = match decode_from_slice::<fuse_getxattr_in, _>(data, get_bincode_config()) {
+        let (getxattr_in, data) = match fuse_getxattr_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_getxattr_in failed {}, request unique {}",
@@ -2605,10 +2556,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((getxattr_in, _)) => getxattr_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_GETXATTR_IN_SIZE..];
 
         let name = match get_first_null_position(data) {
             None => {
@@ -2656,9 +2605,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_STATFS_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&getxattr_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    getxattr_out.write_to_io(&mut data).unwrap();
 
                     Either::Left(data)
                 }
@@ -2674,8 +2622,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
 
                     Either::Right((data, xattr_data))
                 }
@@ -2693,7 +2640,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let listxattr_in = match decode_from_slice::<fuse_getxattr_in, _>(data, get_bincode_config()) {
+        let listxattr_in = match fuse_getxattr_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_getxattr_in in listxattr failed {}, request unique {}",
@@ -2742,9 +2689,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_STATFS_OUT_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
-                    encode_into_std_write(&getxattr_out, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
+                    getxattr_out.write_to_io(&mut data).unwrap();
 
                     Either::Left(data)
                 }
@@ -2760,8 +2706,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                     let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
-                    let config = get_bincode_config();
-                    encode_into_std_write(&out_header, &mut data, config).unwrap();
+                    out_header.write_to_io(&mut data).unwrap();
 
                     Either::Right((data, xattr_data))
                 }
@@ -2816,8 +2761,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2831,7 +2775,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let flush_in = match decode_from_slice::<fuse_flush_in, _>(data, get_bincode_config()) {
+        let flush_in = match fuse_flush_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_flush_in failed {}, request unique {}",
@@ -2870,8 +2814,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2885,7 +2828,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let open_in = match decode_from_slice::<fuse_open_in, _>(data, get_bincode_config()) {
+        let open_in = match fuse_open_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_open_in in opendir failed {}, request unique {}",
@@ -2929,9 +2872,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_OPEN_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&open_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            open_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -2951,7 +2893,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             return;
         }
 
-        let read_in = match decode_from_slice::<fuse_read_in, _>(data, get_bincode_config()) {
+        let read_in = match fuse_read_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_read_in in readdir failed {}, request unique {}",
@@ -3024,8 +2966,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     r#type: mode_from_kind_and_perm(entry.kind, 0) >> 12,
                 };
 
-                let config = get_bincode_config();
-                encode_into_std_write(&dir_entry, &mut entry_data, config).unwrap();
+                dir_entry.write_to_io(&mut entry_data).unwrap();
 
                 entry_data.extend_from_slice(name.as_bytes());
 
@@ -3043,8 +2984,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender
                 .send(Either::Right((data, entry_data.into())))
@@ -3060,7 +3000,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let release_in = match decode_from_slice::<fuse_release_in, _>(data, get_bincode_config()) {
+        let release_in = match fuse_release_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_release_in in releasedir failed {}, request unique {}",
@@ -3099,8 +3039,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3114,7 +3053,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let fsync_in = match decode_from_slice::<fuse_fsync_in, _>(data, get_bincode_config()) {
+        let fsync_in = match fuse_fsync_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_fsync_in in fsyncdir failed {}, request unique {}",
@@ -3155,8 +3094,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3171,7 +3109,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let getlk_in = match decode_from_slice::<fuse_lk_in, _>(data, get_bincode_config()) {
+        let getlk_in = match fuse_lk_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_lk_in in getlk failed {}, request unique {}",
@@ -3183,7 +3121,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((getlk_in, _)) => getlk_in,
+            Ok(getlk_in) => getlk_in,
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -3227,9 +3165,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_LK_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&getlk_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            getlk_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3245,7 +3182,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         block: bool,
         fs: &Arc<FS>,
     ) {
-        let setlk_in = match decode_from_slice::<fuse_lk_in, _>(data, get_bincode_config()) {
+        let setlk_in = match fuse_lk_in::read_from_prefix(data) {
             Err(err) => {
                 let opcode = if block {
                     fuse_opcode::FUSE_SETLKW
@@ -3263,7 +3200,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((setlk_in, _)) => setlk_in,
+            Ok(setlk_in) => setlk_in,
         };
 
         let mut resp_sender = self.response_sender.clone();
@@ -3300,8 +3237,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("can't serialize into vec");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3315,7 +3251,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let access_in = match decode_from_slice::<fuse_access_in, _>(data, get_bincode_config()) {
+        let access_in = match fuse_access_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_access_in failed {}, request unique {}",
@@ -3354,8 +3290,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             debug!("access response {}", resp_value);
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3366,10 +3301,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let create_in = match decode_from_slice::<fuse_create_in, _>(data, get_bincode_config()) {
+        let (create_in, data) = match fuse_create_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_create_in failed {}, request unique {}",
@@ -3381,10 +3316,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((create_in, _)) => create_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_CREATE_IN_SIZE..];
 
         let name = match get_first_null_position(data) {
             None => {
@@ -3440,10 +3373,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             let mut data =
                 Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_ENTRY_OUT_SIZE + FUSE_OPEN_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&entry_out, &mut data, config).unwrap();
-            encode_into_std_write(&open_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            entry_out.write_to_io(&mut data).unwrap();
+            open_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3451,7 +3383,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
     #[instrument(skip(self, data, fs))]
     async fn handle_interrupt(&mut self, request: Request, data: &[u8], fs: &Arc<FS>) {
-        let interrupt_in = match decode_from_slice::<fuse_interrupt_in, _>(data, get_bincode_config()) {
+        let interrupt_in = match fuse_interrupt_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_interrupt_in failed {}, request unique {}",
@@ -3487,8 +3419,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let data = encode_to_vec(&out_header, get_bincode_config())
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3502,7 +3433,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let bmap_in = match decode_from_slice::<fuse_bmap_in, _>(data, get_bincode_config()) {
+        let bmap_in = match fuse_bmap_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_bmap_in failed {}, request unique {}",
@@ -3549,9 +3480,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_BMAP_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&bmap_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            bmap_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3565,7 +3495,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let poll_in = match decode_from_slice::<fuse_poll_in, _>(data, get_bincode_config()) {
+        let poll_in = match fuse_poll_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_poll_in failed {}, request unique {}",
@@ -3628,9 +3558,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_POLL_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&poll_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            poll_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3641,26 +3570,24 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
         let resp_sender = self.response_sender.clone();
 
-        let notify_retrieve_in: fuse_notify_retrieve_in = match decode_from_slice(data, get_bincode_config()) {
-                Err(err) => {
-                    error!(
-                        "deserialize fuse_notify_retrieve_in failed {}, request unique {}",
-                        err, request.unique
-                    );
+        let (notify_retrieve_in, data) = match fuse_notify_retrieve_in::read_from_prefix(data) {
+            Err(err) => {
+                error!(
+                    "deserialize fuse_notify_retrieve_in failed {}, request unique {}",
+                    err, request.unique
+                );
 
-                    // TODO need to reply or not?
-                    return;
-                }
+                // TODO need to reply or not?
+                return;
+            }
 
-                Ok((notify_retrieve_in, _)) => notify_retrieve_in,
-            };
-
-        data = &data[FUSE_NOTIFY_RETRIEVE_IN_SIZE..];
+            Ok(r) => r,
+        };
 
         if data.len() < notify_retrieve_in.size as usize {
             error!(
@@ -3691,15 +3618,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         });
     }
 
-    #[instrument(skip(self, data, fs))]
+    #[instrument(level = "debug", skip(self, data, fs))]
     async fn handle_batch_forget(
         &mut self,
         request: Request,
         _in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let batch_forget_in: fuse_batch_forget_in = match decode_from_slice(data, get_bincode_config()) {
+        let (batch_forget_in, mut data) = match fuse_batch_forget_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_batch_forget_in failed {}, request unique {}",
@@ -3710,16 +3637,14 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((batch_forget_in, _)) => batch_forget_in,
+            Ok(r) => r,
         };
 
         let mut forgets = vec![];
 
-        data = &data[FUSE_BATCH_FORGET_IN_SIZE..];
-
         // TODO if has less data, should I return error?
         while data.len() >= FUSE_FORGET_ONE_SIZE {
-            match decode_from_slice::<fuse_forget_one, _>(data, get_bincode_config()) {
+            match fuse_forget_one::read_from_prefix(data) {
                 Err(err) => {
                     error!("deserialize fuse_batch_forget_in body fuse_forget_one failed {}, request unique {}", err, request.unique);
 
@@ -3727,8 +3652,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     return;
                 }
 
-                Ok((forget_one, _)) => {
-                    data = &data[FUSE_FORGET_ONE_SIZE..];
+                Ok((forget_one, remaining_data)) => {
+                    data = remaining_data;
 
                     forgets.push(forget_one);
                 }
@@ -3766,7 +3691,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let fallocate_in: fuse_fallocate_in = match decode_from_slice(data, get_bincode_config()) {
+        let fallocate_in: fuse_fallocate_in = match fuse_fallocate_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_fallocate_in failed {}, request unique {}",
@@ -3812,9 +3737,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let config = get_bincode_config();
-            let data = encode_to_vec(&out_header, config)
-                .expect("won't happened");
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -3828,7 +3751,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let readdirplus_in: fuse_read_in = match decode_from_slice(data, get_bincode_config()) {
+        let readdirplus_in: fuse_read_in = match fuse_read_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_read_in in readdirplus failed {}, request unique {}",
@@ -3920,9 +3843,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                     },
                 };
 
-                let config = get_bincode_config();
-                encode_into_std_write(&dir_entry, &mut entry_data, config)
-                    .expect("won't happened");
+                dir_entry.write_to_io(&mut entry_data).unwrap();
 
                 entry_data.extend_from_slice(name.as_bytes());
 
@@ -3940,9 +3861,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config)
-                .expect("won't happened");
+            out_header.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender
                 .send(Either::Right((data, entry_data.into())))
@@ -3955,10 +3874,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         &mut self,
         request: Request,
         in_header: fuse_in_header,
-        mut data: &[u8],
+        data: &[u8],
         fs: &Arc<FS>,
     ) {
-        let rename2_in: fuse_rename2_in = match decode_from_slice(data, get_bincode_config()) {
+        let (rename2_in, data) = match fuse_rename2_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_rename2_in failed {}, request unique {}",
@@ -3970,10 +3889,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 return;
             }
 
-            Ok((rename2_in, _)) => rename2_in,
+            Ok(r) => r,
         };
-
-        data = &data[FUSE_RENAME2_IN_SIZE..];
 
         let (old_name, index) = match get_first_null_position(data) {
             None => {
@@ -3990,7 +3907,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             Some(index) => (OsString::from_vec(data[..index].to_vec()), index),
         };
 
-        data = &data[index + 1..];
+        let data = &data[index + 1..];
 
         let new_name = match get_first_null_position(data) {
             None => {
@@ -4043,8 +3960,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 unique: request.unique,
             };
 
-            let config = get_bincode_config();
-            let data = encode_to_vec(&out_header, config).unwrap();
+            let data = out_header.as_bytes().to_vec();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -4060,7 +3976,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     ) {
         let mut resp_sender = self.response_sender.clone();
 
-        let lseek_in = match decode_from_slice::<fuse_lseek_in, _>(data, get_bincode_config()) {
+        let lseek_in = match fuse_lseek_in::read_from_prefix(data) {
             Err(err) => {
                 error!(
                     "deserialize fuse_lseek_in failed {}, request unique {}",
@@ -4112,9 +4028,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_OPEN_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&lseek_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            lseek_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -4130,20 +4045,20 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     ) {
         let mut resp_sender = self.response_sender.clone();
 
-        let copy_file_range_in: fuse_copy_file_range_in = match decode_from_slice(data, get_bincode_config()) {
-                Err(err) => {
-                    error!(
-                        "deserialize fuse_copy_file_range_in failed {}, request unique {}",
-                        err, request.unique
-                    );
+        let copy_file_range_in = match fuse_copy_file_range_in::read_from_prefix(data) {
+            Err(err) => {
+                error!(
+                    "deserialize fuse_copy_file_range_in failed {}, request unique {}",
+                    err, request.unique
+                );
 
-                    reply_error_in_place(libc::EINVAL.into(), request, &self.response_sender).await;
+                reply_error_in_place(libc::EINVAL.into(), request, &self.response_sender).await;
 
-                    return;
-                }
+                return;
+            }
 
-                Ok((copy_file_range_in, _)) => copy_file_range_in,
-            };
+            Ok((copy_file_range_in, _)) => copy_file_range_in,
+        };
 
         let fs = fs.clone();
 
@@ -4186,9 +4101,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
             let mut data = Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_WRITE_OUT_SIZE);
 
-            let config = get_bincode_config();
-            encode_into_std_write(&out_header, &mut data, config).unwrap();
-            encode_into_std_write(&write_out, &mut data, config).unwrap();
+            out_header.write_to_io(&mut data).unwrap();
+            write_out.write_to_io(&mut data).unwrap();
 
             let _ = resp_sender.send(Either::Left(data)).await;
         });
@@ -4205,8 +4119,7 @@ where
         unique: request.unique,
     };
 
-    let data = encode_to_vec(&out_header, get_bincode_config())
-        .expect("won't happened");
+    let data = out_header.as_bytes().to_vec();
 
     let _ = pin!(sender).send(Either::Left(data)).await;
 }
