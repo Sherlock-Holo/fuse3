@@ -1,15 +1,11 @@
 //! notify kernel.
 
 use std::ffi::OsString;
-use std::os::unix::ffi::OsStrExt;
+use std::sync::Arc;
 
-use bincode_next::encode_into_std_write;
 use bytes::{Buf, Bytes};
-use futures_channel::mpsc::UnboundedSender;
-use futures_util::future::Either;
-use futures_util::sink::SinkExt;
+use zerocopy::IntoBytes;
 
-use crate::helper::get_bincode_config;
 use crate::raw::abi::{
     fuse_notify_code, fuse_notify_delete_out, fuse_notify_inval_entry_out,
     fuse_notify_inval_inode_out, fuse_notify_poll_wakeup_out, fuse_notify_retrieve_out,
@@ -18,23 +14,23 @@ use crate::raw::abi::{
     FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE, FUSE_NOTIFY_RETRIEVE_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE,
     FUSE_OUT_HEADER_SIZE,
 };
-use crate::raw::FuseData;
+use crate::raw::session::ResponseSender;
 
 #[derive(Debug, Clone)]
 /// notify kernel there are something need to handle.
 pub struct Notify {
-    sender: UnboundedSender<FuseData>,
+    sender: Arc<ResponseSender>,
 }
 
 impl Notify {
-    pub(crate) fn new(sender: UnboundedSender<FuseData>) -> Self {
+    pub(crate) fn new(sender: Arc<ResponseSender>) -> Self {
         Self { sender }
     }
 
     /// notify kernel there are something need to handle. If notify failed, the `kind` will be
     /// return in `Err`.
-    async fn notify(&mut self, kind: NotifyKind) -> Result<(), NotifyKind> {
-        let data = match &kind {
+    async fn notify(&mut self, kind: NotifyKind) {
+        match &kind {
             NotifyKind::Wakeup { kh } => {
                 let out_header = fuse_out_header {
                     len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE) as u32,
@@ -44,16 +40,7 @@ impl Notify {
 
                 let wakeup_out = fuse_notify_poll_wakeup_out { kh: *kh };
 
-                let mut data =
-                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE);
-
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
-                    .expect("vec size is not enough");
-                encode_into_std_write(&wakeup_out, &mut data, config)
-                    .expect("vec size is not enough");
-
-                Either::Left(data)
+                self.sender.send2(&out_header, wakeup_out.as_bytes()).await;
             }
 
             NotifyKind::InvalidInode { inode, offset, len } => {
@@ -69,16 +56,7 @@ impl Notify {
                     len: *len,
                 };
 
-                let mut data =
-                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_INODE_OUT_SIZE);
-
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
-                    .expect("vec size is not enough");
-                encode_into_std_write(&invalid_inode_out, &mut data, config)
-                    .expect("vec size is not enough");
-
-                Either::Left(data)
+                self.sender.send2(&out_header, invalid_inode_out.as_bytes()).await;
             }
 
             NotifyKind::InvalidEntry { parent, name } => {
@@ -94,18 +72,8 @@ impl Notify {
                     _padding: 0,
                 };
 
-                let mut data =
-                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE);
-
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
-                    .expect("vec size is not enough");
-                encode_into_std_write(&invalid_entry_out, &mut data, config)
-                    .expect("vec size is not enough");
-
                 // TODO should I add null at the end?
-
-                Either::Right((data, Bytes::copy_from_slice(name.as_bytes())))
+                self.sender.send2(&out_header, invalid_entry_out.as_bytes()).await;
             }
 
             NotifyKind::Delete {
@@ -126,18 +94,8 @@ impl Notify {
                     _padding: 0,
                 };
 
-                let mut data =
-                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_DELETE_OUT_SIZE);
-
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
-                    .expect("vec size is not enough");
-                encode_into_std_write(&delete_out, &mut data, config)
-                    .expect("vec size is not enough");
-
                 // TODO should I add null at the end?
-
-                Either::Right((data, Bytes::copy_from_slice(name.as_bytes())))
+                self.sender.send2(&out_header, delete_out.as_bytes()).await;
             }
 
             NotifyKind::Store {
@@ -158,16 +116,7 @@ impl Notify {
                     _padding: 0,
                 };
 
-                let mut data_buf =
-                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_STORE_OUT_SIZE);
-
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data_buf, config)
-                    .expect("vec size is not enough");
-                encode_into_std_write(&store_out, &mut data_buf, config)
-                    .expect("vec size is not enough");
-
-                Either::Right((data_buf, data.clone()))
+                self.sender.send2(&out_header, store_out.as_bytes()).await;
             }
 
             NotifyKind::Retrieve {
@@ -190,42 +139,31 @@ impl Notify {
                     _padding: 0,
                 };
 
-                let mut data =
-                    Vec::with_capacity(FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_RETRIEVE_OUT_SIZE);
-
-                let config = get_bincode_config();
-                encode_into_std_write(&out_header, &mut data, config)
-                    .expect("vec size is not enough");
-                encode_into_std_write(&retrieve_out, &mut data, config)
-                    .expect("vec size is not enough");
-
-                Either::Left(data)
+                self.sender.send2(&out_header, retrieve_out.as_bytes()).await;
             }
         };
-
-        self.sender.send(data).await.or(Err(kind))
     }
 
     /// try to notify kernel the IO is ready, kernel can wakeup the waiting program.
     pub async fn wakeup(mut self, kh: u64) {
-        let _ = self.notify(NotifyKind::Wakeup { kh }).await;
+        self.notify(NotifyKind::Wakeup { kh }).await;
     }
 
     /// try to notify the cache invalidation about an inode.
     pub async fn invalid_inode(mut self, inode: u64, offset: i64, len: i64) {
-        let _ = self
+        self
             .notify(NotifyKind::InvalidInode { inode, offset, len })
             .await;
     }
 
     /// try to notify the invalidation about a directory entry.
     pub async fn invalid_entry(mut self, parent: u64, name: OsString) {
-        let _ = self.notify(NotifyKind::InvalidEntry { parent, name }).await;
+        self.notify(NotifyKind::InvalidEntry { parent, name }).await;
     }
 
     /// try to notify a directory entry has been deleted.
     pub async fn delete(mut self, parent: u64, child: u64, name: OsString) {
-        let _ = self
+        self
             .notify(NotifyKind::Delete {
                 parent,
                 child,
@@ -236,7 +174,7 @@ impl Notify {
 
     /// try to push the data in an inode for updating the kernel cache.
     pub async fn store(mut self, inode: u64, offset: u64, mut data: impl Buf) {
-        let _ = self
+        self
             .notify(NotifyKind::Store {
                 inode,
                 offset,
@@ -247,7 +185,7 @@ impl Notify {
 
     /// try to retrieve data in an inode from the kernel cache.
     pub async fn retrieve(mut self, notify_unique: u64, inode: u64, offset: u64, size: u32) {
-        let _ = self
+        self
             .notify(NotifyKind::Retrieve {
                 notify_unique,
                 inode,

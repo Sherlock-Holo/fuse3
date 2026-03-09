@@ -29,7 +29,6 @@ async-lock = { version = "3.3.0", optional = true }
 async-notify = "0.3"
 async-io = { version = "2.3.1", optional = true }
 async-process = { version = "2.1.0", optional = true }
-bincode-next = { version = "2.0.4", default-features = false, features = ["derive", "std"] }
 bytes = "1.5"
 futures-channel = { version = "0.3.30", features = ["sink"] }
 futures-util = { version = "0.3.30", features = ["sink"] }
@@ -39,6 +38,7 @@ slab = "0.4.9"
 tracing = "0.1.40"
 trait-make = "0.1"
 which = { version = "6", optional = true }
+zerocopy = {version = "0.8.10", features = ["derive", "std"]}
 
 [dependencies.tokio]
 version = "1.45"
