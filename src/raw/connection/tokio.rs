@@ -4,12 +4,6 @@ use std::env;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
-#[cfg(any(
-    all(target_os = "linux", feature = "unprivileged"),
-    target_os = "freebsd",
-    target_os = "macos",
-))]
-use std::io::ErrorKind;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io::Write;
 use std::io::{IoSlice, IoSliceMut};
@@ -40,7 +34,7 @@ use std::{ffi::OsString, path::Path};
 
 use async_notify::Notify;
 use futures_util::lock::Mutex;
-use futures_util::{select, FutureExt};
+use futures_util::{FutureExt, select};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
@@ -58,14 +52,14 @@ use nix::{
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
-    target_os = "macos",
 ))]
-use tokio::io::unix::AsyncFd;
+use tokio::io::Interest;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
+    target_os = "macos",
 ))]
-use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "macos"
@@ -82,13 +76,13 @@ use tracing::debug;
 use tracing::warn;
 
 use super::CompleteIoResult;
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use crate::find_fusermount3;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "macos"
 ))]
 use crate::MountOptions;
+#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+use crate::find_fusermount3;
 
 #[derive(Debug)]
 pub struct FuseConnection {
@@ -485,10 +479,7 @@ impl NonBlockFuseConnection {
             .spawn()?;
 
         if !child.wait().await?.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "fusermount run failed",
-            ));
+            return Err(io::Error::other("fusermount run failed"));
         }
 
         let fd1 = sock1.as_raw_fd();
@@ -513,12 +504,12 @@ impl NonBlockFuseConnection {
 
             let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs()?.next() {
                 if fds.is_empty() {
-                    return Err(io::Error::new(ErrorKind::Other, "no fuse fd"));
+                    return Err(io::Error::other("no fuse fd"));
                 }
 
                 fds[0]
             } else {
-                return Err(io::Error::new(ErrorKind::Other, "get fuse fd failed"));
+                return Err(io::Error::other("get fuse fd failed"));
             };
 
             Ok(fd)
@@ -526,10 +517,10 @@ impl NonBlockFuseConnection {
         .await
         .unwrap()?;
 
-        Self::set_fd_non_blocking(fd)?;
-
         // Safety: fd is valid
         let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+
+        Self::set_fd_non_blocking(fd.as_fd())?;
 
         Ok(Self {
             fd: AsyncFd::new(fd)?,
@@ -542,7 +533,7 @@ impl NonBlockFuseConnection {
         all(target_os = "linux", feature = "unprivileged"),
         target_os = "macos"
     ))]
-    fn set_fd_non_blocking(fd: RawFd) -> io::Result<()> {
+    fn set_fd_non_blocking(fd: BorrowedFd) -> io::Result<()> {
         let flags = nix::fcntl::fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
         debug!(
             "set fd {:?} to non-blocking",

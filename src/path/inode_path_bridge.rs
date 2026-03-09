@@ -57,14 +57,14 @@ impl InodeNameManager {
     }
 
     fn remove_name(&mut self, name: &Name) {
-        if let Some(inode) = self.name_to_inode.remove(name) {
-            if let Some(names) = self.inode_to_names.get_mut(&inode) {
-                names.remove(name);
+        if let Some(inode) = self.name_to_inode.remove(name)
+            && let Some(names) = self.inode_to_names.get_mut(&inode)
+        {
+            names.remove(name);
 
-                if names.is_empty() {
-                    self.inode_to_names.remove(&inode);
-                    self.inode_generator.release_inode(inode);
-                }
+            if names.is_empty() {
+                self.inode_to_names.remove(&inode);
+                self.inode_generator.release_inode(inode);
             }
         }
     }
