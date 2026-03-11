@@ -1,10 +1,10 @@
 use std::ffi::OsString;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use std::os::unix::io::RawFd;
 
 #[cfg(target_os = "freebsd")]
 use nix::mount::Nmount;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 use nix::unistd;
 
 /// mount options.

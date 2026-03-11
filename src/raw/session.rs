@@ -7,9 +7,11 @@ use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
 use std::num::NonZeroU32;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::pin::{Pin, pin};
@@ -560,7 +562,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     #[cfg(target_os = "macos")]
-    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
+    pub async fn mount<P: AsRef<Path>>(self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
         self.mount_with_unprivileged(fs, mount_path).await
     }
 
