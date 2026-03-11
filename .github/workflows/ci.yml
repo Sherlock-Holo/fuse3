@@ -68,7 +68,7 @@ jobs:
           release: "14.3"
           usesh: true
           prepare: |
-            pkg install -y ca_root_nss
+            pkg install -y ca_root_nss curl
             fetch https://sh.rustup.rs -o rustup.sh
             sh rustup.sh -y --profile=minimal
           run: |
@@ -85,18 +85,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: MinVer check on FreeBSD
-        uses: vmactions/freebsd-vm@v1
+      - name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          release: "14.3"
-          usesh: true
-          prepare: |
-            pkg install -y ca_root_nss
-            fetch https://sh.rustup.rs -o rustup.sh
-            sh rustup.sh -y --default-toolchain nightly --profile=minimal
-          run: |
-            . $HOME/.cargo/env || true
-            rustup component add clippy
-            cargo update -Zdirect-minimal-versions
-            cargo clippy --all-targets --features=tokio-runtime,file-lock,unprivileged
-            cargo clippy --all-targets --features=async-io-runtime,file-lock,unprivileged
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: MinVer check
+        run: |
+          cargo update -Zdirect-minimal-versions
+          cargo clippy --all-targets --features=tokio-runtime,file-lock,unprivileged
+          cargo clippy --all-targets --features=async-io-runtime,file-lock,unprivileged
