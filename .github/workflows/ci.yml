@@ -65,7 +65,7 @@ jobs:
       - name: Build on FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.3"
+          release: "15.0"
           usesh: true
           prepare: |
             pkg install -y ca_root_nss curl
