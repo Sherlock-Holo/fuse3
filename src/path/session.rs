@@ -1,10 +1,10 @@
 use std::io;
 use std::path::Path;
 
+use crate::MountOptions;
 use crate::path::inode_path_bridge::InodePathBridge;
 use crate::path::path_filesystem::PathFilesystem;
 use crate::raw;
-use crate::MountOptions;
 
 #[cfg(any(feature = "async-io-runtime", feature = "tokio-runtime"))]
 #[derive(Debug)]

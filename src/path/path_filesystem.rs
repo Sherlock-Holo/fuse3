@@ -3,8 +3,8 @@ use std::ffi::OsStr;
 use bytes::Bytes;
 use futures_util::stream::{Empty, Stream};
 
-use super::reply::*;
 use super::Request;
+use super::reply::*;
 use crate::notify::Notify;
 use crate::{Result, SetAttr};
 

@@ -43,9 +43,9 @@ use async_notify::Notify;
     target_os = "macos"
 ))]
 use async_process::Command;
+use futures_util::{FutureExt, select};
 #[cfg(target_os = "macos")]
 use futures_util::{join, try_join};
-use futures_util::{select, FutureExt};
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "macos"
@@ -63,14 +63,14 @@ use nix::sys::uio;
 ))]
 use tracing::debug;
 
-#[cfg(all(target_os = "linux", feature = "unprivileged"))]
-use crate::find_fusermount3;
-use crate::raw::connection::CompleteIoResult;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "macos"
 ))]
 use crate::MountOptions;
+#[cfg(all(target_os = "linux", feature = "unprivileged"))]
+use crate::find_fusermount3;
+use crate::raw::connection::CompleteIoResult;
 #[derive(Debug)]
 pub struct FuseConnection {
     unmount_notify: Arc<Notify>,
@@ -266,10 +266,7 @@ impl BlockFuseConnection {
                 .args(vec![options, mount_path])
                 .spawn()?;
             if !child.status().await?.success() {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "fusermount run failed",
-                ));
+                return Err(io::Error::other("fusermount run failed"));
             }
             Ok(())
         });
@@ -306,12 +303,12 @@ impl BlockFuseConnection {
 
             let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = cmsgs.next() {
                 if fds.is_empty() {
-                    return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
+                    return Err(io::Error::other("no fuse fd"));
                 }
 
                 fds[0]
             } else {
-                return Err(io::Error::new(io::ErrorKind::Other, "get fuse fd failed"));
+                return Err(io::Error::other("get fuse fd failed"));
             };
 
             Ok(fd)
@@ -449,10 +446,7 @@ impl NonBlockFuseConnection {
             .spawn()?;
 
         if !child.status().await?.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "fusermount run failed",
-            ));
+            return Err(io::Error::other("fusermount run failed"));
         }
 
         let fd1 = sock1.as_raw_fd();
@@ -477,12 +471,12 @@ impl NonBlockFuseConnection {
 
             let fd = if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs()?.next() {
                 if fds.is_empty() {
-                    return Err(io::Error::new(io::ErrorKind::Other, "no fuse fd"));
+                    return Err(io::Error::other("no fuse fd"));
                 }
 
                 fds[0]
             } else {
-                return Err(io::Error::new(io::ErrorKind::Other, "get fuse fd failed"));
+                return Err(io::Error::other("get fuse fd failed"));
             };
 
             Ok(fd)

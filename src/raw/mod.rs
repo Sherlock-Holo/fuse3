@@ -20,12 +20,12 @@ mod request;
 pub(crate) mod session;
 
 pub mod prelude {
-    pub use super::reply::FileAttr;
-    pub use super::reply::*;
     pub use super::Filesystem;
     pub use super::Request;
     pub use super::Session;
-    pub use crate::notify::Notify;
+    pub use super::reply::FileAttr;
+    pub use super::reply::*;
     pub use crate::FileType;
     pub use crate::SetAttr;
+    pub use crate::notify::Notify;
 }

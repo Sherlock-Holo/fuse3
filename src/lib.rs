@@ -20,11 +20,13 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
+#[cfg(target_os = "macos")]
+use std::io::ErrorKind;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "macos"
 ))]
-use std::io::{self, ErrorKind};
+use std::io::{self};
 #[cfg(target_os = "macos")]
 use std::path::Path;
 #[cfg(any(
@@ -39,8 +41,8 @@ pub use helper::{mode_from_kind_and_perm, perm_from_mode_and_kind};
 pub use mount_options::MountOptions;
 use nix::sys::stat::mode_t;
 use raw::abi::{
-    fuse_setattr_in, FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_GID, FATTR_LOCKOWNER,
-    FATTR_MODE, FATTR_MTIME, FATTR_MTIME_NOW, FATTR_SIZE, FATTR_UID,
+    FATTR_ATIME, FATTR_ATIME_NOW, FATTR_CTIME, FATTR_GID, FATTR_LOCKOWNER, FATTR_MODE, FATTR_MTIME,
+    FATTR_MTIME_NOW, FATTR_SIZE, FATTR_UID, fuse_setattr_in,
 };
 #[cfg(target_os = "macos")]
 use raw::abi::{FATTR_BKUPTIME, FATTR_CHGTIME, FATTR_CRTIME, FATTR_FLAGS};
@@ -237,12 +239,8 @@ impl From<SystemTime> for Timestamp {
 
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 fn find_fusermount3() -> io::Result<PathBuf> {
-    which::which("fusermount3").map_err(|err| {
-        io::Error::new(
-            ErrorKind::Other,
-            format!("find fusermount3 binary failed {err:?}"),
-        )
-    })
+    which::which("fusermount3")
+        .map_err(|err| io::Error::other(format!("find fusermount3 binary failed {err:?}")))
 }
 
 #[cfg(target_os = "macos")]

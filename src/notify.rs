@@ -7,12 +7,12 @@ use bytes::{Buf, Bytes};
 use zerocopy::IntoBytes;
 
 use crate::raw::abi::{
+    FUSE_NOTIFY_DELETE_OUT_SIZE, FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE,
+    FUSE_NOTIFY_INVAL_INODE_OUT_SIZE, FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE,
+    FUSE_NOTIFY_RETRIEVE_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE, FUSE_OUT_HEADER_SIZE,
     fuse_notify_code, fuse_notify_delete_out, fuse_notify_inval_entry_out,
     fuse_notify_inval_inode_out, fuse_notify_poll_wakeup_out, fuse_notify_retrieve_out,
-    fuse_notify_store_out, fuse_out_header, FUSE_NOTIFY_DELETE_OUT_SIZE,
-    FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE, FUSE_NOTIFY_INVAL_INODE_OUT_SIZE,
-    FUSE_NOTIFY_POLL_WAKEUP_OUT_SIZE, FUSE_NOTIFY_RETRIEVE_OUT_SIZE, FUSE_NOTIFY_STORE_OUT_SIZE,
-    FUSE_OUT_HEADER_SIZE,
+    fuse_notify_store_out, fuse_out_header,
 };
 use crate::raw::session::ResponseSender;
 
@@ -56,7 +56,9 @@ impl Notify {
                     len: *len,
                 };
 
-                self.sender.send2(&out_header, invalid_inode_out.as_bytes()).await;
+                self.sender
+                    .send2(&out_header, invalid_inode_out.as_bytes())
+                    .await;
             }
 
             NotifyKind::InvalidEntry { parent, name } => {
@@ -73,7 +75,9 @@ impl Notify {
                 };
 
                 // TODO should I add null at the end?
-                self.sender.send2(&out_header, invalid_entry_out.as_bytes()).await;
+                self.sender
+                    .send2(&out_header, invalid_entry_out.as_bytes())
+                    .await;
             }
 
             NotifyKind::Delete {
@@ -139,7 +143,9 @@ impl Notify {
                     _padding: 0,
                 };
 
-                self.sender.send2(&out_header, retrieve_out.as_bytes()).await;
+                self.sender
+                    .send2(&out_header, retrieve_out.as_bytes())
+                    .await;
             }
         };
     }
@@ -151,8 +157,7 @@ impl Notify {
 
     /// try to notify the cache invalidation about an inode.
     pub async fn invalid_inode(mut self, inode: u64, offset: i64, len: i64) {
-        self
-            .notify(NotifyKind::InvalidInode { inode, offset, len })
+        self.notify(NotifyKind::InvalidInode { inode, offset, len })
             .await;
     }
 
@@ -163,36 +168,33 @@ impl Notify {
 
     /// try to notify a directory entry has been deleted.
     pub async fn delete(mut self, parent: u64, child: u64, name: OsString) {
-        self
-            .notify(NotifyKind::Delete {
-                parent,
-                child,
-                name,
-            })
-            .await;
+        self.notify(NotifyKind::Delete {
+            parent,
+            child,
+            name,
+        })
+        .await;
     }
 
     /// try to push the data in an inode for updating the kernel cache.
     pub async fn store(mut self, inode: u64, offset: u64, mut data: impl Buf) {
-        self
-            .notify(NotifyKind::Store {
-                inode,
-                offset,
-                data: data.copy_to_bytes(data.remaining()),
-            })
-            .await;
+        self.notify(NotifyKind::Store {
+            inode,
+            offset,
+            data: data.copy_to_bytes(data.remaining()),
+        })
+        .await;
     }
 
     /// try to retrieve data in an inode from the kernel cache.
     pub async fn retrieve(mut self, notify_unique: u64, inode: u64, offset: u64, size: u32) {
-        self
-            .notify(NotifyKind::Retrieve {
-                notify_unique,
-                inode,
-                offset,
-                size,
-            })
-            .await;
+        self.notify(NotifyKind::Retrieve {
+            notify_unique,
+            inode,
+            offset,
+            size,
+        })
+        .await;
     }
 }
 

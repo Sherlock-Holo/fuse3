@@ -7,12 +7,14 @@ use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
 use std::num::NonZeroU32;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::pin::{pin, Pin};
+use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -45,9 +47,10 @@ use tokio::process::Command;
 use tokio::task::JoinHandle;
 #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
 use tokio::{fs::read_dir, task};
-use tracing::{debug, debug_span, error, instrument, warn, Instrument, Span};
+use tracing::{Instrument, Span, debug, debug_span, error, instrument, warn};
 use zerocopy::{FromBytes, IntoBytes};
 
+use crate::MountOptions;
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use crate::find_fusermount3;
 use crate::helper::*;
@@ -58,7 +61,6 @@ use crate::raw::connection::FuseConnection;
 use crate::raw::filesystem::Filesystem;
 use crate::raw::reply::ReplyXAttr;
 use crate::raw::request::Request;
-use crate::MountOptions;
 use crate::{Errno, SetAttr};
 
 /// A Future which returns when a file system is unmounted
@@ -102,7 +104,7 @@ impl Drop for MountHandle {
 
 /// A sender for sending response to kernel, it will send response immediately when call send method, and notify session when send failed.
 #[derive(Debug)]
-pub (crate) struct ResponseSender {
+pub(crate) struct ResponseSender {
     /// notify session when send failed, session will stop and unmount when receive this notify
     send_failed: Arc<async_notify::Notify>,
     /// connection to write response
@@ -111,7 +113,7 @@ pub (crate) struct ResponseSender {
 
 impl ResponseSender {
     /// send response with only header, no data
-    pub (crate) async fn send1(&self, header: &fuse_out_header) {
+    pub(crate) async fn send1(&self, header: &fuse_out_header) {
         if let Err(err) = self
             .connection
             .write_vectored::<_, &[u8]>(header.as_bytes(), None)
@@ -131,7 +133,7 @@ impl ResponseSender {
     }
 
     /// send response with header and data
-    pub (crate) async fn send2(&self, header: &fuse_out_header, data: &[u8]) {
+    pub(crate) async fn send2(&self, header: &fuse_out_header, data: &[u8]) {
         if let Err(err) = self
             .connection
             .write_vectored::<_, &[u8]>(header.as_bytes(), Some(data))
@@ -151,7 +153,7 @@ impl ResponseSender {
     }
 
     /// send response with header and two parts of data.
-    pub (crate) async fn send3(&self, header: &fuse_out_header, d1: &[u8], d2: &[u8]) {
+    pub(crate) async fn send3(&self, header: &fuse_out_header, d1: &[u8], d2: &[u8]) {
         // TODO: Implement a write_vectored in FuseConnection to avoid this copy
         let mut data = Vec::with_capacity(d1.len() + d2.len());
         data.extend_from_slice(d1);
@@ -233,10 +235,7 @@ impl MountHandleInner {
                         .args([OsStr::new("-u"), self.mount_path.as_os_str()])
                         .spawn()?;
                     if !child.status().await?.success() {
-                        return Err(IoError::new(
-                            ErrorKind::Other,
-                            "call fusermount3 -u to unmount failed",
-                        ));
+                        return Err(IoError::other("call fusermount3 -u to unmount failed"));
                     }
 
                     return Ok(());
@@ -278,10 +277,7 @@ impl MountHandleInner {
                         .args([OsStr::new("-u"), self.mount_path.as_os_str()])
                         .spawn()?;
                     if !child.wait().await?.success() {
-                        return Err(IoError::new(
-                            ErrorKind::Other,
-                            "call fusermount3 -u to unmount failed",
-                        ));
+                        return Err(IoError::other("call fusermount3 -u to unmount failed"));
                     }
 
                     return Ok(());
@@ -566,7 +562,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
     }
 
     #[cfg(target_os = "macos")]
-    pub async fn mount<P: AsRef<Path>>(mut self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
+    pub async fn mount<P: AsRef<Path>>(self, fs: FS, mount_path: P) -> IoResult<MountHandle> {
         self.mount_with_unprivileged(fs, mount_path).await
     }
 
@@ -594,7 +590,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
         select! {
             _ = send_failed => {
-                return Err(std::io::Error::new(ErrorKind::Other, "send response failed"))
+                return Err(std::io::Error::other("send response failed"))
             }
 
             dispatch_result = dispatch_task => {
@@ -688,12 +684,12 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         };
         let n = match res {
             Err(err) => {
-                if let Some(errno) = err.raw_os_error() {
-                    if errno == libc::ENODEV {
-                        debug!("read from /dev/fuse failed with ENODEV");
+                if let Some(errno) = err.raw_os_error()
+                    && errno == libc::ENODEV
+                {
+                    debug!("read from /dev/fuse failed with ENODEV");
 
-                        return ReadResult::Destroy;
-                    }
+                    return ReadResult::Destroy;
                 }
 
                 error!("read from /dev/fuse failed {}", err);
@@ -2476,7 +2472,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         // setxattr "size" field specifies size of only "Value" part of data
         if setxattr_in.size as usize != data.len() {
             error!(
-                "fuse_setxattr_in value field data length is not right, request unique {} setxattr_in.size={} data.len={}", request.unique, setxattr_in.size, data.len());
+                "fuse_setxattr_in value field data length is not right, request unique {} setxattr_in.size={} data.len={}",
+                request.unique,
+                setxattr_in.size,
+                data.len()
+            );
 
             self.response_sender()
                 .send_err(&request, libc::EINVAL.into())
@@ -3593,7 +3593,10 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         while data.len() >= FUSE_FORGET_ONE_SIZE {
             match fuse_forget_one::read_from_prefix(data) {
                 Err(err) => {
-                    error!("deserialize fuse_batch_forget_in body fuse_forget_one failed {}, request unique {}", err, request.unique);
+                    error!(
+                        "deserialize fuse_batch_forget_in body fuse_forget_one failed {}, request unique {}",
+                        err, request.unique
+                    );
 
                     // no need to reply
                     return;
