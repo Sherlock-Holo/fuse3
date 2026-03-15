@@ -727,7 +727,7 @@ where
         req: Request,
         parent: u64,
         fh: u64,
-        offset: i64,
+        offset: u64,
     ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + '_>> {
         let mut inode_name_manager = self.inode_name_manager.write().await;
         let parent_path = inode_name_manager
