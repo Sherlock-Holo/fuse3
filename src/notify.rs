@@ -1,4 +1,4 @@
-//! notify kernel.
+//! notify kernel of changes to data it may have in its cache
 
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use crate::raw::abi::{
 use crate::raw::session::ResponseSender;
 
 #[derive(Debug, Clone)]
-/// notify kernel there are something need to handle.
+/// queue of change notifications to send to the kernel
 pub struct Notify {
     sender: Arc<ResponseSender>,
 }
