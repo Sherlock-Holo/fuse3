@@ -147,9 +147,7 @@ impl Default for Fs {
 
 impl PathFilesystem for Fs {
     async fn init(&self, _req: Request) -> Result<ReplyInit> {
-        Ok(ReplyInit {
-            max_write: NonZeroU32::new(16 * 1024).unwrap(),
-        })
+        Ok(ReplyInit::new(NonZeroU32::new(16 * 1024).unwrap()))
     }
 
     async fn destroy(&self, _req: Request) {}
