@@ -149,7 +149,9 @@ where
         let reply_init = self.path_filesystem.init(req).await?;
 
         Ok(ReplyInit {
-            max_write: reply_init.max_write,
+            max_background: reply_init.max_background,
+            congestion_threshold: reply_init.congestion_threshold,
+            ..ReplyInit::new(reply_init.max_write)
         })
     }
 
