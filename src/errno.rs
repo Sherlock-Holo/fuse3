@@ -4,7 +4,7 @@ use std::io::Error as IoError;
 use std::os::raw::c_int;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-/// linux errno wrap.
+/// linux errno wrapper.
 pub struct Errno(c_int);
 
 impl From<Errno> for c_int {
@@ -19,7 +19,7 @@ impl From<c_int> for Errno {
     }
 }
 
-/// When raw os error is undefined, will return Errno(libc::EIO)
+/// When raw os error is undefined, will return `Errno(libc::EIO)`
 impl From<IoError> for Errno {
     fn from(err: IoError) -> Self {
         if let Some(errno) = err.raw_os_error() {
