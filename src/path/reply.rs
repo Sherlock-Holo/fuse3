@@ -146,7 +146,7 @@ pub struct DirectoryEntry {
     /// entry name.
     pub name: OsString,
     /// Directory offset of the _next_ entry
-    pub offset: i64,
+    pub offset: u64,
 }
 
 /// readdir reply.
@@ -170,7 +170,7 @@ pub struct DirectoryEntryPlus {
     /// the entry name.
     pub name: OsString,
     /// Directory offset of the _next_ entry
-    pub offset: i64,
+    pub offset: u64,
     /// the entry attribute.
     pub attr: FileAttr,
     /// the entry TTL.
