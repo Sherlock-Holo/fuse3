@@ -112,6 +112,43 @@ pub(crate) struct ResponseSender {
 }
 
 impl ResponseSender {
+    /// Handle a failure while writing a reply to the kernel.
+    ///
+    /// A failed reply to a *single* request must not tear down the whole
+    /// session — only a genuinely dead connection should. We therefore treat
+    /// transient, per-request errors as recoverable (drop this one reply and
+    /// keep serving):
+    /// - `NotFound` (ENOENT): the request was interrupted.
+    /// - `InvalidInput` (EINVAL), `WouldBlock` (EAGAIN), `Interrupted` (EINTR):
+    ///   macFUSE can transiently reject a device write under heavy concurrent
+    ///   load (e.g. while Spotlight crawls the mount). Killing the mount over
+    ///   one such error left the volume wedged (every later op `ENXIO`).
+    ///
+    /// Connection-gone errors (e.g. ENODEV/EBADF on unmount) map to other
+    /// kinds and still notify `send_failed`, so a clean unmount stops the
+    /// session as before.
+    fn handle_send_error(&self, err: IoError) {
+        if Self::is_recoverable_reply_error(err.kind()) {
+            warn!("dropping a failed fuse reply, session continues: {}", err);
+        } else {
+            error!("reply fuse failed {}", err);
+            self.send_failed.notify();
+        }
+    }
+
+    /// Whether a failed reply write is a transient, per-request error (session
+    /// keeps running) rather than a dead connection (fatal). Pure function so
+    /// the policy is unit-testable.
+    fn is_recoverable_reply_error(kind: ErrorKind) -> bool {
+        matches!(
+            kind,
+            ErrorKind::NotFound
+                | ErrorKind::InvalidInput
+                | ErrorKind::WouldBlock
+                | ErrorKind::Interrupted
+        )
+    }
+
     /// send response with only header, no data
     pub(crate) async fn send1(&self, header: &fuse_out_header) {
         if let Err(err) = self
@@ -120,15 +157,7 @@ impl ResponseSender {
             .await
             .1
         {
-            if err.kind() == ErrorKind::NotFound {
-                warn!(
-                    "may reply interrupted fuse request, ignore this error {}",
-                    err
-                );
-            } else {
-                error!("reply fuse failed {}", err);
-                self.send_failed.notify();
-            }
+            self.handle_send_error(err);
         }
     }
 
@@ -140,15 +169,7 @@ impl ResponseSender {
             .await
             .1
         {
-            if err.kind() == ErrorKind::NotFound {
-                warn!(
-                    "may reply interrupted fuse request, ignore this error {}",
-                    err
-                );
-            } else {
-                error!("reply fuse failed {}", err);
-                self.send_failed.notify();
-            }
+            self.handle_send_error(err);
         }
     }
 
@@ -164,15 +185,7 @@ impl ResponseSender {
             .await
             .1
         {
-            if err.kind() == ErrorKind::NotFound {
-                warn!(
-                    "may reply interrupted fuse request, ignore this error {}",
-                    err
-                );
-            } else {
-                error!("reply fuse failed {}", err);
-                self.send_failed.notify();
-            }
+            self.handle_send_error(err);
         }
     }
 
@@ -1290,7 +1303,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             max_readahead: init_in.max_readahead,
             flags: reply_flags,
             max_background: reply.max_background.unwrap_or(DEFAULT_MAX_BACKGROUND),
-            congestion_threshold: reply.congestion_threshold.unwrap_or(DEFAULT_CONGESTION_THRESHOLD),
+            congestion_threshold: reply
+                .congestion_threshold
+                .unwrap_or(DEFAULT_CONGESTION_THRESHOLD),
             max_write: reply.max_write.get(),
             time_gran: DEFAULT_TIME_GRAN,
             max_pages: DEFAULT_MAX_PAGES,
@@ -4053,4 +4068,38 @@ where
 
     #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
     task::spawn(fut.instrument(span)).detach()
+}
+
+#[cfg(test)]
+mod reply_error_policy_tests {
+    use std::io::Error as IoError;
+
+    use super::ResponseSender;
+
+    /// A failed reply to a single request caused by a transient/per-request
+    /// condition must NOT tear down the session. These are the errors macFUSE
+    /// can hand back under heavy concurrent load.
+    #[test]
+    fn transient_reply_errors_are_recoverable() {
+        for code in [libc::ENOENT, libc::EINVAL, libc::EAGAIN, libc::EINTR] {
+            let kind = IoError::from_raw_os_error(code).kind();
+            assert!(
+                ResponseSender::is_recoverable_reply_error(kind),
+                "errno {code} ({kind:?}) should be recoverable"
+            );
+        }
+    }
+
+    /// A dead connection must stay fatal so a clean unmount still stops the
+    /// session (otherwise it would spin forever).
+    #[test]
+    fn connection_gone_errors_are_fatal() {
+        for code in [libc::ENODEV, libc::EBADF, libc::EPIPE, libc::ECONNRESET] {
+            let kind = IoError::from_raw_os_error(code).kind();
+            assert!(
+                !ResponseSender::is_recoverable_reply_error(kind),
+                "errno {code} ({kind:?}) should be fatal"
+            );
+        }
+    }
 }
