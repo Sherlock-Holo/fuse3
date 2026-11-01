@@ -58,6 +58,35 @@ impl Filesystem for Probe {
         self.0.ready.notify_one();
     }
     async fn destroy(&self, _: Request) {}
+    #[cfg(feature = "file-lock")]
+    async fn getlk(
+        &self,
+        _: Request,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: u32,
+        _: u32,
+    ) -> Result<ReplyLock> {
+        Err(libc::ENOSYS.into())
+    }
+    #[cfg(feature = "file-lock")]
+    async fn setlk(
+        &self,
+        _: Request,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: u64,
+        _: u32,
+        _: u32,
+        _: bool,
+    ) -> Result<()> {
+        Err(libc::ENOSYS.into())
+    }
     async fn lookup(&self, _: Request, parent: u64, name: &OsStr) -> Result<ReplyEntry> {
         if parent != 1 || name != "file" {
             return Err(libc::ENOENT.into());
