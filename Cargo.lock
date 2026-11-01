@@ -284,6 +284,7 @@ dependencies = [
  "libc",
  "nix",
  "slab",
+ "tempfile",
  "tokio",
  "tracing",
  "trait-make",

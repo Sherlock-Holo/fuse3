@@ -658,8 +658,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         let data_size = in_header.len as usize - FUSE_IN_HEADER_SIZE;
         let data_ref = &data_buffer[..data_size];
 
-        self.handle_init(request, data_ref, fuse_connection, fs)
-            .await
+        let max_write = self
+            .handle_init(request, data_ref, fuse_connection, fs)
+            .await?;
+        fs.ready(self.get_notify()).await;
+        Ok(max_write)
     }
 
     #[instrument(level = "debug", skip(self, header_buffer, data_buffer), ret)]
@@ -1290,7 +1293,9 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             max_readahead: init_in.max_readahead,
             flags: reply_flags,
             max_background: reply.max_background.unwrap_or(DEFAULT_MAX_BACKGROUND),
-            congestion_threshold: reply.congestion_threshold.unwrap_or(DEFAULT_CONGESTION_THRESHOLD),
+            congestion_threshold: reply
+                .congestion_threshold
+                .unwrap_or(DEFAULT_CONGESTION_THRESHOLD),
             max_write: reply.max_write.get(),
             time_gran: DEFAULT_TIME_GRAN,
             max_pages: DEFAULT_MAX_PAGES,
