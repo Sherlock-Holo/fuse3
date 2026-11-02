@@ -1379,3 +1379,374 @@ where
             .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manager() -> InodeNameManager {
+        Arc::into_inner(InodePathBridge::new(()).inode_name_manager)
+            .unwrap()
+            .into_inner()
+    }
+
+    fn name(name: &str) -> Name {
+        Name::new(ROOT_INODE, OsString::from(name))
+    }
+
+    #[test]
+    fn unlinked_inode_keeps_its_number_until_forget() {
+        let mut manager = manager();
+        let old = manager.insert_name(name("old"));
+        manager.looked_up(old);
+
+        // unlinked while the kernel still knows it, for example an open file
+        manager.remove_name(&name("old"));
+        let new = manager.insert_name(name("new"));
+        manager.looked_up(new);
+        assert_ne!(old, new);
+
+        manager.forget(old, 1);
+        assert_eq!(manager.get_name_inode(&name("new")), Some(new));
+        assert_eq!(manager.insert_name(name("later")), old);
+    }
+
+    #[test]
+    fn inode_stays_until_all_lookups_are_forgotten() {
+        let mut manager = manager();
+        let inode = manager.insert_name(name("file"));
+        manager.looked_up(inode);
+        manager.looked_up(inode);
+
+        manager.forget(inode, 1);
+        assert_eq!(manager.get_name_inode(&name("file")), Some(inode));
+        assert_eq!(
+            manager.get_absolute_path(inode),
+            Some(PathBuf::from("/file"))
+        );
+
+        manager.forget(inode, 1);
+        assert_eq!(manager.get_name_inode(&name("file")), None);
+        assert!(manager.get_absolute_path(inode).is_none());
+        assert!(manager.name_to_inode.is_empty());
+    }
+
+    #[test]
+    fn forget_without_a_lookup_keeps_the_inode() {
+        let mut manager = manager();
+        let inode = manager.insert_name(name("listed"));
+
+        manager.forget(inode, 1);
+
+        assert_eq!(manager.get_name_inode(&name("listed")), Some(inode));
+        assert_ne!(manager.insert_name(name("next")), inode);
+    }
+
+    #[test]
+    fn forget_after_reuse_keeps_an_uncounted_inode() {
+        let mut manager = manager();
+        let old = manager.insert_name(name("old"));
+        manager.looked_up(old);
+        manager.forget(old, 1);
+
+        let reused = manager.insert_name(name("listed"));
+        assert_eq!(reused, old);
+        manager.forget(old, 1);
+
+        assert_eq!(manager.get_name_inode(&name("listed")), Some(reused));
+        assert_ne!(manager.insert_name(name("next")), reused);
+    }
+
+    #[test]
+    fn renamed_inode_keeps_its_number() {
+        let mut manager = manager();
+        let moved = manager.insert_name(name("from"));
+        manager.looked_up(moved);
+        let replaced = manager.insert_name(name("to"));
+        manager.looked_up(replaced);
+
+        manager.rename_name(&name("from"), name("to"));
+        assert_eq!(manager.get_name_inode(&name("to")), Some(moved));
+        assert_eq!(manager.get_name_inode(&name("from")), None);
+        assert_eq!(manager.get_absolute_path(moved), Some(PathBuf::from("/to")));
+        // the replaced file may still be open: its number stays taken
+        let new = manager.insert_name(name("new"));
+        assert_ne!(new, replaced);
+        assert_ne!(new, moved);
+    }
+
+    #[test]
+    fn exchanged_names_swap_inodes() {
+        let mut manager = manager();
+        let a = manager.insert_name(name("a"));
+        let b = manager.insert_name(name("b"));
+
+        manager.exchange_names(&name("a"), &name("b"));
+        assert_eq!(manager.get_name_inode(&name("a")), Some(b));
+        assert_eq!(manager.get_name_inode(&name("b")), Some(a));
+        assert_eq!(manager.get_absolute_path(a), Some(PathBuf::from("/b")));
+        assert_eq!(manager.get_absolute_path(b), Some(PathBuf::from("/a")));
+    }
+
+    /// A directory with the files "f0".."f9", whose listing fails after
+    /// `fail_after` entries if set.
+    struct Listing {
+        fail_after: Option<usize>,
+        /// the listing waits forever after this many entries
+        stall_after: Option<usize>,
+    }
+
+    impl PathFilesystem for Listing {
+        async fn init(&self, _req: Request) -> Result<crate::path::reply::ReplyInit> {
+            unimplemented!()
+        }
+
+        async fn destroy(&self, _req: Request) {}
+
+        #[cfg(feature = "file-lock")]
+        async fn getlk(
+            &self,
+            _req: Request,
+            _path: Option<&OsStr>,
+            _fh: u64,
+            _lock_owner: u64,
+            _start: u64,
+            _end: u64,
+            _type: u32,
+            _pid: u32,
+        ) -> Result<crate::path::reply::ReplyLock> {
+            unimplemented!()
+        }
+
+        #[cfg(feature = "file-lock")]
+        async fn setlk(
+            &self,
+            _req: Request,
+            _path: Option<&OsStr>,
+            _fh: u64,
+            _lock_owner: u64,
+            _start: u64,
+            _end: u64,
+            _type: u32,
+            _pid: u32,
+            _block: bool,
+        ) -> Result<()> {
+            unimplemented!()
+        }
+
+        async fn readdirplus<'a>(
+            &'a self,
+            _req: Request,
+            _parent: &'a OsStr,
+            _fh: u64,
+            _offset: u64,
+            _lock_owner: u64,
+        ) -> Result<
+            crate::path::reply::ReplyDirectoryPlus<
+                impl Stream<Item = Result<crate::path::reply::DirectoryEntryPlus>> + Send + 'a,
+            >,
+        > {
+            let now = std::time::SystemTime::now();
+            let entries = (0..10).map(move |i| {
+                if self.fail_after == Some(i) {
+                    return Err(Errno::from(libc::EIO));
+                }
+
+                Ok(crate::path::reply::DirectoryEntryPlus {
+                    kind: crate::FileType::RegularFile,
+                    name: OsString::from(format!("f{i}")),
+                    offset: i as i64 + 1,
+                    attr: crate::path::reply::FileAttr {
+                        size: 0,
+                        blocks: 0,
+                        atime: now,
+                        mtime: now,
+                        ctime: now,
+                        #[cfg(target_os = "macos")]
+                        crtime: now,
+                        kind: crate::FileType::RegularFile,
+                        perm: 0o644,
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                        #[cfg(target_os = "macos")]
+                        flags: 0,
+                        blksize: 4096,
+                    },
+                    entry_ttl: std::time::Duration::from_secs(1),
+                    attr_ttl: std::time::Duration::from_secs(1),
+                })
+            });
+
+            let stall_after = self.stall_after;
+            let entries = stream::iter(entries)
+                .take(stall_after.unwrap_or(usize::MAX))
+                .chain(stream::iter(stall_after).flat_map(|_| stream::pending()));
+
+            Ok(crate::path::reply::ReplyDirectoryPlus { entries })
+        }
+    }
+
+    /// Run a future that finishes without waiting.
+    fn now<F: std::future::Future>(fut: F) -> F::Output {
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        match std::pin::pin!(fut).poll(&mut cx) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!("the future had to wait"),
+        }
+    }
+
+    fn request() -> Request {
+        Request {
+            unique: 1,
+            uid: 0,
+            gid: 0,
+            pid: 0,
+        }
+    }
+
+    fn counted(bridge: &InodePathBridge<Listing>) -> Vec<String> {
+        let manager = now(bridge.inode_name_manager.read());
+        let mut names = manager
+            .lookups
+            .keys()
+            .map(|inode| {
+                let path = manager.get_absolute_path(*inode).unwrap();
+                path.to_string_lossy().into_owned()
+            })
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn readdirplus_counts_only_entries_that_were_packed() {
+        let bridge = InodePathBridge::new(Listing {
+            fail_after: None,
+            stall_after: None,
+        });
+        let reply = now(bridge.readdirplus(request(), ROOT_INODE, 0, 0, 0)).unwrap();
+        let mut entries = Box::pin(reply.entries);
+
+        // like the raw layer: two entries are packed, the third does not fit
+        for _ in 0..3 {
+            assert!(now(entries.next()).unwrap().is_ok());
+        }
+        drop(entries);
+
+        assert_eq!(counted(&bridge), vec!["/f0", "/f1"]);
+    }
+
+    #[test]
+    fn readdirplus_counts_all_entries_of_a_whole_listing() {
+        let bridge = InodePathBridge::new(Listing {
+            fail_after: None,
+            stall_after: None,
+        });
+        let reply = now(bridge.readdirplus(request(), ROOT_INODE, 0, 0, 0)).unwrap();
+        let entries = now(reply.entries.collect::<Vec<_>>());
+        assert_eq!(entries.len(), 10);
+
+        assert_eq!(counted(&bridge).len(), 10);
+    }
+
+    #[test]
+    fn readdirplus_counts_nothing_after_a_late_error() {
+        let bridge = InodePathBridge::new(Listing {
+            fail_after: Some(5),
+            stall_after: None,
+        });
+        assert!(now(bridge.readdirplus(request(), ROOT_INODE, 0, 0, 0)).is_err());
+
+        assert!(counted(&bridge).is_empty());
+    }
+
+    #[test]
+    fn readdirplus_cancelled_during_the_listing_counts_nothing() {
+        let bridge = InodePathBridge::new(Listing {
+            fail_after: None,
+            stall_after: Some(1),
+        });
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        {
+            let mut call = Box::pin(bridge.readdirplus(request(), ROOT_INODE, 0, 0, 0));
+            // the first entry is counted, then the listing waits
+            assert!(call.as_mut().poll(&mut cx).is_pending());
+        }
+
+        assert!(counted(&bridge).is_empty());
+    }
+
+    #[test]
+    fn refunds_wait_for_a_busy_lock() {
+        let bridge = InodePathBridge::new(Listing {
+            fail_after: None,
+            stall_after: None,
+        });
+        let reply = now(bridge.readdirplus(request(), ROOT_INODE, 0, 0, 0)).unwrap();
+        let manager = bridge.inode_name_manager.clone();
+
+        run(async move {
+            // the lock is busy (like a forget during shutdown) when the reply
+            // is dropped, so the refund runs in the background
+            let busy = manager.write().await;
+            drop(reply);
+            drop(busy);
+
+            for _ in 0..1000 {
+                if manager.read().await.lookups.is_empty() {
+                    return;
+                }
+                pause().await;
+            }
+            panic!("the refund never ran");
+        });
+    }
+
+    #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
+    fn run(fut: impl std::future::Future<Output = ()>) {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
+    async fn pause() {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+
+    #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+    fn run(fut: impl std::future::Future<Output = ()>) {
+        async_global_executor::block_on(fut)
+    }
+
+    #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+    async fn pause() {
+        async_io::Timer::after(std::time::Duration::from_millis(1)).await;
+    }
+
+    #[test]
+    fn root_is_never_forgotten() {
+        let mut manager = manager();
+        manager.forget(ROOT_INODE, 1);
+
+        assert_eq!(
+            manager.get_absolute_path(ROOT_INODE),
+            Some(PathBuf::from("/"))
+        );
+        // the root number is not handed out again
+        assert_ne!(manager.insert_name(name("file")), ROOT_INODE);
+    }
+
+    #[test]
+    fn inode_unknown_to_the_kernel_is_released_on_unlink() {
+        let mut manager = manager();
+        // readdir gives inode numbers without a lookup count
+        let inode = manager.insert_name(name("listed"));
+        manager.remove_name(&name("listed"));
+        assert_eq!(manager.insert_name(name("next")), inode);
+    }
+}
