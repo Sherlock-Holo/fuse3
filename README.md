@@ -27,6 +27,19 @@ https://github.com/Sherlock-Holo/fuse3)
 - `poll`
 - `notify_reply`
 
+## known limits of the path layer
+
+The path layer (`PathFilesystem` on top of the inode bridge) counts kernel
+lookups per inode and keeps an inode number until the kernel forgets it. These
+cases are still open:
+
+- `link` gives the new name its own inode number instead of the number of the
+  linked inode, so the kernel sees two inodes for one file.
+- `PathFilesystem::batch_forget` only gets paths, not the `nlookup` of each
+  inode, so a path file system cannot follow partial forgets.
+- If a reply cannot be delivered to the kernel, the lookup counts taken for it
+  are not given back, so those inode numbers stay taken until unmount.
+
 ## Supported Rust Versions
 
 The minimum supported version is 1.75.

@@ -2928,7 +2928,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 let padding_size = get_padding_size(dir_entry_size);
 
-                if entry_data.len() + dir_entry_size > max_size {
+                // the padding is sent too, so it must fit as well
+                if !dir_entry_fits(entry_data.len(), dir_entry_size, max_size) {
                     break;
                 }
 
@@ -3629,7 +3630,7 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         spawn(debug_span!("fuse_batch_forget"), async move {
             let inodes = forgets
                 .into_iter()
-                .map(|forget_one| forget_one.nodeid)
+                .map(|forget_one| (forget_one.nodeid, forget_one.nlookup))
                 .collect::<Vec<_>>();
 
             debug!("batch_forget unique {} inodes {:?}", request.unique, inodes);
@@ -3773,7 +3774,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
 
                 let padding_size = get_padding_size(dir_entry_size);
 
-                if entry_data.len() + dir_entry_size > max_size {
+                // the padding is sent too, so it must fit as well
+                if !dir_entry_fits(entry_data.len(), dir_entry_size, max_size) {
                     break;
                 }
 
@@ -4045,6 +4047,15 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
             resp_sender.send2(&out_header, write_out.as_bytes()).await;
         });
     }
+}
+
+/// Run `fut` in the background on the runtime of the session.
+pub(crate) fn spawn_task<F>(fut: F)
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    spawn(debug_span!("fuse3_task"), fut)
 }
 
 #[inline]
