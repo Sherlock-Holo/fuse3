@@ -462,8 +462,9 @@ pub trait Filesystem {
         Err(libc::ENOSYS.into())
     }
 
-    /// forget more than one inode. This is a batch version [`forget`][Filesystem::forget]
-    async fn batch_forget(&self, req: Request, inodes: &[Inode]) {}
+    /// forget more than one inode. This is a batch version [`forget`][Filesystem::forget].
+    /// Each item is an inode and its `nlookup`.
+    async fn batch_forget(&self, req: Request, inodes: &[(Inode, u64)]) {}
 
     /// allocate space for an open file. This function ensures that required space is allocated for
     /// specified file.

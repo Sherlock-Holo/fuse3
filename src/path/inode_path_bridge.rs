@@ -1,7 +1,11 @@
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Debug, Formatter};
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
 use async_lock::RwLock;
@@ -22,6 +26,9 @@ use crate::{Inode, Result};
 
 const ROOT_INODE: Inode = 1;
 
+/// `RENAME_EXCHANGE` of rename2 on Linux.
+const RENAME_EXCHANGE: u32 = 1 << 1;
+
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 struct Name {
     parent: Inode,
@@ -38,6 +45,8 @@ impl Name {
 struct InodeNameManager {
     inode_to_names: HashMap<Inode, HashSet<Name>>,
     name_to_inode: HashMap<Name, Inode>,
+    /// How often the kernel looked up each inode and did not forget it yet.
+    lookups: HashMap<Inode, u64>,
     inode_generator: InodeGenerator,
 }
 
@@ -64,12 +73,91 @@ impl InodeNameManager {
 
             if names.is_empty() {
                 self.inode_to_names.remove(&inode);
-                self.inode_generator.release_inode(inode);
+
+                // An unlinked or renamed file may still be open, so the kernel
+                // can still use the inode. Its number is only reused after the
+                // kernel forgot it, otherwise two files would share one inode.
+                if !self.lookups.contains_key(&inode) {
+                    self.inode_generator.release_inode(inode);
+                }
             }
         }
     }
 
-    fn remove_inode(&mut self, inode: Inode) {
+    fn add_name(&mut self, inode: Inode, name: Name) {
+        self.name_to_inode.insert(name.clone(), inode);
+        self.inode_to_names.entry(inode).or_default().insert(name);
+    }
+
+    /// Move the name `old` to `new`. The inode keeps its number, like the kernel
+    /// keeps its inode for the renamed entry. An inode that had the name `new`
+    /// loses it.
+    fn rename_name(&mut self, old: &Name, new: Name) {
+        if *old == new {
+            return;
+        }
+
+        self.remove_name(&new);
+
+        match self.get_name_inode(old) {
+            Some(inode) => {
+                // add the new name first, so the inode never runs out of names
+                self.add_name(inode, new);
+                self.remove_name(old);
+            }
+
+            None => {
+                self.insert_name(new);
+            }
+        }
+    }
+
+    /// Swap the inodes of the names `a` and `b` (rename with `RENAME_EXCHANGE`).
+    fn exchange_names(&mut self, a: &Name, b: &Name) {
+        match (self.get_name_inode(a), self.get_name_inode(b)) {
+            (Some(inode_a), Some(inode_b)) => {
+                for (inode, old, new) in [(inode_a, a, b), (inode_b, b, a)] {
+                    if let Some(names) = self.inode_to_names.get_mut(&inode) {
+                        names.remove(old);
+                        names.insert(new.clone());
+                    }
+                    self.name_to_inode.insert(new.clone(), inode);
+                }
+            }
+
+            _ => {
+                self.remove_name(a);
+                self.remove_name(b);
+            }
+        }
+    }
+
+    /// Count a reply that makes the kernel look up `inode` once more.
+    fn looked_up(&mut self, inode: Inode) {
+        *self.lookups.entry(inode).or_default() += 1;
+    }
+
+    /// The kernel forgot `nlookup` lookups of `inode`. When no lookup is left,
+    /// the inode and its names are removed and its number may be reused.
+    fn forget(&mut self, inode: Inode, nlookup: u64) {
+        // the root lives as long as the session; the kernel may still forget it
+        // while unmounting
+        if inode == ROOT_INODE {
+            return;
+        }
+
+        if let Some(count) = self.lookups.get_mut(&inode) {
+            *count = count.saturating_sub(nlookup);
+
+            if *count > 0 {
+                return;
+            }
+
+            self.lookups.remove(&inode);
+        } else {
+            return;
+        }
+
         if let Some(names) = self.inode_to_names.remove(&inode) {
             names.iter().for_each(|name| {
                 self.name_to_inode.remove(name);
@@ -101,9 +189,75 @@ impl InodeNameManager {
     }
 }
 
+/// The entries of a readdirplus reply, each holding one lookup count.
+///
+/// The raw layer packs entries in order and stops when the reply buffer is
+/// full, so an entry was packed when the next one is asked for or the stream
+/// ends. When the stream is dropped, the entries that were not packed give
+/// their counts back.
+struct CountedEntries {
+    entries: VecDeque<(DirectoryEntryPlus, Option<Inode>)>,
+    /// The count of the entry handed out last, until it is known to be packed.
+    last: Option<Inode>,
+    inode_name_manager: Arc<RwLock<InodeNameManager>>,
+}
+
+impl Stream for CountedEntries {
+    type Item = Result<DirectoryEntryPlus>;
+
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // asking for more means the previous entry was packed
+        self.last = None;
+
+        let next = self.entries.pop_front();
+
+        Poll::Ready(next.map(|(entry, counted)| {
+            self.last = counted;
+
+            Ok(entry)
+        }))
+    }
+}
+
+impl Drop for CountedEntries {
+    fn drop(&mut self) {
+        let unsent = self
+            .last
+            .take()
+            .into_iter()
+            .chain(self.entries.drain(..).filter_map(|(_, counted)| counted))
+            .collect::<Vec<_>>();
+
+        if unsent.is_empty() {
+            return;
+        }
+
+        let forget = move |manager: &mut InodeNameManager| {
+            for inode in &unsent {
+                manager.forget(*inode, 1);
+            }
+        };
+
+        #[cfg(all(not(feature = "async-io-runtime"), feature = "tokio-runtime"))]
+        let manager = self.inode_name_manager.try_write().ok();
+        #[cfg(all(not(feature = "tokio-runtime"), feature = "async-io-runtime"))]
+        let manager = self.inode_name_manager.try_write();
+
+        if let Some(mut manager) = manager {
+            forget(&mut manager);
+        } else {
+            let inode_name_manager = self.inode_name_manager.clone();
+
+            crate::raw::spawn_task(async move {
+                forget(&mut *inode_name_manager.write().await);
+            });
+        }
+    }
+}
+
 pub struct InodePathBridge<FS> {
     path_filesystem: FS,
-    inode_name_manager: RwLock<InodeNameManager>,
+    inode_name_manager: Arc<RwLock<InodeNameManager>>,
 }
 
 impl<FS> InodePathBridge<FS> {
@@ -115,6 +269,7 @@ impl<FS> InodePathBridge<FS> {
         let mut inode_name_manager = InodeNameManager {
             inode_to_names: Default::default(),
             name_to_inode: Default::default(),
+            lookups: Default::default(),
             inode_generator: InodeGenerator::new(),
         };
 
@@ -130,7 +285,7 @@ impl<FS> InodePathBridge<FS> {
 
         Self {
             path_filesystem,
-            inode_name_manager: RwLock::new(inode_name_manager),
+            inode_name_manager: Arc::new(RwLock::new(inode_name_manager)),
         }
     }
 }
@@ -185,6 +340,7 @@ where
                 let inode = inode_name_manager
                     .get_name_inode(&name)
                     .unwrap_or_else(|| inode_name_manager.insert_name(name));
+                inode_name_manager.looked_up(inode);
 
                 Ok(ReplyEntry {
                     ttl: entry.ttl,
@@ -204,15 +360,10 @@ where
             self.path_filesystem
                 .forget(req, path.as_ref(), nlookup)
                 .await;
-
-            if let Some(names) = inode_name_manager.inode_to_names.remove(&inode) {
-                for name in names {
-                    inode_name_manager.name_to_inode.remove(&name);
-                }
-
-                inode_name_manager.inode_generator.release_inode(inode);
-            }
         }
+
+        // Also an inode without names (unlinked while open) is released here.
+        inode_name_manager.forget(inode, nlookup);
     }
 
     async fn getattr(
@@ -298,6 +449,7 @@ where
                 let inode = inode_name_manager
                     .get_name_inode(&name)
                     .unwrap_or_else(|| inode_name_manager.insert_name(name));
+                inode_name_manager.looked_up(inode);
 
                 Ok(ReplyEntry {
                     ttl: entry.ttl,
@@ -341,6 +493,7 @@ where
                 let inode = inode_name_manager
                     .get_name_inode(&name)
                     .unwrap_or_else(|| inode_name_manager.insert_name(name));
+                inode_name_manager.looked_up(inode);
 
                 Ok(ReplyEntry {
                     ttl: entry.ttl,
@@ -384,6 +537,7 @@ where
                 let inode = inode_name_manager
                     .get_name_inode(&name)
                     .unwrap_or_else(|| inode_name_manager.insert_name(name));
+                inode_name_manager.looked_up(inode);
 
                 Ok(ReplyEntry {
                     ttl: entry.ttl,
@@ -482,13 +636,10 @@ where
             )
             .await?;
 
-        inode_name_manager.remove_name(&Name::new(parent, name.to_owned()));
-
-        let new_name = Name::new(new_parent, new_name.to_owned());
-
-        inode_name_manager
-            .get_name_inode(&new_name)
-            .unwrap_or_else(|| inode_name_manager.insert_name(new_name));
+        inode_name_manager.rename_name(
+            &Name::new(parent, name.to_owned()),
+            Name::new(new_parent, new_name.to_owned()),
+        );
 
         Ok(())
     }
@@ -524,6 +675,7 @@ where
         let inode = inode_name_manager
             .get_name_inode(&name)
             .unwrap_or_else(|| inode_name_manager.insert_name(name));
+        inode_name_manager.looked_up(inode);
 
         Ok(ReplyEntry {
             ttl: entry.ttl,
@@ -917,6 +1069,7 @@ where
                 let inode = inode_name_manager
                     .get_name_inode(&name)
                     .unwrap_or_else(|| inode_name_manager.insert_name(name));
+                inode_name_manager.looked_up(inode);
 
                 Ok(ReplyCreated {
                     ttl: created.ttl,
@@ -986,15 +1139,14 @@ where
             .await
     }
 
-    async fn batch_forget(&self, req: Request, inodes: &[u64]) {
+    async fn batch_forget(&self, req: Request, inodes: &[(u64, u64)]) {
         // TODO if kernel forget a dir which has children, it may break
 
         let mut inode_name_manager = self.inode_name_manager.write().await;
 
         let paths = inodes
             .iter()
-            .copied()
-            .filter_map(|inode| inode_name_manager.get_absolute_path(inode))
+            .filter_map(|(inode, _)| inode_name_manager.get_absolute_path(*inode))
             .collect::<Vec<_>>();
         let paths = paths.iter().map(|path| path.as_ref()).collect::<Vec<_>>();
 
@@ -1002,8 +1154,7 @@ where
 
         inodes
             .iter()
-            .copied()
-            .for_each(|inode| inode_name_manager.remove_inode(inode));
+            .for_each(|(inode, nlookup)| inode_name_manager.forget(*inode, *nlookup));
     }
 
     async fn fallocate(
@@ -1042,6 +1193,14 @@ where
         lock_owner: u64,
     ) -> Result<ReplyDirectoryPlus<impl Stream<Item = Result<DirectoryEntryPlus>> + Send + '_>>
     {
+        // The guard owns every count from the first one on, also if this call is
+        // cancelled while the listing runs. It is made before the lock is taken,
+        // so it is dropped after the lock and can give counts back at once.
+        let mut reply = CountedEntries {
+            entries: VecDeque::new(),
+            last: None,
+            inode_name_manager: self.inode_name_manager.clone(),
+        };
         let mut inode_name_manager = self.inode_name_manager.write().await;
         let parent_path = inode_name_manager
             .get_absolute_path(parent)
@@ -1055,11 +1214,23 @@ where
         let entries = children.entries;
         futures_util::pin_mut!(entries);
 
-        let entries_size = entries.size_hint().1.unwrap_or(0);
-        let mut entry_list = Vec::with_capacity(entries_size);
+        reply.entries.reserve(entries.size_hint().1.unwrap_or(0));
 
         while let Some(entry) = entries.next().await {
-            let entry = entry?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(err) => {
+                    // nothing reaches the kernel: give back the counts taken so far
+                    for (_, counted) in reply.entries.drain(..) {
+                        if let Some(inode) = counted {
+                            inode_name_manager.forget(inode, 1);
+                        }
+                    }
+
+                    return Err(err);
+                }
+            };
+            let mut counted = None;
 
             let inode = if entry.name == OsStr::new(".") {
                 parent
@@ -1075,26 +1246,36 @@ where
             } else {
                 let name = Name::new(parent, entry.name.clone());
 
-                inode_name_manager
+                let inode = inode_name_manager
                     .get_name_inode(&name)
-                    .unwrap_or_else(|| inode_name_manager.insert_name(name))
+                    .unwrap_or_else(|| inode_name_manager.insert_name(name));
+                // The kernel counts a lookup for every entry it receives except
+                // "." and "..". The count is taken now, so the number stays
+                // taken while the reply is built, and given back for entries
+                // that are not sent.
+                inode_name_manager.looked_up(inode);
+                counted = Some(inode);
+                inode
             };
 
-            entry_list.push(Ok(DirectoryEntryPlus {
-                inode,
-                generation: 0,
-                kind: entry.kind,
-                name: entry.name,
-                offset: entry.offset,
-                attr: (inode, entry.attr).into(),
-                entry_ttl: entry.entry_ttl,
-                attr_ttl: entry.attr_ttl,
-            }));
+            reply.entries.push_back((
+                DirectoryEntryPlus {
+                    inode,
+                    generation: 0,
+                    kind: entry.kind,
+                    name: entry.name,
+                    offset: entry.offset,
+                    attr: (inode, entry.attr).into(),
+                    entry_ttl: entry.entry_ttl,
+                    attr_ttl: entry.attr_ttl,
+                },
+                counted,
+            ));
         }
 
-        Ok(ReplyDirectoryPlus {
-            entries: stream::iter(entry_list),
-        })
+        drop(inode_name_manager);
+
+        Ok(ReplyDirectoryPlus { entries: reply })
     }
 
     async fn rename2(
@@ -1127,13 +1308,14 @@ where
             )
             .await?;
 
-        inode_name_manager.remove_name(&Name::new(parent, name.to_owned()));
-
+        let old_name = Name::new(parent, name.to_owned());
         let new_name = Name::new(new_parent, new_name.to_owned());
 
-        inode_name_manager
-            .get_name_inode(&new_name)
-            .unwrap_or_else(|| inode_name_manager.insert_name(new_name));
+        if flags & RENAME_EXCHANGE != 0 {
+            inode_name_manager.exchange_names(&old_name, &new_name);
+        } else {
+            inode_name_manager.rename_name(&old_name, new_name);
+        }
 
         Ok(())
     }
