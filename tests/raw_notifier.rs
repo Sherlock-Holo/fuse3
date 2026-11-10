@@ -5,8 +5,6 @@
     not(feature = "async-io-runtime"),
     feature = "unprivileged"
 ))]
-use bytes::Bytes;
-use fuse3::{FileType, MountOptions, Result, raw::prelude::*};
 use std::{
     ffi::OsStr,
     io::{Read, Seek, SeekFrom},
@@ -17,6 +15,9 @@ use std::{
     },
     time::{Duration, UNIX_EPOCH},
 };
+
+use bytes::Bytes;
+use fuse3::{FileType, MountOptions, Result, raw::prelude::*};
 struct State {
     content: Mutex<Vec<u8>>,
     notifier: Mutex<Option<Notify>>,
