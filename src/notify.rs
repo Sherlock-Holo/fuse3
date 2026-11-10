@@ -1,6 +1,8 @@
 //! notify kernel.
 
 use std::ffi::OsString;
+use std::io::IoSlice;
+use std::os::unix::ffi::OsStrExt;
 use std::sync::Arc;
 
 use bytes::{Buf, Bytes};
@@ -27,8 +29,8 @@ impl Notify {
         Self { sender }
     }
 
-    /// notify kernel there are something need to handle. If notify failed, the `kind` will be
-    /// return in `Err`.
+    /// notify kernel there are something need to handle. If notify failed, the error will be
+    /// logged and reported through the response sender.
     async fn notify(&mut self, kind: NotifyKind) {
         match &kind {
             NotifyKind::Wakeup { kh } => {
@@ -63,7 +65,8 @@ impl Notify {
 
             NotifyKind::InvalidEntry { parent, name } => {
                 let out_header = fuse_out_header {
-                    len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE) as u32,
+                    len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_INVAL_ENTRY_OUT_SIZE + name.len() + 1)
+                        as u32,
                     error: fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY as i32,
                     unique: 0,
                 };
@@ -74,9 +77,13 @@ impl Notify {
                     _padding: 0,
                 };
 
-                // TODO should I add null at the end?
                 self.sender
-                    .send2(&out_header, invalid_entry_out.as_bytes())
+                    .send(&[
+                        IoSlice::new(out_header.as_bytes()),
+                        IoSlice::new(invalid_entry_out.as_bytes()),
+                        IoSlice::new(name.as_bytes()),
+                        IoSlice::new(b"\0"),
+                    ])
                     .await;
             }
 
@@ -86,7 +93,8 @@ impl Notify {
                 name,
             } => {
                 let out_header = fuse_out_header {
-                    len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_DELETE_OUT_SIZE) as u32,
+                    len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_DELETE_OUT_SIZE + name.len() + 1)
+                        as u32,
                     error: fuse_notify_code::FUSE_NOTIFY_DELETE as i32,
                     unique: 0,
                 };
@@ -98,8 +106,14 @@ impl Notify {
                     _padding: 0,
                 };
 
-                // TODO should I add null at the end?
-                self.sender.send2(&out_header, delete_out.as_bytes()).await;
+                self.sender
+                    .send(&[
+                        IoSlice::new(out_header.as_bytes()),
+                        IoSlice::new(delete_out.as_bytes()),
+                        IoSlice::new(name.as_bytes()),
+                        IoSlice::new(b"\0"),
+                    ])
+                    .await;
             }
 
             NotifyKind::Store {
@@ -108,7 +122,7 @@ impl Notify {
                 data,
             } => {
                 let out_header = fuse_out_header {
-                    len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_STORE_OUT_SIZE) as u32,
+                    len: (FUSE_OUT_HEADER_SIZE + FUSE_NOTIFY_STORE_OUT_SIZE + data.len()) as u32,
                     error: fuse_notify_code::FUSE_NOTIFY_STORE as i32,
                     unique: 0,
                 };
@@ -120,7 +134,9 @@ impl Notify {
                     _padding: 0,
                 };
 
-                self.sender.send2(&out_header, store_out.as_bytes()).await;
+                self.sender
+                    .send3(&out_header, store_out.as_bytes(), data)
+                    .await;
             }
 
             NotifyKind::Retrieve {
