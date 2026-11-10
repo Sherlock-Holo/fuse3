@@ -9,6 +9,8 @@ use std::{
     ffi::OsStr,
     io::{Read, Seek, SeekFrom},
     num::NonZeroU32,
+    os::unix::fs::MetadataExt,
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -20,6 +22,8 @@ use bytes::Bytes;
 use fuse3::{FileType, MountOptions, Result, raw::prelude::*};
 struct State {
     content: Mutex<Vec<u8>>,
+    entry: Mutex<Option<u64>>,
+    lookups: AtomicUsize,
     notifier: Mutex<Option<Notify>>,
     initialized: AtomicUsize,
     callbacks: AtomicUsize,
@@ -89,17 +93,19 @@ impl Filesystem for Probe {
         Err(libc::ENOSYS.into())
     }
     async fn lookup(&self, _: Request, parent: u64, name: &OsStr) -> Result<ReplyEntry> {
+        self.0.lookups.fetch_add(1, Ordering::SeqCst);
         if parent != 1 || name != "file" {
             return Err(libc::ENOENT.into());
         }
+        let ino = self.0.entry.lock().unwrap().ok_or(libc::ENOENT)?;
         Ok(ReplyEntry {
             ttl: Duration::from_secs(60),
-            attr: attr(2),
+            attr: attr(ino),
             generation: 0,
         })
     }
     async fn getattr(&self, _: Request, ino: u64, _: Option<u64>, _: u32) -> Result<ReplyAttr> {
-        if ino != 1 && ino != 2 {
+        if ino != 1 && ino != 2 && ino != 3 {
             return Err(libc::ENOENT.into());
         }
         Ok(ReplyAttr {
@@ -138,9 +144,119 @@ impl Filesystem for Probe {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires Linux /dev/fuse and fusermount3; run explicitly with --ignored"]
 async fn invalidate_cached_data_without_poll() {
+    with_mounted_probe(|root, state| {
+        let mut file = std::fs::File::open(root.join("file")).unwrap();
+        let mut bytes = [0; 6];
+        file.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"before");
+        *state.content.lock().unwrap() = b"after!".to_vec();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.read_exact(&mut bytes).unwrap();
+        assert_eq!(
+            &bytes, b"before",
+            "the page cache must be demonstrated before invalidation"
+        );
+        // No poll implementation and no lock held while notifying the kernel.
+        let notify = state.notifier.lock().unwrap().clone().unwrap();
+        tokio::runtime::Handle::current().block_on(notify.invalid_inode(2, 0, 0));
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"after!");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Linux /dev/fuse and fusermount3; run explicitly with --ignored"]
+async fn store_cached_data_without_poll() {
+    with_mounted_probe(|root, state| {
+        let mut file = std::fs::File::open(root.join("file")).unwrap();
+        let mut bytes = [0; 6];
+        file.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"before");
+
+        let notify = state.notifier.lock().unwrap().clone().unwrap();
+        tokio::runtime::Handle::current().block_on(notify.store(
+            2,
+            2,
+            Bytes::from_static(b"\0\xff!"),
+        ));
+
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"be\0\xff!e");
+        assert_eq!(&*state.content.lock().unwrap(), b"before");
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Linux /dev/fuse and fusermount3; run explicitly with --ignored"]
+async fn invalidate_cached_entry_without_poll() {
+    with_mounted_probe(|root, state| {
+        let path = root.join("file");
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), 2);
+        let lookups = state.lookups.load(Ordering::SeqCst);
+        assert!(lookups > 0, "the initial lookup must reach the filesystem");
+
+        *state.entry.lock().unwrap() = Some(3);
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), 2);
+        assert_eq!(
+            state.lookups.load(Ordering::SeqCst),
+            lookups,
+            "the old directory entry must be cached before invalidation"
+        );
+
+        let notify = state.notifier.lock().unwrap().clone().unwrap();
+        tokio::runtime::Handle::current().block_on(notify.invalid_entry(1, "file".into()));
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), 3);
+        assert!(
+            state.lookups.load(Ordering::SeqCst) > lookups,
+            "invalidating the entry must force a fresh lookup"
+        );
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Linux /dev/fuse and fusermount3; run explicitly with --ignored"]
+async fn delete_cached_entry_without_poll() {
+    with_mounted_probe(|root, state| {
+        let path = root.join("file");
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), 2);
+        let lookups = state.lookups.load(Ordering::SeqCst);
+        assert!(lookups > 0, "the initial lookup must reach the filesystem");
+
+        *state.entry.lock().unwrap() = None;
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), 2);
+        assert_eq!(
+            state.lookups.load(Ordering::SeqCst),
+            lookups,
+            "the deleted directory entry must still be cached before notification"
+        );
+
+        let notify = state.notifier.lock().unwrap().clone().unwrap();
+        tokio::runtime::Handle::current().block_on(notify.delete(1, 2, "file".into()));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap_err().raw_os_error(),
+            Some(libc::ENOENT)
+        );
+        assert!(
+            state.lookups.load(Ordering::SeqCst) > lookups,
+            "deleting the entry must force a fresh lookup"
+        );
+    })
+    .await;
+}
+
+// Keep blocking filesystem calls off the runtime workers serving FUSE requests,
+// and unmount even when an assertion in the probe fails.
+async fn with_mounted_probe(probe: impl FnOnce(PathBuf, Arc<State>) + Send + 'static) {
     let directory = tempfile::tempdir().unwrap();
     let state = Arc::new(State {
         content: Mutex::new(b"before".to_vec()),
+        entry: Mutex::new(Some(2)),
+        lookups: AtomicUsize::new(0),
         notifier: Mutex::new(None),
         initialized: AtomicUsize::new(0),
         callbacks: AtomicUsize::new(0),
@@ -156,28 +272,7 @@ async fn invalidate_cached_data_without_poll() {
     let result = if initialized.is_ok() {
         let root = directory.path().to_path_buf();
         let state = state.clone();
-        Some(
-            tokio::task::spawn_blocking(move || {
-                let mut file = std::fs::File::open(root.join("file")).unwrap();
-                let mut bytes = [0; 6];
-                file.read_exact(&mut bytes).unwrap();
-                assert_eq!(&bytes, b"before");
-                *state.content.lock().unwrap() = b"after!".to_vec();
-                file.seek(SeekFrom::Start(0)).unwrap();
-                file.read_exact(&mut bytes).unwrap();
-                assert_eq!(
-                    &bytes, b"before",
-                    "the page cache must be demonstrated before invalidation"
-                );
-                // No poll implementation and no lock held while notifying the kernel.
-                let notify = state.notifier.lock().unwrap().clone().unwrap();
-                tokio::runtime::Handle::current().block_on(notify.invalid_inode(2, 0, 0));
-                file.seek(SeekFrom::Start(0)).unwrap();
-                file.read_exact(&mut bytes).unwrap();
-                assert_eq!(&bytes, b"after!");
-            })
-            .await,
-        )
+        Some(tokio::task::spawn_blocking(move || probe(root, state)).await)
     } else {
         None
     };
