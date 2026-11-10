@@ -5,6 +5,7 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
+use std::io::IoSlice;
 use std::io::Result as IoResult;
 use std::num::NonZeroU32;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -114,56 +115,28 @@ pub(crate) struct ResponseSender {
 impl ResponseSender {
     /// send response with only header, no data
     pub(crate) async fn send1(&self, header: &fuse_out_header) {
-        if let Err(err) = self
-            .connection
-            .write_vectored::<_, &[u8]>(header.as_bytes(), None)
-            .await
-            .1
-        {
-            if err.kind() == ErrorKind::NotFound {
-                warn!(
-                    "may reply interrupted fuse request, ignore this error {}",
-                    err
-                );
-            } else {
-                error!("reply fuse failed {}", err);
-                self.send_failed.notify();
-            }
-        }
+        self.send(&[IoSlice::new(header.as_bytes())]).await;
     }
 
     /// send response with header and data
     pub(crate) async fn send2(&self, header: &fuse_out_header, data: &[u8]) {
-        if let Err(err) = self
-            .connection
-            .write_vectored::<_, &[u8]>(header.as_bytes(), Some(data))
-            .await
-            .1
-        {
-            if err.kind() == ErrorKind::NotFound {
-                warn!(
-                    "may reply interrupted fuse request, ignore this error {}",
-                    err
-                );
-            } else {
-                error!("reply fuse failed {}", err);
-                self.send_failed.notify();
-            }
-        }
+        self.send(&[IoSlice::new(header.as_bytes()), IoSlice::new(data)])
+            .await;
     }
 
     /// send response with header and two parts of data.
     pub(crate) async fn send3(&self, header: &fuse_out_header, d1: &[u8], d2: &[u8]) {
-        // TODO: Implement a write_vectored in FuseConnection to avoid this copy
-        let mut data = Vec::with_capacity(d1.len() + d2.len());
-        data.extend_from_slice(d1);
-        data.extend_from_slice(d2);
-        if let Err(err) = self
-            .connection
-            .write_vectored::<_, &[u8]>(header.as_bytes(), Some(&data))
-            .await
-            .1
-        {
+        self.send(&[
+            IoSlice::new(header.as_bytes()),
+            IoSlice::new(d1),
+            IoSlice::new(d2),
+        ])
+        .await;
+    }
+
+    /// Send a response or notification from borrowed buffers in a single write.
+    pub(crate) async fn send(&self, bufs: &[IoSlice<'_>]) {
+        if let Err(err) = self.connection.write_vectored(bufs).await {
             if err.kind() == ErrorKind::NotFound {
                 warn!(
                     "may reply interrupted fuse request, ignore this error {}",
@@ -1064,9 +1037,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 };
 
                 if let Err(err) = fuse_connection
-                    .write_vectored::<_, &[u8]>(init_out_header.as_bytes(), None)
+                    .write_vectored(&[IoSlice::new(init_out_header.as_bytes())])
                     .await
-                    .1
                 {
                     error!("write error init out data to /dev/fuse failed {}", err);
                 }
@@ -1274,9 +1246,8 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
                 };
 
                 if let Err(err) = fuse_connection
-                    .write_vectored::<_, &[u8]>(init_out_header.as_bytes(), None)
+                    .write_vectored(&[IoSlice::new(init_out_header.as_bytes())])
                     .await
-                    .1
                 {
                     error!("write error init out data to /dev/fuse failed {}", err);
                 }
@@ -1312,9 +1283,11 @@ impl<FS: Filesystem + Send + Sync + 'static> Session<FS> {
         };
 
         if let Err(err) = fuse_connection
-            .write_vectored(out_header.as_bytes(), Some(init_out.as_bytes()))
+            .write_vectored(&[
+                IoSlice::new(out_header.as_bytes()),
+                IoSlice::new(init_out.as_bytes()),
+            ])
             .await
-            .1
         {
             error!("write init out data to /dev/fuse failed {}", err);
 

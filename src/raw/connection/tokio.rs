@@ -10,7 +10,7 @@ use std::io;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io::Write;
 use std::io::{IoSlice, IoSliceMut};
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
     target_os = "freebsd",
@@ -177,23 +177,15 @@ impl FuseConnection {
         }
     }
 
-    pub async fn write_vectored<T: Deref<Target = [u8]> + Send, U: Deref<Target = [u8]> + Send>(
-        &self,
-        data: T,
-        body_extend_data: Option<U>,
-    ) -> CompleteIoResult<(T, Option<U>), usize> {
+    pub async fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         match &self.mode {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
-            ConnectionMode::Block(connection) => {
-                connection.write_vectored(data, body_extend_data).await
-            }
+            ConnectionMode::Block(connection) => connection.write_vectored(bufs).await,
             #[cfg(any(
                 all(target_os = "linux", feature = "unprivileged"),
                 target_os = "freebsd",
             ))]
-            ConnectionMode::NonBlock(connection) => {
-                connection.write_vectored(data, body_extend_data).await
-            }
+            ConnectionMode::NonBlock(connection) => connection.write_vectored(bufs).await,
         }
     }
 }
@@ -371,28 +363,9 @@ impl BlockFuseConnection {
         ((header_buf, data_buf), res)
     }
 
-    async fn write_vectored<T: Deref<Target = [u8]> + Send, U: Deref<Target = [u8]> + Send>(
-        &self,
-        data: T,
-        body_extend_data: Option<U>,
-    ) -> CompleteIoResult<(T, Option<U>), usize> {
+    async fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         let _guard = self.write.lock().await;
-
-        let res = {
-            let body_extend_data = body_extend_data.as_deref();
-
-            match body_extend_data {
-                None => (&self.file).write_vectored(&[IoSlice::new(data.deref())]),
-
-                Some(body_extend_data) => (&self.file)
-                    .write_vectored(&[IoSlice::new(data.deref()), IoSlice::new(body_extend_data)]),
-            }
-        };
-
-        match res {
-            Err(err) => ((data, body_extend_data), Err(err)),
-            Ok(n) => ((data, body_extend_data), Ok(n)),
-        }
+        (&self.file).write_vectored(bufs)
     }
 }
 
@@ -568,30 +541,9 @@ impl NonBlockFuseConnection {
         }
     }
 
-    async fn write_vectored<T: Deref<Target = [u8]> + Send, U: Deref<Target = [u8]> + Send>(
-        &self,
-        data: T,
-        body_extend_data: Option<U>,
-    ) -> CompleteIoResult<(T, Option<U>), usize> {
+    async fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
         let _guard = self.write.lock().await;
-
-        let res = {
-            let body_extend_data = body_extend_data.as_deref();
-
-            match body_extend_data {
-                None => uio::writev(&self.fd, &[IoSlice::new(data.deref())]),
-
-                Some(body_extend_data) => uio::writev(
-                    &self.fd,
-                    &[IoSlice::new(data.deref()), IoSlice::new(body_extend_data)],
-                ),
-            }
-        };
-
-        match res {
-            Err(err) => ((data, body_extend_data), Err(err.into())),
-            Ok(n) => ((data, body_extend_data), Ok(n)),
-        }
+        uio::writev(&self.fd, bufs).map_err(Into::into)
     }
 }
 

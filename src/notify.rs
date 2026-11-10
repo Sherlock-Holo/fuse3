@@ -1,6 +1,7 @@
 //! notify kernel.
 
 use std::ffi::OsString;
+use std::io::IoSlice;
 use std::os::unix::ffi::OsStrExt;
 use std::sync::Arc;
 
@@ -76,10 +77,13 @@ impl Notify {
                     _padding: 0,
                 };
 
-                let mut name = name.as_bytes().to_vec();
-                name.push(0);
                 self.sender
-                    .send3(&out_header, invalid_entry_out.as_bytes(), &name)
+                    .send(&[
+                        IoSlice::new(out_header.as_bytes()),
+                        IoSlice::new(invalid_entry_out.as_bytes()),
+                        IoSlice::new(name.as_bytes()),
+                        IoSlice::new(b"\0"),
+                    ])
                     .await;
             }
 
@@ -102,10 +106,13 @@ impl Notify {
                     _padding: 0,
                 };
 
-                let mut name = name.as_bytes().to_vec();
-                name.push(0);
                 self.sender
-                    .send3(&out_header, delete_out.as_bytes(), &name)
+                    .send(&[
+                        IoSlice::new(out_header.as_bytes()),
+                        IoSlice::new(delete_out.as_bytes()),
+                        IoSlice::new(name.as_bytes()),
+                        IoSlice::new(b"\0"),
+                    ])
                     .await;
             }
 
