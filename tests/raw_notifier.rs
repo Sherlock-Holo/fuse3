@@ -13,7 +13,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, UNIX_EPOCH},
 };
@@ -28,6 +28,9 @@ struct State {
     initialized: AtomicUsize,
     callbacks: AtomicUsize,
     ready: tokio::sync::Notify,
+    hold_unlink: AtomicBool,
+    unlink_started: tokio::sync::Notify,
+    unlink_release: tokio::sync::Notify,
 }
 struct Probe(Arc<State>);
 fn attr(ino: u64) -> FileAttr {
@@ -115,6 +118,17 @@ impl Filesystem for Probe {
     }
     async fn open(&self, _: Request, _: u64, _: u32) -> Result<ReplyOpen> {
         Ok(ReplyOpen { fh: 1, flags: 0 })
+    }
+    async fn unlink(&self, _: Request, parent: u64, name: &OsStr) -> Result<()> {
+        if parent != 1 || name != "file" {
+            return Err(libc::ENOENT.into());
+        }
+        if self.0.hold_unlink.load(Ordering::SeqCst) {
+            self.0.unlink_started.notify_one();
+            self.0.unlink_release.notified().await;
+        }
+        self.0.entry.lock().unwrap().take().ok_or(libc::ENOENT)?;
+        Ok(())
     }
     async fn read(
         &self,
@@ -249,6 +263,47 @@ async fn delete_cached_entry_without_poll() {
     .await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Linux /dev/fuse and fusermount3; run explicitly with --ignored"]
+async fn invalid_entry_does_not_block_unlink_reply() {
+    with_mounted_probe(|root, state| {
+        state.hold_unlink.store(true, Ordering::SeqCst);
+        let path = root.join("file");
+        let handle = tokio::runtime::Handle::current();
+        let notify = state.notifier.lock().unwrap().clone().unwrap();
+
+        std::thread::scope(|scope| {
+            // Hold Probe::unlink open so the kernel keeps the parent directory's
+            // inode lock while waiting for the FUSE reply.
+            let unlink = scope.spawn(|| std::fs::remove_file(&path));
+            handle
+                .block_on(tokio::time::timeout(
+                    Duration::from_secs(5),
+                    state.unlink_started.notified(),
+                ))
+                .expect("unlink must reach the filesystem");
+
+            // Run invalid_entry on its own thread so writev blocks on that
+            // kernel directory lock without starving Tokio workers.
+            let notification = scope.spawn(|| {
+                handle.block_on(notify.invalid_entry(1, "file".into()));
+            });
+            std::thread::sleep(Duration::from_millis(50));
+            assert!(
+                !notification.is_finished(),
+                "invalid_entry finished while unlink still held the directory lock"
+            );
+
+            // Probe::unlink's reply must still write to /dev/fuse, releasing the
+            // kernel directory lock and unblocking the notification.
+            state.unlink_release.notify_one();
+            unlink.join().unwrap().unwrap();
+            notification.join().unwrap();
+        });
+    })
+    .await;
+}
+
 // Keep blocking filesystem calls off the runtime workers serving FUSE requests,
 // and unmount even when an assertion in the probe fails.
 async fn with_mounted_probe(probe: impl FnOnce(PathBuf, Arc<State>) + Send + 'static) {
@@ -261,6 +316,9 @@ async fn with_mounted_probe(probe: impl FnOnce(PathBuf, Arc<State>) + Send + 'st
         initialized: AtomicUsize::new(0),
         callbacks: AtomicUsize::new(0),
         ready: tokio::sync::Notify::new(),
+        hold_unlink: AtomicBool::new(false),
+        unlink_started: tokio::sync::Notify::new(),
+        unlink_release: tokio::sync::Notify::new(),
     });
     let mut options = MountOptions::default();
     options.fs_name("fuse3-notifier-test").write_back(false);
