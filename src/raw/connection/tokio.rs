@@ -35,7 +35,6 @@ use std::pin::pin;
 use std::sync::Arc;
 
 use async_notify::Notify;
-use futures_util::lock::Mutex;
 use futures_util::{FutureExt, select};
 #[cfg(all(target_os = "linux", feature = "unprivileged"))]
 use nix::fcntl::{FcntlArg, OFlag};
@@ -205,7 +204,6 @@ enum ConnectionMode {
 #[derive(Debug)]
 struct BlockFuseConnection {
     file: File,
-    read: Mutex<()>,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -216,10 +214,7 @@ impl BlockFuseConnection {
 
         let file = OpenOptions::new().write(true).read(true).open(DEV_FUSE)?;
 
-        Ok(Self {
-            file,
-            read: Mutex::new(()),
-        })
+        Ok(Self { file })
     }
 
     #[cfg(target_os = "macos")]
@@ -322,10 +317,7 @@ impl BlockFuseConnection {
         .unwrap()?;
 
         let file = unsafe { File::from_raw_fd(fd) };
-        Ok(Self {
-            file,
-            read: Mutex::new(()),
-        })
+        Ok(Self { file })
     }
 
     async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
@@ -337,7 +329,6 @@ impl BlockFuseConnection {
         use std::mem::ManuallyDrop;
         use std::os::fd::{AsRawFd, FromRawFd};
 
-        let _guard = self.read.lock().await;
         let fd = self.file.as_raw_fd();
 
         let ((header_buf, data_buf), res) = task::spawn_blocking(move || {
@@ -372,7 +363,6 @@ impl BlockFuseConnection {
 #[derive(Debug)]
 struct NonBlockFuseConnection {
     fd: AsyncFd<OwnedFd>,
-    read: Mutex<()>,
 }
 
 #[cfg(any(
@@ -401,10 +391,7 @@ impl NonBlockFuseConnection {
             Ok(file) => {
                 // Always safe when supplied with an OwnedFd
                 let fd = unsafe { AsyncFd::register(OwnedFd::from(file)) }?;
-                Ok(Self {
-                    fd,
-                    read: Mutex::new(()),
-                })
+                Ok(Self { fd })
             }
         }
     }
@@ -489,10 +476,7 @@ impl NonBlockFuseConnection {
 
         Self::set_fd_non_blocking(fd.as_fd())?;
 
-        Ok(Self {
-            fd,
-            read: Mutex::new(()),
-        })
+        Ok(Self { fd })
     }
 
     #[cfg(all(target_os = "linux", feature = "unprivileged"))]
@@ -515,8 +499,6 @@ impl NonBlockFuseConnection {
         mut header_buf: Vec<u8>,
         mut data_buf: T,
     ) -> CompleteIoResult<(Vec<u8>, T), usize> {
-        let _guard = self.read.lock().await;
-
         loop {
             let mut read_guard = match self.fd.ready(Interest::READABLE | Interest::ERROR).await {
                 Err(err) => return ((header_buf, data_buf), Err(err)),

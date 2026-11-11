@@ -36,7 +36,6 @@ use std::{ffi::OsString, path::Path};
     target_os = "freebsd"
 ))]
 use async_io::Async;
-use async_lock::Mutex;
 use async_notify::Notify;
 #[cfg(any(
     all(target_os = "linux", feature = "unprivileged"),
@@ -193,7 +192,6 @@ enum ConnectionMode {
 #[derive(Debug)]
 struct BlockFuseConnection {
     file: File,
-    read: Mutex<()>,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -204,10 +202,7 @@ impl BlockFuseConnection {
 
         let file = OpenOptions::new().write(true).read(true).open(DEV_FUSE)?;
 
-        Ok(Self {
-            file,
-            read: Mutex::new(()),
-        })
+        Ok(Self { file })
     }
 
     #[cfg(target_os = "macos")]
@@ -309,10 +304,7 @@ impl BlockFuseConnection {
         // Safety: fd is valid
         let file = unsafe { File::from_raw_fd(fd) };
 
-        Ok(Self {
-            file,
-            read: Mutex::new(()),
-        })
+        Ok(Self { file })
     }
 
     async fn read_vectored<T: DerefMut<Target = [u8]> + Send + 'static>(
@@ -324,7 +316,6 @@ impl BlockFuseConnection {
         use std::mem::ManuallyDrop;
         use std::os::fd::{AsRawFd, FromRawFd};
 
-        let _guard = self.read.lock().await;
         let fd = self.file.as_raw_fd();
 
         let ((header_buf, data_buf), res) = async_global_executor::spawn_blocking(move || {
@@ -358,7 +349,6 @@ impl BlockFuseConnection {
 #[derive(Debug)]
 struct NonBlockFuseConnection {
     fd: Async<OwnedFd>,
-    read: Mutex<()>,
 }
 
 #[cfg(any(
@@ -374,7 +364,6 @@ impl NonBlockFuseConnection {
 
         Ok(Self {
             fd: Async::new(file.into())?,
-            read: Mutex::new(()),
         })
     }
 
@@ -455,7 +444,6 @@ impl NonBlockFuseConnection {
 
         Ok(Self {
             fd: Async::new(fd)?,
-            read: Mutex::new(()),
         })
     }
 
@@ -464,8 +452,6 @@ impl NonBlockFuseConnection {
         mut header_buf: Vec<u8>,
         mut data_buf: T,
     ) -> CompleteIoResult<(Vec<u8>, T), usize> {
-        let _guard = self.read.lock().await;
-
         let res = self
             .fd
             .read_with(|fd| {
