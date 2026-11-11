@@ -206,7 +206,6 @@ enum ConnectionMode {
 struct BlockFuseConnection {
     file: File,
     read: Mutex<()>,
-    write: Mutex<()>,
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -220,7 +219,6 @@ impl BlockFuseConnection {
         Ok(Self {
             file,
             read: Mutex::new(()),
-            write: Mutex::new(()),
         })
     }
 
@@ -327,7 +325,6 @@ impl BlockFuseConnection {
         Ok(Self {
             file,
             read: Mutex::new(()),
-            write: Mutex::new(()),
         })
     }
 
@@ -364,7 +361,6 @@ impl BlockFuseConnection {
     }
 
     async fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        let _guard = self.write.lock().await;
         (&self.file).write_vectored(bufs)
     }
 }
@@ -377,7 +373,6 @@ impl BlockFuseConnection {
 struct NonBlockFuseConnection {
     fd: AsyncFd<OwnedFd>,
     read: Mutex<()>,
-    write: Mutex<()>,
 }
 
 #[cfg(any(
@@ -409,9 +404,8 @@ impl NonBlockFuseConnection {
                 Ok(Self {
                     fd,
                     read: Mutex::new(()),
-                    write: Mutex::new(()),
                 })
-            },
+            }
         }
     }
 
@@ -498,7 +492,6 @@ impl NonBlockFuseConnection {
         Ok(Self {
             fd,
             read: Mutex::new(()),
-            write: Mutex::new(()),
         })
     }
 
@@ -548,7 +541,6 @@ impl NonBlockFuseConnection {
     }
 
     async fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
-        let _guard = self.write.lock().await;
         uio::writev(&self.fd, bufs).map_err(Into::into)
     }
 }
