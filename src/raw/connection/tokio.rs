@@ -403,11 +403,15 @@ impl NonBlockFuseConnection {
                 warn!("Cannot open {}.  err: {:?}", DEV_FUSE, e);
                 Err(e)
             }
-            Ok(file) => Ok(Self {
-                fd: AsyncFd::new(file.into())?,
-                read: Mutex::new(()),
-                write: Mutex::new(()),
-            }),
+            Ok(file) => {
+                // Always safe when supplied with an OwnedFd
+                let fd = unsafe { AsyncFd::register(OwnedFd::from(file)) }?;
+                Ok(Self {
+                    fd,
+                    read: Mutex::new(()),
+                    write: Mutex::new(()),
+                })
+            },
         }
     }
 
@@ -485,12 +489,14 @@ impl NonBlockFuseConnection {
         .unwrap()?;
 
         // Safety: fd is valid
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let ofd = unsafe { OwnedFd::from_raw_fd(fd) };
+        // Always safe when supplied with an OwnedFd
+        let fd = unsafe { AsyncFd::register(ofd) }?;
 
         Self::set_fd_non_blocking(fd.as_fd())?;
 
         Ok(Self {
-            fd: AsyncFd::new(fd)?,
+            fd,
             read: Mutex::new(()),
             write: Mutex::new(()),
         })
