@@ -1,7 +1,7 @@
 //! path based
 //!
-//! it is recommend to use path based [`PathFilesystem`] first, [`PathFilesystem`] is more simple
-//! than inode based [`Filesystem`][crate::raw::Filesystem]. However if you want to control the
+//! it is recommend to use the path based [`PathFilesystem`] first, which is more simple
+//! than the inode based [`Filesystem`][crate::raw::Filesystem]. However if you want to control the
 //! inode or do the path<->inode map on yourself, use [`Filesystem`][crate::raw::Filesystem].
 
 pub use path_filesystem::PathFilesystem;
