@@ -308,7 +308,7 @@ pub trait PathFilesystem {
         req: Request,
         path: &'a OsStr,
         fh: u64,
-        offset: i64,
+        offset: u64,
     ) -> Result<ReplyDirectory<impl Stream<Item = Result<DirectoryEntry>> + Send + 'a>> {
         Err::<ReplyDirectory<Empty<_>>, _>(libc::ENOSYS.into())
     }
